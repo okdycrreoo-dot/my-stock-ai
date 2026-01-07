@@ -5,3 +5,6 @@ numpy
 tensorflow-cpu>=2.16.1
 scikit-learn
 yfinance
+gspread
+google-auth
+plotly
