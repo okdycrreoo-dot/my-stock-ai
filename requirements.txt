@@ -4,7 +4,8 @@ pandas
 numpy
 tensorflow-cpu>=2.16.1
 scikit-learn
-yfinance
+yfinance>=0.2.40
 gspread
 google-auth
 plotly
+
