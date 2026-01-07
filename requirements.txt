@@ -4,4 +4,4 @@ yfinance
 pandas
 scikit-learn
 numpy
-plotly
+st-gsheets-connection
