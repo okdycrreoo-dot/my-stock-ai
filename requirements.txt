@@ -1,7 +1,7 @@
 streamlit>=1.30.0
 st-gsheets-connection
 pandas
-numpy<1.25.0
-tensorflow-cpu==2.13.0
+numpy
+tensorflow-cpu>=2.16.1
 scikit-learn
 yfinance
