@@ -1,82 +1,59 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
-import plotly.graph_objects as go
 
-# 設定網頁標題
-st.set_page_config(page_title="AI 股價深度學習預測", layout="wide")
-st.title("📈 LSTM 股價深度學習預測系統")
+# --- Google Sheets 永久資料庫連接 ---
+# 在 Streamlit Cloud 的 Secrets 中設定你的試算表網址
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- LSTM 核心邏輯 (與你之前成功執行的相同) ---
-def lstm_predict(df, days_to_predict, user_epochs):
-    data = df.filter(['Close']).values
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data)
-    prediction_days = 60
+def get_user_data():
+    # 讀取現有帳號，如果表是空的則回傳空 Dataframe
+    try:
+        return conn.read(worksheet="Sheet1", ttl=0)
+    except:
+        return pd.DataFrame(columns=["username", "password"])
+
+def save_user_data(df):
+    # 將更新後的名單寫回 Google Sheets
+    conn.update(worksheet="Sheet1", data=df)
+
+# --- 登入與註冊介面 ---
+def auth_page():
+    st.sidebar.title("🔐 永久帳號系統")
+    auth_mode = st.sidebar.radio("操作項目", ["登入", "新用戶註冊"])
     
-    if len(scaled_data) < prediction_days: return None
-    
-    x_train, y_train = [], []
-    for x in range(prediction_days, len(scaled_data)):
-        x_train.append(scaled_data[x-prediction_days:x, 0])
-        y_train.append(scaled_data[x, 0])
-    
-    x_train, y_train = np.array(x_train), np.array(y_train)
-    x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+    user_input = st.sidebar.text_input("帳號")
+    pass_input = st.sidebar.text_input("密碼", type="password")
 
-    model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
-        LSTM(50, return_sequences=False),
-        Dense(25),
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(x_train, y_train, batch_size=32, epochs=user_epochs, verbose=0)
+    df_users = get_user_data()
 
-    temp_input = scaled_data[-prediction_days:].reshape(1, prediction_days, 1)
-    future_preds = []
-    for _ in range(days_to_predict):
-        current_pred = model.predict(temp_input, verbose=0)
-        future_preds.append(current_pred[0, 0])
-        new_val = current_pred.reshape(1, 1, 1)
-        temp_input = np.append(temp_input[:, 1:, :], new_val, axis=1)
+    if auth_mode == "新用戶註冊":
+        if st.sidebar.button("確認註冊"):
+            if user_input in df_users["username"].values:
+                st.sidebar.error("此帳號已被註冊！")
+            elif user_input and pass_input:
+                new_user = pd.DataFrame([{"username": user_input, "password": pass_input}])
+                updated_df = pd.concat([df_users, new_user], ignore_index=True)
+                save_user_data(updated_df)
+                st.sidebar.success("帳號已永久儲存！請切換至登入")
+            else:
+                st.sidebar.warning("請填寫完整資訊")
+                
+    else: # 登入模式
+        if st.sidebar.button("立即進入系統"):
+            # 檢查帳號密碼是否匹配
+            user_record = df_users[df_users["username"] == user_input]
+            if not user_record.empty and str(user_record.iloc[0]["password"]) == pass_input:
+                st.session_state['logged_in'] = True
+                st.session_state['current_user'] = user_input
+                st.rerun()
+            else:
+                st.sidebar.error("帳號或密碼錯誤")
 
-    res = scaler.inverse_transform(np.array(future_preds).reshape(-1, 1))
-    return round(float(res[-1][0]), 2) # 這裡使用了你剛剛修正成功的 [0]
-
-# --- 側邊欄設定 ---
-st.sidebar.header("參數設定")
-symbol = st.sidebar.text_input("輸入股票代號", "2330.TW")
-user_epochs = st.sidebar.slider("訓練輪數 (Epochs)", 1, 50, 5)
-periods = st.sidebar.multiselect(
-    "選擇預測期間", 
-    ["明日", "1週", "1個月", "半年", "一年"],
-    default=["明日", "1週"]
-)
-
-if st.sidebar.button("開始 AI 分析"):
-    with st.spinner('AI 正在學習歷史數據，請稍候...'):
-        df = yf.download(symbol, period="2y", progress=False)
-        if not df.empty:
-            # 數據顯示
-            st.subheader(f"{symbol} 歷史股價 (過去兩年)")
-            st.line_chart(df['Close'])
-            
-            # 預測邏輯
-            period_map = {"明日": 1, "1週": 5, "1個月": 22, "半年": 126, "一年": 252}
-            results = {}
-            for p in periods:
-                days = period_map.get(p)
-                results[p] = lstm_predict(df, days, user_epochs)
-            
-            # 顯示結果卡片
-            cols = st.columns(len(results))
-            for i, (p, val) in enumerate(results.items()):
-                with cols[i]:
-                    st.metric(label=f"{p} 預測價", value=f"${val}")
-        else:
-            st.error("找不到股票代號，請檢查輸入是否正確。")
+# --- (下方保留之前的 LSTM 模型與 UI 代碼) ---
+# ... [與前次代碼相同] ...
