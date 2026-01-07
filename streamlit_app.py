@@ -9,41 +9,37 @@ import re
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="StockAI 管理系統", layout="centered")
 
-# --- 2. 記憶體優化：30 人共享 TensorFlow 模型 ---
+# --- 2. 記憶體優化 ---
 @st.cache_resource
 def load_shared_model():
     return "AI 模型核心已就緒"
 
 model_status = load_shared_model()
 
-# --- 3. 核心修正：二進位過濾器 (解決 Unused bytes 問題) ---
+# --- 3. 核心修正：方案 A 的私鑰處理函式 ---
 def get_pure_private_key(raw_key):
-    """徹底過濾非合法 Base64 字元，並補足 Padding"""
-    header = "-----BEGIN PRIVATE KEY-----"
-    footer = "-----END PRIVATE KEY-----"
-    
-    # 提取核心部分 (移除標頭、標尾、轉義換行)
-    core = raw_key.replace(header, "").replace(footer, "").replace("\\n", "").replace("\n", "").strip()
-    
-    # 關鍵：只保留 Base64 合法字元集 (A-Z, a-z, 0-9, +, /)
-    # 這會物理性剔除導致報錯的 \xdab 等二進位雜質
-    core = "".join(re.findall(r"[A-Za-z0-9\+/]", core))
-    
-    # 強制補齊填充字元 '=' 至 4 的倍數 (解決 Padding 錯誤)
-    missing_padding = len(core) % 4
-    if missing_padding:
-        core += "=" * (4 - missing_padding)
-    
-    # 按照 Google 標準格式：每 64 個字元換一行重新排版
-    formatted_body = "\n".join([core[i:i+64] for i in range(0, len(core), 64)])
-    
-    return f"{header}\n{formatted_body}\n{footer}\n"
+    """
+    針對 Streamlit Secrets 可能產生的 Unused bytes (\xdab) 進行物理剔除
+    """
+    try:
+        # 1. 物理剔除非 ASCII 字元 (徹底解決 \xdab 問題)
+        # encode('ascii', 'ignore') 會直接丟掉無法辨識的二進位位元組
+        clean_key = raw_key.encode("ascii", "ignore").decode("utf-8")
+        
+        # 2. 處理可能被誤轉義的斜槓
+        clean_key = clean_key.replace("\\n", "\n")
+        
+        # 3. 確保前後沒有多餘空格
+        return clean_key.strip() + "\n"
+    except Exception as e:
+        st.error(f"私鑰處理出錯: {e}")
+        return raw_key
 
 @st.cache_resource
 def get_stable_client():
     try:
         s = st.secrets["connections"]["gsheets"]
-        # 使用二進位過濾後的私鑰
+        # 使用優化後的私鑰處理
         fixed_key = get_pure_private_key(s["private_key"])
         
         info = {
@@ -63,7 +59,8 @@ def get_stable_client():
         creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"安全性連線最終嘗試中: {str(e)}")
+        # 這裡會顯示具體的錯誤，方便我們排查
+        st.error(f"連線失敗詳情: {str(e)}")
         return None
 
 # --- 4. 登入邏輯 ---
@@ -83,6 +80,7 @@ def login():
                     sheet = client.open_by_url(url).worksheet("users")
                     df = pd.DataFrame(sheet.get_all_records())
                     
+                    # 清洗資料庫中的空白
                     df['username'] = df['username'].astype(str).str.strip()
                     df['password'] = df['password'].astype(str).str.strip()
                     
@@ -95,7 +93,9 @@ def login():
                     else:
                         st.error("帳號或密碼錯誤")
                 except Exception as e:
-                    st.error(f"資料讀取失敗，請確認分頁 'users' 存在。")
+                    st.error(f"讀取失敗：請檢查分頁 'users' 是否存在且格式正確。")
+            else:
+                st.error("無法建立雲端連線，請檢查 Secrets 設定。")
 
 # --- 5. 主程式頁面 ---
 if st.session_state.user is None:
@@ -107,3 +107,4 @@ else:
         st.rerun()
     st.title(f"📊 {st.session_state.user} 的分析面板")
     st.write(f"系統狀態：{model_status}")
+    st.info("您已成功連接 Google Sheets 資料庫！")
