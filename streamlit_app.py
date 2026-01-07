@@ -4,106 +4,97 @@ import pandas as pd
 import tensorflow as tf
 import time
 
-# --- 0. 私鑰格式強效修復 (解決 Base64 65字元報錯關鍵) ---
-def fix_secrets():
-    try:
-        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-            # 取得原始私鑰字串
-            raw_key = st.secrets["connections"]["gsheets"]["private_key"]
-            # 1. 將字串中的 \\n 替換為真正的換行符
-            # 2. 去除首尾多餘的空格或換行
-            fixed_key = raw_key.replace("\\n", "\n").strip()
-            # 寫回暫時的記憶體中供連線使用
-            st.secrets["connections"]["gsheets"]["private_key"] = fixed_key
-    except Exception as e:
-        st.error(f"私鑰修復失敗: {e}")
-
-fix_secrets()
-
-# --- 1. 頁面設定 ---
+# --- 1. 頁面基本配置 ---
 st.set_page_config(page_title="StockAI 管理系統", layout="wide")
 
-# --- 2. 記憶體優化：共用 TensorFlow 模型 ---
+# --- 2. 記憶體優化：30 人共用一個 TensorFlow 模型 ---
+# 使用 cache_resource 避免重複載入導致 1GB RAM 崩潰
 @st.cache_resource
-def load_stock_model():
+def get_model():
     try:
-        # 如果您有 model.h5 請解除註解
+        # 如果您有模型檔案，請將下行註解拿掉
         # return tf.keras.models.load_model('model.h5')
-        return "模型已就緒 (共用模式)"
+        return "模型已就緒"
     except Exception as e:
-        st.warning(f"模型載入提醒: {e}")
-        return None
+        return f"模型載入提醒: {e}"
 
-model = load_stock_model()
+model_status = get_model()
 
 # --- 3. 建立 Google Sheets 連線 ---
-# 因為前面 fix_secrets() 已執行，這裡連線就不會報 Base64 錯誤
+# 直接連接，不需額外轉換，Streamlit 會自動解析 Secrets 裡的 \n
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error(f"資料庫連線失敗，請檢查 Secrets。錯誤訊息：{e}")
+    st.error(f"Google Sheets 連線失敗，請檢查 Secrets 格式。錯誤訊息: {e}")
     st.stop()
 
-# --- 4. 登入邏輯 ---
+# --- 4. 登入狀態管理 ---
 if 'user_auth' not in st.session_state:
     st.session_state.user_auth = None
 
-def login_ui():
+# --- 登入畫面 ---
+def show_login():
     st.title("🚀 StockAI 系統登入")
     with st.container():
         col1, _ = st.columns([1, 1])
         with col1:
-            u = st.text_input("帳號")
-            p = st.text_input("密碼", type="password")
+            u = st.text_input("帳號 (Username)")
+            p = st.text_input("密碼 (Password)", type="password")
             if st.button("確認登入", use_container_width=True):
-                # 讀取 Google Sheets 的 'users' 分頁
                 try:
+                    # 讀取 users 分頁進行驗證
                     df = conn.read(worksheet="users")
-                    match = df[(df['username'] == u) & (df['password'] == p)]
-                    if not match.empty:
+                    # 檢查是否有匹配的帳密
+                    user_match = df[(df['username'].astype(str) == u) & (df['password'].astype(str) == p)]
+                    
+                    if not user_match.empty:
                         st.session_state.user_auth = u
-                        st.success("登入成功！")
+                        st.success("驗證成功，正在進入系統...")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("帳號或密碼錯誤")
+                        st.error("帳號或密碼錯誤，請重新輸入。")
                 except Exception as e:
-                    st.error(f"讀取使用者表失敗: {e}")
+                    st.error(f"無法存取使用者清單: {e}")
 
-# --- 5. 主程式介面 ---
-def main_ui():
-    current_user = st.session_state.user_auth
+# --- 主程式畫面 (登入後) ---
+def show_main():
+    user = st.session_state.user_auth
     
-    # 側邊欄
-    st.sidebar.title(f"👤 {current_user}")
-    if st.sidebar.button("登出系統"):
+    # 側邊欄控制
+    st.sidebar.title(f"👤 使用者: {user}")
+    if st.sidebar.button("登出"):
         st.session_state.user_auth = None
         st.rerun()
-
-    st.title(f"📈 {current_user} 的個人分析面板")
     
-    # 功能分頁
-    tab1, tab2 = st.tabs(["AI 選股分析", "歷史紀錄"])
+    st.sidebar.divider()
+    st.sidebar.write(f"系統狀態: {model_status}")
+
+    # 主功能區
+    st.title(f"📈 歡迎回來，{user}")
+    
+    tab1, tab2 = st.tabs(["AI 選股分析", "個人歷史紀錄"])
     
     with tab1:
         st.subheader("TensorFlow 核心預測")
         stock_id = st.text_input("輸入股票代碼", placeholder="例如: 2330.TW")
-        if st.button("啟動 AI 運算"):
-            with st.spinner("正在調用共享模型資源..."):
-                # 執行分析邏輯
+        if st.button("執行 AI 運算"):
+            with st.spinner("AI 正在分析大數據..."):
+                # 這裡放入您的預測邏輯
                 time.sleep(2)
-                st.success(f"{stock_id} 分析完成。")
-                st.metric("預測信心值", "85%", "+3%")
+                st.success(f"{stock_id} 分析完成")
+                st.metric(label="預測趨勢", value="看多", delta="85% 信心度")
 
     with tab2:
-        st.subheader("您的過往紀錄")
-        st.info("這裡僅會顯示屬於您的數據，確保隱私安全。")
-        # 示範：df = conn.read(worksheet="history")
-        # my_data = df[df['owner'] == current_user]
-        # st.dataframe(my_data)
+        st.subheader("我的操作紀錄")
+        st.info("這裡僅顯示您個人的分析歷史。")
+        # 範例：篩選屬於該使用者的資料列
+        # all_logs = conn.read(worksheet="history")
+        # my_logs = all_logs[all_logs['owner'] == user]
+        # st.dataframe(my_logs)
 
-# --- 執行進入點 ---
+# --- 程式執行邏輯 ---
 if st.session_state.user_auth is None:
-    login_ui()
+    show_login()
 else:
-    main_ui()
+    show_main()
