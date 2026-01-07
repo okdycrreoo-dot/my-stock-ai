@@ -4,6 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import tensorflow as tf
 import time
+import json
 
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="StockAI 管理系統", layout="centered")
@@ -15,38 +16,42 @@ def load_shared_model():
 
 model_status = load_shared_model()
 
-# --- 3. 強效連線工具 (繞過 st.connection 以避免 Base64 報錯) ---
+# --- 3. 終極安全性連線 (徹底解決 Base64 65字元報錯) ---
 @st.cache_resource
 def get_gspread_client():
     try:
-        # 1. 從 Secrets 取得原始資料
-        info = st.secrets["connections"]["gsheets"].to_dict()
+        # 從 Secrets 取得所有資訊
+        s = st.secrets["connections"]["gsheets"]
         
-        # 2. 手動清洗私鑰 (這是關鍵：徹底解決 binascii.Error)
-        # 移除可能導致 65 字元報錯的所有隱形空格與換行
-        private_key = info.get("private_key", "")
-        fixed_key = private_key.replace("\\n", "\n").strip()
+        # 強制修正 Private Key (移除 \\n, \n, 空格，並重新封裝)
+        raw_key = s["private_key"]
+        fixed_key = raw_key.replace("\\n", "\n").replace("\n", "\n").strip()
         
-        # 3. 重新封裝認證字典
-        creds_dict = {
+        # 建立標準 JSON 憑證字典
+        info = {
             "type": "service_account",
-            "project_id": info.get("project_id"),
-            "private_key_id": info.get("private_key_id"),
+            "project_id": s["project_id"],
+            "private_key_id": s["private_key_id"],
             "private_key": fixed_key,
-            "client_email": info.get("client_email"),
-            "client_id": info.get("client_id"),
+            "client_email": s["client_email"],
+            "client_id": s["client_id"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": info.get("client_x509_cert_url")
+            "client_x509_cert_url": s["client_x509_cert_url"]
         }
         
-        # 4. 建立認證與客戶端
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        # 定義權限範圍
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # 建立憑證
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"安全性連線失敗: {e}")
+        st.error(f"安全性連線失敗: {str(e)}")
         return None
 
 # --- 4. 登入系統邏輯 ---
@@ -64,13 +69,13 @@ def login():
             client = get_gspread_client()
             if client:
                 try:
-                    # 打開試算表並讀取 'users' 工作表
+                    # 讀取試算表
                     url = st.secrets["connections"]["gsheets"]["spreadsheet"]
                     sheet = client.open_by_url(url).worksheet("users")
                     data = sheet.get_all_records()
                     df = pd.DataFrame(data)
                     
-                    # 驗證
+                    # 帳密驗證
                     df['username'] = df['username'].astype(str).str.strip()
                     df['password'] = df['password'].astype(str).str.strip()
                     
@@ -81,24 +86,20 @@ def login():
                         time.sleep(0.5)
                         st.rerun()
                     else:
-                        st.error("帳密不正確")
+                        st.error("帳號或密碼錯誤")
                 except Exception as e:
-                    st.error(f"資料讀取失敗: {e}")
+                    st.error(f"資料庫讀取失敗: {e}")
 
-# --- 5. 主程式介面 ---
+# --- 5. 主程式 ---
 if st.session_state.user is None:
     login()
 else:
-    user = st.session_state.user
-    st.sidebar.success(f"用戶：{user}")
-    if st.sidebar.button("登出系統"):
+    st.sidebar.success(f"目前用戶: {st.session_state.user}")
+    if st.sidebar.button("登出"):
         st.session_state.user = None
         st.rerun()
-        
-    st.title(f"📊 {user} 的個人面板")
-    st.write(f"系統狀態：{model_status}")
-    st.divider()
     
-    stock = st.text_input("輸入股票代碼進行分析")
-    if stock:
-        st.write(f"正在分析 {stock}...")
+    st.title(f"📊 {st.session_state.user} 的個人面板")
+    st.write(f"系統狀態: {model_status}")
+    st.divider()
+    stock = st.text_input("輸入股票代碼進行預測")
