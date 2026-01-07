@@ -14,24 +14,33 @@ def load_shared_model():
 
 model_status = load_shared_model()
 
-# --- 3. 核心修正：認證資訊預處理 (解決所有報錯) ---
+# --- 3. 核心修正：認證資訊封裝 (解決參數衝突與 Base64 錯誤) ---
 def get_fixed_conn():
     try:
-        # 1. 將唯讀的 secrets 轉為可編輯的字典
-        creds = st.secrets["connections"]["gsheets"].to_dict()
+        # 1. 讀取 Secrets 並轉為一般字典
+        raw_creds = st.secrets["connections"]["gsheets"].to_dict()
         
-        # 2. 強制修正私鑰格式，去除導致 (65) 字元錯誤的隱形換行
-        if "private_key" in creds:
-            creds["private_key"] = creds["private_key"].replace("\\n", "\n").strip()
+        # 2. 建立一個專門給 Google 認證用的內部字典
+        # 將原本散落在外的參數全部包進 service_account_info
+        service_account_info = {
+            "type": "service_account",
+            "project_id": raw_creds.get("project_id"),
+            "private_key_id": raw_creds.get("private_key_id"),
+            "private_key": raw_creds.get("private_key", "").replace("\\n", "\n").strip(),
+            "client_email": raw_creds.get("client_email"),
+            "client_id": raw_creds.get("client_id"),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": raw_creds.get("client_x509_cert_url")
+        }
         
-        # 3. 移除會導致 keyword argument 衝突的參數
-        # 這些參數 Streamlit 會自動處理，手動傳入反而會報錯
-        for key in ["type", "spreadsheet", "project_id"]:
-            if key in creds:
-                del creds[key]
-            
-        # 4. 使用清理過的參數建立連線
-        return st.connection("gsheets", type=GSheetsConnection, **creds)
+        # 3. 建立連線：只傳入 service_account_info，不要傳入散裝的參數
+        return st.connection(
+            "gsheets", 
+            type=GSheetsConnection, 
+            service_account_info=service_account_info
+        )
     except Exception as e:
         st.error(f"連線預處理失敗: {e}")
         return None
@@ -51,9 +60,9 @@ def login():
         
         if submit:
             try:
-                # 從 Secrets 取得試算表網址
+                # 取得試算表網址
                 sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                # 讀取 users 工作表 (ttl=0 確保不快取，即時驗證)
+                # 讀取 users 工作表 (ttl=0 確保即時驗證)
                 df = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=0)
                 
                 # 統一格式比對
@@ -85,7 +94,6 @@ else:
     st.write(f"系統狀態：{model_status}")
     st.divider()
     
-    # AI 分析預留區
     stock = st.text_input("輸入股票代碼進行分析 (例: 2330)")
     if stock:
         st.write(f"正在分析 {stock} 的歷史數據...")
