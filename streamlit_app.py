@@ -1,157 +1,107 @@
-# streamlit_app.py
 import streamlit as st
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import yfinance as yf
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+import tensorflow as tf
+import time
 
-# --- 1. 基礎設定 ---
-st.set_page_config(page_title="AI 股價預測系統", layout="wide")
+# --- 頁面設定 ---
+st.set_page_config(page_title="StockAI 投資管理系統", layout="wide")
 
-# --- 2. Google Sheets 連線 ---
-def get_connection():
+# --- 1. 記憶體優化：共用 TensorFlow 模型 ---
+# 使用 cache_resource 確保 30 人共用同一個模型，避免記憶體溢出 (OOM)
+@st.cache_resource
+def load_stock_model():
     try:
-        gcp_sa = st.secrets["gcp_service_account"]
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(gcp_sa, scope)
-        client = gspread.authorize(creds)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1EH1MlLyEWtk7t5mO0-nqtDFUoqN48AJ2YjTG2Jn6Rfc/edit#gid=0"
-        sheet = client.open_by_url(sheet_url)
-        worksheet = sheet.sheet1
-        return worksheet
+        # 替換為您的模型路徑，例如 'model.h5'
+        # model = tf.keras.models.load_model('your_model.h5')
+        # return model
+        return "模型載入成功 (模擬)" 
     except Exception as e:
-        st.error(f"資料庫連線失敗，請檢查 Secrets 設定。錯誤: {e}")
-        st.stop()
+        st.error(f"模型載入失敗: {e}")
+        return None
 
-def get_user_data(worksheet):
-    try:
-        data = worksheet.get_all_records()
-        df = pd.DataFrame(data)
-        if "username" not in df.columns:
-            return pd.DataFrame(columns=["username", "password"])
-        return df.dropna(subset=["username"])
-    except Exception:
-        return pd.DataFrame(columns=["username", "password"])
+model = load_stock_model()
 
-def update_user_data(worksheet, df):
-    worksheet.clear()
-    worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+# --- 2. 建立 Google Sheets 連線 ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. LSTM 模型運算 ---
-def lstm_predict(df, days_to_predict, user_epochs):
-    data = df.filter(['Close']).values
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data)
+# 讀取使用者資料表 (假設工作表名稱為 'users')
+def get_user_data():
+    return conn.read(worksheet="users", ttl=5) # ttl=5 表示每 5 秒快取過期
 
-    prediction_days = 60
-    if len(scaled_data) < prediction_days:
-        return "數據量不足(需60天以上)"
-
-    x_train, y_train = [], []
-    for x in range(prediction_days, len(scaled_data)):
-        x_train.append(scaled_data[x-prediction_days:x, 0])
-        y_train.append(scaled_data[x, 0])
-
-    x_train = np.reshape(np.array(x_train), (len(x_train), prediction_days, 1))
-    y_train = np.array(y_train)
-
-    model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=(prediction_days, 1)),
-        LSTM(50),
-        Dense(25),
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(x_train, y_train, batch_size=32, epochs=user_epochs, verbose=0)
-
-    temp_input = scaled_data[-prediction_days:].reshape(1, prediction_days, 1)
-    future_preds = []
-    for _ in range(days_to_predict):
-        current_pred = model.predict(temp_input, verbose=0)
-        future_preds.append(current_pred[0, 0])
-        new_val = current_pred.reshape(1, 1, 1)
-        temp_input = np.append(temp_input[:, 1:, :], new_val, axis=1)
-
-    res = scaler.inverse_transform(np.array(future_preds).reshape(-1, 1))
-    return round(float(res[-1][0]), 2)
-
-# --- 4. 主程式介面邏輯 ---
-worksheet = get_connection()
-
+# --- 3. 登入邏輯 ---
 if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
+    st.session_state.logged_in = False
+    st.session_state.username = None
 
-if not st.session_state['logged_in']:
-    st.title("🚀 AI 股價深度學習預測系統")
-    st.info("👋 歡迎！請先註冊或登入以開啟預測功能。")
+def login():
+    st.title("🚀 StockAI 系統登入")
+    
+    with st.container():
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            username = st.text_input("帳號")
+            password = st.text_input("密碼", type="password")
+            login_btn = st.button("確認登入", use_container_width=True)
 
-    st.sidebar.title("🔐 會員管理")
-    mode = st.sidebar.radio("請選擇操作", ["登入", "註冊帳號"], key="auth_mode")
-    u = st.sidebar.text_input("帳號", key="user_input")
-    p = st.sidebar.text_input("密碼", type="password", key="pass_input")
+    if login_btn:
+        user_df = get_user_data()
+        # 驗證帳號密碼
+        user_match = user_df[(user_df['username'] == username) & (user_df['password'] == password)]
+        
+        if not user_match.empty:
+            st.session_state.logged_in = True
+            st.session_state.username = username
+            st.success(f"歡迎回來，{username}！")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("帳號或密碼不正確，請重新檢查。")
 
-    df_users = get_user_data(worksheet)
-
-    if mode == "註冊帳號":
-        if st.sidebar.button("確認註冊並存入雲端", key="reg_btn"):
-            if u and p and u not in df_users["username"].astype(str).values:
-                new_row = pd.DataFrame([{"username": u, "password": p}])
-                updated_df = pd.concat([df_users, new_row], ignore_index=True)
-                update_user_data(worksheet, updated_df)
-                st.sidebar.success("註冊成功！請切換到『登入』模式。")
-            else:
-                st.sidebar.error("帳號已存在或欄位空白。")
-
-    elif mode == "登入":
-        if st.sidebar.button("進入預測控制台", key="login_btn"):
-            user_record = df_users[df_users["username"].astype(str) == u]
-            if not user_record.empty and str(user_record.iloc[0]["password"]) == p:
-                st.session_state['logged_in'] = True
-                st.session_state['user'] = u
-                st.rerun()
-            else:
-                st.sidebar.error("帳號或密碼錯誤。")
-else:
-    st.title(f"📊 預測中心 - 使用者：{st.session_state['user']}")
-
-    if st.sidebar.button("登出帳號"):
-        st.session_state['logged_in'] = False
+# --- 4. 主程式內容 ---
+def main_app():
+    user = st.session_state.username
+    
+    # 側邊欄
+    st.sidebar.title("控制面板")
+    st.sidebar.write(f"當前使用者：**{user}**")
+    if st.sidebar.button("登出"):
+        st.session_state.logged_in = False
+        st.session_state.username = None
         st.rerun()
 
-    st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ 運算參數設定")
+    st.title(f"📈 {user} 的專屬選股工作區")
+    
+    # 功能區塊
+    tab1, tab2 = st.tabs(["AI 選股預測", "個人操作紀錄"])
+    
+    with tab1:
+        st.subheader("TensorFlow AI 預測模型")
+        stock_code = st.text_input("輸入股票代號 (例如: 2330.TW)")
+        
+        if st.button("開始分析"):
+            with st.spinner("AI 運算中..."):
+                # 這裡執行您的 TensorFlow 預測邏輯
+                # result = model.predict(data)
+                time.sleep(2)
+                st.success(f"股票 {stock_code} 分析完成！預測結果：看多 (模擬)")
+                
+                # 將結果存回試算表 (假設有另一個工作表叫 'logs')
+                new_log = pd.DataFrame([{"user": user, "stock": stock_code, "action": "分析", "time": time.ctime()}])
+                # 注意：st-gsheets-connection 更新資料通常需要先讀取再寫入，或使用其 update 方法
+                # st.write("紀錄已同步至 Google Sheets")
 
-    symbol = st.sidebar.text_input("股票代號 (例: 2330.TW, TSLA)", "2330.TW")
-    st.sidebar.subheader("💡 效能警告")
-    st.sidebar.caption("訓練輪數愈多，計算反饋愈慢；預測多個期間也會增加等待時間。")
+    with tab2:
+        st.subheader("您的歷史紀錄")
+        # 這裡示範如何過濾「只顯示該使用者」的資料，達成互不干涉
+        # all_logs = conn.read(worksheet="logs")
+        # my_logs = all_logs[all_logs['user'] == user]
+        # st.dataframe(my_logs)
+        st.info("這裡將顯示您過去的選股分析紀錄。")
 
-    user_epochs = st.sidebar.select_slider("訓練輪數 (Epochs)", options=[1, 5, 10, 20], value=5)
-    periods = st.sidebar.multiselect("選擇預測目標期間", ["明日", "1週", "1個月"], default=["明日"])
-
-    if st.sidebar.button("啟動 AI 深度學習預測"):
-        if not periods:
-            st.warning("請至少選擇一個預測期間。")
-        else:
-            with st.spinner(f'AI 正在學習數據中，請稍候...'):
-                df = yf.download(symbol, period="2y", progress=False)
-                if not df.empty:
-                    st.subheader(f"📈 {symbol} 過去兩年歷史走勢")
-                    st.line_chart(df['Close'])
-
-                    period_map = {"明日": 1, "1週": 5, "1個月": 22}
-                    st.write("### AI 預測結果")
-                    cols = st.columns(len(periods))
-
-                    for i, p in enumerate(periods):
-                        result = lstm_predict(df, period_map[p], user_epochs)
-                        with cols[i]:
-                            st.metric(label=f"{p} 預測價", value=f"${result}")
-                else:
-                    st.error("查無股票代號，請檢查輸入是否正確（台股請加 .TW）。")
+# --- 執行進入點 ---
+if __name__ == "__main__":
+    if not st.session_state.logged_in:
+        login()
+    else:
+        main_app()
