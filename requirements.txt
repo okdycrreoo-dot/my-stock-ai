@@ -1,11 +1,10 @@
 streamlit
-streamlit-gsheets
 gspread
 google-auth
-
 yfinance
 pandas
 numpy
 scikit-learn
-
 tensorflow-cpu==2.15.0
+
+git+https://github.com/okld/streamlit-gsheets.git
