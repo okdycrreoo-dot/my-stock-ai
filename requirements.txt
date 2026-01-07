@@ -1,8 +1,7 @@
 streamlit>=1.30.0
-gspread
-oauth2client
+st-gsheets-connection
 pandas
 numpy<1.25.0
-yfinance
+tensorflow-cpu==2.13.0
 scikit-learn
-tensorflow==2.13.0
+yfinance
