@@ -17,6 +17,10 @@ except Exception as e:
     st.error("Secrets 設定有誤，請確認。")
     st.stop()
 
+mode = st.sidebar.radio("帳號管理", ["登入", "註冊帳號"]) # 先定義變數
+u = st.sidebar.text_input("帳號")
+p = st.sidebar.text_input("密碼", type="password")
+
 if mode == "註冊帳號" and st.sidebar.button("確認註冊"):
     if u and p and u not in df_users["username"].values:
         new_row = pd.DataFrame([{"username": u, "password": p}])
@@ -115,4 +119,5 @@ else:
     if st.sidebar.button("登出"):
         st.session_state['logged_in'] = False
         st.rerun()
+
 
