@@ -19,6 +19,9 @@ st.markdown("""
     [data-testid="stMetricValue"] { color: #00F5FF; font-weight: bold; }
     .stMetric { background-color: #1C2128; border: 2px solid #30363D; border-radius: 10px; padding: 15px; }
     div[data-testid="stExpander"] { background-color: #161B22; border: 1px solid #30363D; }
+    /* 調整 Tab 顏色 */
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-size: 18px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -31,7 +34,7 @@ def fetch_comprehensive_data(symbol):
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
         
-        # 指標計算
+        # 指標計算 (視覺強化版本)
         data['MA5'] = data['Close'].rolling(5).mean()
         data['MA20'] = data['Close'].rolling(20).mean()
         std = data['Close'].rolling(20).std()
@@ -74,59 +77,38 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
     c2.metric(f"AI 預估({p_days}天)", f"{target_p:.2f}")
     c3.metric("預期回報", f"{pct:.2f}%", delta=f"{pct:.2f}%")
 
-    # 繪製三層複合圖表
+    # 繪製圖表 (三層強化版)
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                         row_heights=[0.55, 0.15, 0.3], vertical_spacing=0.04)
     
     zoom = {"日": 45, "月": 180, "年": 550}[unit]
     p_df = df.tail(zoom)
     
-    # --- 1. K線主圖 (強化對比) ---
+    # 1. K線 (強化色彩對比)
     fig.add_trace(go.Candlestick(
         x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
-        name='K線', 
-        increasing_line_color='#00FF41', decreasing_line_color='#FF3131',
-        increasing_fillcolor='#00FF41', decreasing_fillcolor='#FF3131'
+        name='K線', increasing_line_color='#00FF41', decreasing_line_color='#FF3131'
     ), row=1, col=1)
 
-    # 均線加粗 (width=3)
+    # 加粗均線與預測線 (視覺更清晰)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=3)), row=1, col=1)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=3)), row=1, col=1)
     
-    # 布林通道 (虛線化以降低干擾)
-    fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['BB_up'], name='布林上', line=dict(color='rgba(255,255,255,0.4)', width=1.5, dash='dot')), row=1, col=1)
-    fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['BB_low'], name='布林下', fill='tonexty', fillcolor='rgba(255,255,255,0.07)', line=dict(color='rgba(255,255,255,0.4)', width=1.5, dash='dot')), row=1, col=1)
-    
-    # 支撐壓力加粗
-    fig.add_hline(y=p_df['Support'].iloc[-1], line_dash="dash", line_color="#00FF41", line_width=2.5, row=1, col=1)
-    fig.add_hline(y=p_df['Resistance'].iloc[-1], line_dash="dash", line_color="#FF3131", line_width=2.5, row=1, col=1)
-    
-    # AI 預測路徑強化 (最粗線條)
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scattergl(x=f_dates, y=pred_prices, name='AI 預測', line=dict(color='#FF4500', width=4.5, dash='dashdot')), row=1, col=1)
 
-    # --- 2. 成交量 ---
+    # 2. 成交量
     v_colors = ['#FF3131' if p_df['Open'].iloc[i] > p_df['Close'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量', marker_color=v_colors, opacity=0.6), row=2, col=1)
 
-    # --- 3. MACD (線條強化) ---
+    # 3. MACD (線條強化)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MACD'], name='MACD', line=dict(color='#00F5FF', width=2.5)), row=3, col=1)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['Signal'], name='訊號線', line=dict(color='#FFD700', width=2.5)), row=3, col=1)
     
     h_colors = ['#FF3131' if v < 0 else '#00FF41' for v in p_df['Hist']]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='能量柱', marker_color=h_colors, opacity=0.5), row=3, col=1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='Hist', marker_color=h_colors, opacity=0.5), row=3, col=1)
 
-    fig.update_layout(
-        template="plotly_dark", 
-        height=950, 
-        xaxis_rangeslider_visible=False, 
-        margin=dict(l=10, r=10, t=10, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    # 網格線對比度優化
-    fig.update_xaxes(gridcolor='#2D333B', zeroline=False)
-    fig.update_yaxes(gridcolor='#2D333B', zeroline=False)
-    
+    fig.update_layout(template="plotly_dark", height=950, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 # --- 4. 主程式 ---
@@ -139,10 +121,12 @@ def main():
         creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         client = gspread.authorize(creds)
         sh = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+        ws_user = sh.worksheet("users")
     except:
         st.error("🚨 系統連線異常，請檢查 Secrets 設定。")
         return
 
+    # 管理員統一設定 (okdycrreoo 控制)
     try:
         ws_settings = sh.worksheet("settings")
         s_data = {item['setting_name']: item['value'] for item in ws_settings.get_all_records()}
@@ -151,25 +135,42 @@ def main():
     except:
         curr_prec, curr_ttl = 55, 5
 
+    # 登入與註冊切換
     if st.session_state.user is None:
         st.title("🚀 StockAI 高級技術終端")
-        u = st.text_input("帳號")
-        p = st.text_input("密碼", type="password")
-        if st.button("登入系統"):
-            user_df = pd.DataFrame(sh.worksheet("users").get_all_records())
-            if not user_df[(user_df['username'].astype(str)==u) & (user_df['password'].astype(str)==p)].empty:
-                st.session_state.user = u; st.rerun()
+        tab_login, tab_reg = st.tabs(["🔑 登入系統", "📝 註冊帳號"])
+
+        with tab_login:
+            u = st.text_input("帳號", key="login_u")
+            p = st.text_input("密碼", type="password", key="login_p")
+            if st.button("確認登入"):
+                user_df = pd.DataFrame(ws_user.get_all_records())
+                if not user_df[(user_df['username'].astype(str)==u) & (user_df['password'].astype(str)==p)].empty:
+                    st.session_state.user = u; st.rerun()
+                else: st.error("帳號或密碼錯誤")
+
+        with tab_reg:
+            new_u = st.text_input("設定帳號", key="reg_u")
+            new_p = st.text_input("設定密碼", type="password", key="reg_p")
+            if st.button("確認註冊"):
+                user_df = pd.DataFrame(ws_user.get_all_records())
+                if new_u in user_df['username'].astype(str).values:
+                    st.warning("此帳號已被註冊")
+                elif new_u and new_p:
+                    ws_user.append_row([new_u, new_p])
+                    st.success("註冊成功！請切換至登入頁面")
+                else: st.error("帳號或密碼不可為空")
     else:
-        # 狀態與管理
+        # 主介面
         remain = (st.session_state.last_sync + timedelta(minutes=curr_ttl)) - datetime.now()
-        st.caption(f"👤 {st.session_state.user} | 🕒 快取剩餘: {max(0, int(remain.total_seconds()))}s")
+        st.caption(f"👤 {st.session_state.user} | 🕒 刷新倒數: {max(0, int(remain.total_seconds()))}s")
 
         with st.sidebar:
             if st.session_state.user == "okdycrreoo":
-                with st.expander("🛠️ 管理員控制台", expanded=True):
+                with st.expander("🛠️ 管理員控制台 (okdycrreoo)", expanded=True):
                     new_p = st.slider("全域靈敏度", 0, 100, curr_prec)
                     new_t = st.select_slider("快取分鐘", options=list(range(1, 11)), value=curr_ttl)
-                    if st.button("同步設定"):
+                    if st.button("同步至資料庫"):
                         ws_settings.update_cell(2, 2, str(new_p))
                         ws_settings.update_cell(3, 2, str(new_t))
                         st.cache_data.clear()
@@ -183,7 +184,7 @@ def main():
             unit = st.selectbox("時間單位", ["日", "月", "年"])
             p_days = st.number_input("AI 預測天數", 1, 30, 7)
             
-            new_s = st.text_input("新增代碼 (如: AAPL)").strip().upper()
+            new_s = st.text_input("新增代碼 (如: TSLA)").strip().upper()
             if st.button("確認新增"):
                 if new_s and new_s not in user_stocks:
                     ws_watch.append_row([st.session_state.user, new_s]); st.rerun()
