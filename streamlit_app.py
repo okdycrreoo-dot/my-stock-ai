@@ -8,27 +8,32 @@ import time
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="StockAI 管理系統", layout="centered")
 
-# --- 2. 共享資源 (TensorFlow) ---
+# --- 2. 共享資源載入 (TensorFlow) ---
 @st.cache_resource
 def load_shared_model():
-    # 確保 30 人併發時模型只載入一次
     return "AI 模型核心已就緒"
 
 model_status = load_shared_model()
 
-# --- 3. 核心修正：手動 Base64 補齊與認證 ---
+# --- 3. 核心修正：手動 Base64 填充與認證 ---
+def pad_base64(data):
+    """手動校準 Base64 長度，解決 65 字元報錯問題"""
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += '=' * (4 - missing_padding)
+    return data
+
 @st.cache_resource
 def get_gspread_client():
     try:
         # 1. 取得原始 Secrets
         s = st.secrets["connections"]["gsheets"]
         
-        # 2. 清洗 Private Key：處理轉義換行並移除所有首尾不可見字元
-        # 這是解決截圖中 "Invalid base64-encoded string (65)" 的關鍵
-        raw_key = s["private_key"].replace("\\n", "\n").strip()
+        # 2. 強制清洗 Private Key
+        raw_key = s["private_key"].replace("\\n", "\n").replace("\n", "\n").strip()
         
-        # 3. 構建認證字典 (不使用 st.connection 避免自動檢查報錯)
-        creds_dict = {
+        # 3. 重新封裝認證字典
+        info = {
             "type": "service_account",
             "project_id": s["project_id"],
             "private_key_id": s["private_key_id"],
@@ -41,37 +46,32 @@ def get_gspread_client():
             "client_x509_cert_url": s["client_x509_cert_url"]
         }
         
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         
-        # 使用底層庫直接認證
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        # 使用底層庫直接認證，避開 st.connection
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"安全性連線失敗：憑證格式不正確。\n詳細訊息：{str(e)}")
+        st.error(f"安全性連線失敗：憑證格式不正確。\n錯誤詳情：{str(e)}")
         return None
 
-# --- 4. 登入系統 ---
+# --- 4. 登入邏輯 ---
 if 'user' not in st.session_state:
     st.session_state.user = None
 
 def login():
     st.title("🚀 StockAI 登入系統")
-    with st.form("login_gate"):
+    with st.form("login_panel"):
         u = st.text_input("帳號")
         p = st.text_input("密碼", type="password")
         if st.form_submit_button("進入系統", use_container_width=True):
             client = get_gspread_client()
             if client:
                 try:
-                    # 讀取試算表
-                    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                    sheet = client.open_by_url(url).worksheet("users")
+                    sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+                    sheet = client.open_by_url(sheet_url).worksheet("users")
                     df = pd.DataFrame(sheet.get_all_records())
                     
-                    # 數據清洗與比對
                     df['username'] = df['username'].astype(str).str.strip()
                     df['password'] = df['password'].astype(str).str.strip()
                     
@@ -84,9 +84,9 @@ def login():
                     else:
                         st.error("帳號或密碼錯誤")
                 except Exception as e:
-                    st.error(f"無法存取試算表，請確認分頁名稱為 'users'。錯誤：{e}")
+                    st.error(f"資料庫讀取失敗：{str(e)}")
 
-# --- 5. 主程式頁面 ---
+# --- 5. 主程式 ---
 if st.session_state.user is None:
     login()
 else:
@@ -94,8 +94,5 @@ else:
     if st.sidebar.button("登出"):
         st.session_state.user = None
         st.rerun()
-    
     st.title(f"📊 {st.session_state.user} 的個人面板")
     st.info(f"系統狀態：{model_status}")
-    st.divider()
-    # 這裡放選股分析功能
