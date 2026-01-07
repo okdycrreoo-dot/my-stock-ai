@@ -15,23 +15,36 @@ def load_shared_model():
 
 model_status = load_shared_model()
 
-# --- 3. 核心連線函式 (解決編碼錯誤與欄位缺失問題) ---
+# --- 3. 核心連線函式 (終極 RSA 格式修復版) ---
 @st.cache_resource
 def get_stable_client():
     try:
-        # 1. 讀取 Secrets 設定並轉為字典
+        # 1. 讀取 Secrets 設定
         if "connections" not in st.secrets or "gsheets" not in st.secrets["connections"]:
             st.error("找不到 Secrets 設定！請檢查 Streamlit Cloud 的 Secrets 區塊。")
             return None
             
         s_dict = dict(st.secrets["connections"]["gsheets"])
         
-        # 2. 關鍵修正：物理剔除私鑰中的非 ASCII 雜質 (處理 \xdab 問題)
+        # 2. 強力修復私鑰格式 (解決 asn1Spec 與 Unused bytes 問題)
         if "private_key" in s_dict:
-            # 丟掉所有非法位元組，只保留標準 ASCII 字元
-            clean_key = s_dict["private_key"].encode("ascii", "ignore").decode("utf-8")
-            # 處理可能出現的轉義換行
-            s_dict["private_key"] = clean_key.replace("\\n", "\n").strip() + "\n"
+            raw_key = s_dict["private_key"]
+            
+            # 處理轉義換行
+            fixed_key = raw_key.replace("\\n", "\n")
+            
+            header = "-----BEGIN PRIVATE KEY-----"
+            footer = "-----END PRIVATE KEY-----"
+            
+            if header in fixed_key and footer in fixed_key:
+                # 提取中間的核心內容，移除所有空格、換行、Tab
+                core = fixed_key.split(header)[1].split(footer)[0]
+                # 物理剔除非 ASCII 雜質並刪除所有空白字元
+                core_clean = "".join(re.findall(r"[A-Za-z0-9\+/=]", core))
+                
+                # 依照標準 RSA 格式：每 64 字元換一行重新組裝
+                formatted_core = "\n".join([core_clean[i:i+64] for i in range(0, len(core_clean), 64)])
+                s_dict["private_key"] = f"{header}\n{formatted_core}\n{footer}\n"
         
         # 3. 設定 Google API 權限範圍
         scopes = [
@@ -39,16 +52,17 @@ def get_stable_client():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # 4. 建立憑證與授權
+        # 4. 建立憑證
         creds = Credentials.from_service_account_info(s_dict, scopes=scopes)
         return gspread.authorize(creds)
         
     except Exception as e:
-        # 將具體錯誤顯示在紅框中
-        st.error(f"雲端連線失敗詳情: {str(e)}")
+        st.error(f"安全性連線最終嘗試中: {str(e)}")
         return None
 
 # --- 4. 登入系統邏輯 ---
+import re # 確保匯入正規表達式
+
 if 'user' not in st.session_state:
     st.session_state.user = None
 
@@ -64,29 +78,26 @@ def login():
             client = get_stable_client()
             if client:
                 try:
-                    # 從 Secrets 讀取試算表網址
                     url = st.secrets["connections"]["gsheets"]["spreadsheet"]
                     sheet = client.open_by_url(url).worksheet("users")
                     df = pd.DataFrame(sheet.get_all_records())
                     
-                    # 統一清洗格式
                     df['username'] = df['username'].astype(str).str.strip()
                     df['password'] = df['password'].astype(str).str.strip()
                     
-                    # 帳密比對
                     check = df[(df['username'] == u) & (df['password'] == p)]
                     
                     if not check.empty:
                         st.session_state.user = u
-                        st.success("驗證通過！進入系統中...")
+                        st.success("驗證通過！")
                         time.sleep(0.5)
                         st.rerun()
                     else:
-                        st.error("帳號或密碼錯誤，請重新輸入")
+                        st.error("帳號或密碼錯誤")
                 except Exception as e:
                     st.error(f"讀取失敗：請檢查試算表分頁名稱是否為 'users'。錯誤: {e}")
             else:
-                st.info("提示：請檢查 Secrets 設定是否完整（建議包含所有 Google JSON 欄位）。")
+                st.info("提示：請檢查 Secrets 設定是否完整。")
 
 # --- 5. 主程式分析面板 ---
 if st.session_state.user is None:
@@ -107,4 +118,4 @@ else:
         st.metric("資料庫連線", "已連線")
         
     st.write(f"系統狀態：{model_status}")
-    st.info("🎉 登入成功！您可以開始進行股票 AI 分析。")
+    st.info("🎉 恭喜！您已成功連線雲端資料庫。")
