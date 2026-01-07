@@ -17,12 +17,13 @@ except Exception as e:
     st.error("Secrets 設定有誤，請確認。")
     st.stop()
 
-def get_user_data():
-    try:
-        df = conn.read(worksheet="Sheet1", ttl=0)
-        return df.dropna(subset=["username"])
-    except:
-        return pd.DataFrame(columns=["username", "password"])
+if mode == "註冊帳號" and st.sidebar.button("確認註冊"):
+    if u and p and u not in df_users["username"].values:
+        new_row = pd.DataFrame([{"username": u, "password": p}])
+        new_data = pd.concat([df_users, new_row], ignore_index=True)
+        # 這裡也移除 worksheet="Sheet1"，直接更新
+        conn.update(data=new_data) 
+        st.sidebar.success("註冊成功！")
 
 # 3. LSTM 運算函數
 def lstm_predict(df, days_to_predict, user_epochs):
@@ -114,3 +115,4 @@ else:
     if st.sidebar.button("登出"):
         st.session_state['logged_in'] = False
         st.rerun()
+
