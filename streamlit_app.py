@@ -1,4 +1,6 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -8,7 +10,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
 # --------------------------------------------------
-# 1. Streamlit 基礎設定（必須第一個）
+# 1. Streamlit 基本設定（必須第一行）
 # --------------------------------------------------
 st.set_page_config(
     page_title="AI 股價預測系統",
@@ -20,15 +22,16 @@ st.set_page_config(
 # --------------------------------------------------
 def get_connection():
     try:
-        # 使用 Streamlit 內建 gspread 連線器
-        return st.connection("gsheets", type="gspread")
+        return st.connection(
+            "gsheets",
+            type=GSheetsConnection
+        )
     except Exception as e:
         st.error(f"資料庫連線失敗，請檢查 Secrets 設定。\n錯誤訊息：{e}")
         st.stop()
 
 def get_user_data(conn):
     try:
-        # ttl=0 確保每次都讀取最新資料
         df = conn.read(ttl=0)
         if "username" not in df.columns:
             return pd.DataFrame(columns=["username", "password"])
@@ -39,31 +42,26 @@ def get_user_data(conn):
 # --------------------------------------------------
 # 3. LSTM 預測模型
 # --------------------------------------------------
-def lstm_predict(df, days_to_predict, user_epochs):
+def lstm_predict(df, days_to_predict, epochs):
     data = df[["Close"]].values
 
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data)
 
-    prediction_days = 60
-    if len(scaled_data) < prediction_days:
-        return "數據不足（需至少 60 筆）"
+    lookback = 60
+    if len(scaled_data) < lookback:
+        return "資料不足（至少 60 天）"
 
     x_train, y_train = [], []
-    for i in range(prediction_days, len(scaled_data)):
-        x_train.append(scaled_data[i - prediction_days:i, 0])
+    for i in range(lookback, len(scaled_data)):
+        x_train.append(scaled_data[i - lookback:i, 0])
         y_train.append(scaled_data[i, 0])
 
-    x_train = np.array(x_train)
+    x_train = np.array(x_train).reshape(-1, lookback, 1)
     y_train = np.array(y_train)
 
-    x_train = np.reshape(
-        x_train,
-        (x_train.shape[0], x_train.shape[1], 1)
-    )
-
     model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=(prediction_days, 1)),
+        LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
         LSTM(50),
         Dense(25),
         Dense(1)
@@ -78,25 +76,20 @@ def lstm_predict(df, days_to_predict, user_epochs):
         x_train,
         y_train,
         batch_size=32,
-        epochs=user_epochs,
+        epochs=epochs,
         verbose=0
     )
 
-    # 預測未來
-    temp_input = scaled_data[-prediction_days:].reshape(1, prediction_days, 1)
-    future_predictions = []
+    temp = scaled_data[-lookback:].reshape(1, lookback, 1)
+    future = []
 
     for _ in range(days_to_predict):
-        prediction = model.predict(temp_input, verbose=0)
-        future_predictions.append(prediction[0, 0])
-        temp_input = np.append(
-            temp_input[:, 1:, :],
-            prediction.reshape(1, 1, 1),
-            axis=1
-        )
+        pred = model.predict(temp, verbose=0)
+        future.append(pred[0, 0])
+        temp = np.append(temp[:, 1:, :], pred.reshape(1, 1, 1), axis=1)
 
     result = scaler.inverse_transform(
-        np.array(future_predictions).reshape(-1, 1)
+        np.array(future).reshape(-1, 1)
     )
 
     return round(float(result[-1][0]), 2)
@@ -112,40 +105,32 @@ if "logged_in" not in st.session_state:
 # ================= 未登入 =================
 if not st.session_state.logged_in:
     st.title("🚀 AI 股價深度學習預測系統")
-    st.info("👋 歡迎！請先註冊或登入以使用完整功能")
+    st.info("請先登入或註冊帳號")
 
     st.sidebar.title("🔐 會員系統")
-    mode = st.sidebar.radio(
-        "請選擇操作",
-        ["登入", "註冊帳號"],
-        key="auth_mode"
-    )
+    mode = st.sidebar.radio("操作模式", ["登入", "註冊"])
 
-    username = st.sidebar.text_input("帳號", key="username")
-    password = st.sidebar.text_input("密碼", type="password", key="password")
+    username = st.sidebar.text_input("帳號")
+    password = st.sidebar.text_input("密碼", type="password")
 
-    df_users = get_user_data(conn)
+    users_df = get_user_data(conn)
 
-    if mode == "註冊帳號":
-        if st.sidebar.button("確認註冊"):
-            if username and password and username not in df_users["username"].astype(str).values:
+    if mode == "註冊":
+        if st.sidebar.button("註冊"):
+            if username and password and username not in users_df["username"].astype(str).values:
                 new_user = pd.DataFrame([{
                     "username": username,
                     "password": password
                 }])
-                updated_df = pd.concat(
-                    [df_users, new_user],
-                    ignore_index=True
-                )
-                conn.update(data=updated_df)
-                st.sidebar.success("註冊成功！請切換到登入模式")
+                conn.update(data=pd.concat([users_df, new_user], ignore_index=True))
+                st.sidebar.success("註冊成功，請登入")
             else:
                 st.sidebar.error("帳號已存在或欄位空白")
 
-    else:  # 登入
+    else:
         if st.sidebar.button("登入"):
-            user_row = df_users[df_users["username"].astype(str) == username]
-            if not user_row.empty and str(user_row.iloc[0]["password"]) == password:
+            row = users_df[users_df["username"].astype(str) == username]
+            if not row.empty and str(row.iloc[0]["password"]) == password:
                 st.session_state.logged_in = True
                 st.session_state.user = username
                 st.rerun()
@@ -161,14 +146,11 @@ else:
         st.rerun()
 
     st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ 預測參數")
+    st.sidebar.header("⚙️ 參數設定")
 
-    symbol = st.sidebar.text_input(
-        "股票代號（例：2330.TW / TSLA）",
-        "2330.TW"
-    )
+    symbol = st.sidebar.text_input("股票代號", "2330.TW")
 
-    user_epochs = st.sidebar.select_slider(
+    epochs = st.sidebar.select_slider(
         "訓練輪數 (Epochs)",
         options=[1, 5, 10, 20],
         value=5
@@ -182,38 +164,21 @@ else:
 
     if st.sidebar.button("開始 AI 預測"):
         if not periods:
-            st.warning("請至少選擇一個預測期間")
+            st.warning("請選擇至少一個預測期間")
         else:
             with st.spinner("AI 模型訓練中，請稍候..."):
-                df = yf.download(
-                    symbol,
-                    period="2y",
-                    progress=False
-                )
+                df = yf.download(symbol, period="2y", progress=False)
 
                 if df.empty:
-                    st.error("查無股票資料，請確認代號是否正確")
+                    st.error("查無股票資料，請確認代號")
                 else:
-                    st.subheader(f"📈 {symbol} 近兩年收盤價")
+                    st.subheader(f"{symbol} 近兩年收盤價")
                     st.line_chart(df["Close"])
 
-                    period_map = {
-                        "明日": 1,
-                        "1週": 5,
-                        "1個月": 22
-                    }
-
-                    st.subheader("🤖 AI 預測結果")
+                    mapping = {"明日": 1, "1週": 5, "1個月": 22}
                     cols = st.columns(len(periods))
 
                     for i, p in enumerate(periods):
-                        price = lstm_predict(
-                            df,
-                            period_map[p],
-                            user_epochs
-                        )
+                        price = lstm_predict(df, mapping[p], epochs)
                         with cols[i]:
-                            st.metric(
-                                label=f"{p} 預測價",
-                                value=f"${price}"
-                            )
+                            st.metric(f"{p} 預測價", f"${price}")
