@@ -7,53 +7,110 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
-# --- Google Sheets 永久資料庫連接 ---
-# 在 Streamlit Cloud 的 Secrets 中設定你的試算表網址
-conn = st.connection("gsheets", type=GSheetsConnection)
+# 1. 必須是第一個 Streamlit 指令
+st.set_page_config(page_title="AI 股價預測系統", layout="wide")
+
+# 2. 資料庫連線
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error("Secrets 設定有誤，請確認。")
+    st.stop()
 
 def get_user_data():
-    # 讀取現有帳號，如果表是空的則回傳空 Dataframe
     try:
-        return conn.read(worksheet="Sheet1", ttl=0)
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        return df.dropna(subset=["username"])
     except:
         return pd.DataFrame(columns=["username", "password"])
 
-def save_user_data(df):
-    # 將更新後的名單寫回 Google Sheets
-    conn.update(worksheet="Sheet1", data=df)
-
-# --- 登入與註冊介面 ---
-def auth_page():
-    st.sidebar.title("🔐 永久帳號系統")
-    auth_mode = st.sidebar.radio("操作項目", ["登入", "新用戶註冊"])
+# 3. LSTM 運算函數
+def lstm_predict(df, days_to_predict, user_epochs):
+    data = df.filter(['Close']).values
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data)
+    prediction_days = 60
     
-    user_input = st.sidebar.text_input("帳號")
-    pass_input = st.sidebar.text_input("密碼", type="password")
+    x_train, y_train = [], []
+    for x in range(prediction_days, len(scaled_data)):
+        x_train.append(scaled_data[x-prediction_days:x, 0])
+        y_train.append(scaled_data[x, 0])
+    
+    x_train = np.reshape(np.array(x_train), (len(x_train), prediction_days, 1))
+    y_train = np.array(y_train)
 
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(prediction_days, 1)),
+        LSTM(50),
+        Dense(25),
+        Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(x_train, y_train, batch_size=32, epochs=user_epochs, verbose=0)
+
+    temp_input = scaled_data[-prediction_days:].reshape(1, prediction_days, 1)
+    future_preds = []
+    for _ in range(days_to_predict):
+        current_pred = model.predict(temp_input, verbose=0)
+        future_preds.append(current_pred[0, 0])
+        new_val = current_pred.reshape(1, 1, 1)
+        temp_input = np.append(temp_input[:, 1:, :], new_val, axis=1)
+
+    res = scaler.inverse_transform(np.array(future_preds).reshape(-1, 1))
+    return round(float(res[-1][0]), 2)
+
+# 4. 主程式邏輯
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
+    st.title("🚀 AI 股價預測系統")
+    st.info("請從左側登入或註冊以使用功能。")
+    
+    mode = st.sidebar.radio("帳號管理", ["登入", "註冊帳號"])
+    u = st.sidebar.text_input("帳號")
+    p = st.sidebar.text_input("密碼", type="password")
+    
     df_users = get_user_data()
+    
+    if mode == "註冊帳號" and st.sidebar.button("確認註冊"):
+        if u and p and u not in df_users["username"].values:
+            new_data = pd.concat([df_users, pd.DataFrame([{"username": u, "password": p}])], ignore_index=True)
+            conn.update(worksheet="Sheet1", data=new_data)
+            st.sidebar.success("註冊成功！現在請切換到登入模式。")
+        else:
+            st.sidebar.error("帳號已存在或輸入空白。")
+            
+    if mode == "登入" and st.sidebar.button("登入系統"):
+        user_record = df_users[df_users["username"] == u]
+        if not user_record.empty and str(user_record.iloc[0]["password"]) == p:
+            st.session_state['logged_in'] = True
+            st.session_state['user'] = u
+            st.rerun()
+        else:
+            st.sidebar.error("帳號或密碼錯誤。")
+else:
+    st.title(f"📊 歡迎使用, {st.session_state['user']}!")
+    
+    symbol = st.sidebar.text_input("輸入股票代號 (如: 2330.TW)", "2330.TW")
+    user_epochs = st.sidebar.select_slider("訓練輪數 (Epochs)", options=[1, 5, 10], value=1)
+    st.sidebar.warning("注意：選取多個期間會大幅增加運算時間。")
+    
+    periods = st.sidebar.multiselect("預測期間", ["明日", "1週", "1個月"], default=["明日"])
 
-    if auth_mode == "新用戶註冊":
-        if st.sidebar.button("確認註冊"):
-            if user_input in df_users["username"].values:
-                st.sidebar.error("此帳號已被註冊！")
-            elif user_input and pass_input:
-                new_user = pd.DataFrame([{"username": user_input, "password": pass_input}])
-                updated_df = pd.concat([df_users, new_user], ignore_index=True)
-                save_user_data(updated_df)
-                st.sidebar.success("帳號已永久儲存！請切換至登入")
+    if st.sidebar.button("開始 AI 運算"):
+        with st.spinner('運算中...這可能需要一分鐘...'):
+            df = yf.download(symbol, period="2y", progress=False)
+            if not df.empty:
+                st.line_chart(df['Close'])
+                period_map = {"明日": 1, "1週": 5, "1個月": 22}
+                cols = st.columns(len(periods))
+                for i, p in enumerate(periods):
+                    val = lstm_predict(df, period_map[p], user_epochs)
+                    cols[i].metric(label=p, value=f"${val}")
             else:
-                st.sidebar.warning("請填寫完整資訊")
-                
-    else: # 登入模式
-        if st.sidebar.button("立即進入系統"):
-            # 檢查帳號密碼是否匹配
-            user_record = df_users[df_users["username"] == user_input]
-            if not user_record.empty and str(user_record.iloc[0]["password"]) == pass_input:
-                st.session_state['logged_in'] = True
-                st.session_state['current_user'] = user_input
-                st.rerun()
-            else:
-                st.sidebar.error("帳號或密碼錯誤")
+                st.error("查無資料。")
 
-# --- (下方保留之前的 LSTM 模型與 UI 代碼) ---
-# ... [與前次代碼相同] ...
+    if st.sidebar.button("登出"):
+        st.session_state['logged_in'] = False
+        st.rerun()
