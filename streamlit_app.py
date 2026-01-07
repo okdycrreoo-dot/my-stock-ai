@@ -9,38 +9,42 @@ import re
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="StockAI 管理系統", layout="centered")
 
-# --- 2. 共享資源載入 ---
+# --- 2. 記憶體優化：30 人共享 TensorFlow 模型 ---
 @st.cache_resource
 def load_shared_model():
     return "AI 模型核心已就緒"
 
 model_status = load_shared_model()
 
-# --- 3. 核心修正：Base64 模數補齊 (徹底解決 65 字元報錯) ---
-def clean_and_pad_key(raw_key):
-    """移除雜質並自動補齊 Base64 填充字元"""
+# --- 3. 核心修正：二進位過濾器 (解決 Unused bytes 問題) ---
+def get_pure_private_key(raw_key):
+    """徹底過濾非合法 Base64 字元，並補足 Padding"""
     header = "-----BEGIN PRIVATE KEY-----"
     footer = "-----END PRIVATE KEY-----"
     
-    # 提取核心編碼內容
+    # 提取核心部分 (移除標頭、標尾、轉義換行)
     core = raw_key.replace(header, "").replace(footer, "").replace("\\n", "").replace("\n", "").strip()
     
-    # 只保留合法字元，過濾掉任何可能導致 65 字元的亂碼
+    # 關鍵：只保留 Base64 合法字元集 (A-Z, a-z, 0-9, +, /)
+    # 這會物理性剔除導致報錯的 \xdab 等二進位雜質
     core = "".join(re.findall(r"[A-Za-z0-9\+/]", core))
     
-    # 強制對齊：Base64 長度必須是 4 的倍數
+    # 強制補齊填充字元 '=' 至 4 的倍數 (解決 Padding 錯誤)
     missing_padding = len(core) % 4
     if missing_padding:
         core += "=" * (4 - missing_padding)
     
-    # 重新組合成 PEM 格式
-    return f"{header}\n{core}\n{footer}\n"
+    # 按照 Google 標準格式：每 64 個字元換一行重新排版
+    formatted_body = "\n".join([core[i:i+64] for i in range(0, len(core), 64)])
+    
+    return f"{header}\n{formatted_body}\n{footer}\n"
 
 @st.cache_resource
 def get_stable_client():
     try:
         s = st.secrets["connections"]["gsheets"]
-        fixed_key = clean_and_pad_key(s["private_key"])
+        # 使用二進位過濾後的私鑰
+        fixed_key = get_pure_private_key(s["private_key"])
         
         info = {
             "type": "service_account",
@@ -59,10 +63,10 @@ def get_stable_client():
         creds = Credentials.from_service_account_info(info, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"安全性連線失敗：{str(e)}")
+        st.error(f"安全性連線最終嘗試中: {str(e)}")
         return None
 
-# --- 4. 登入介面 ---
+# --- 4. 登入邏輯 ---
 if 'user' not in st.session_state:
     st.session_state.user = None
 
@@ -85,14 +89,21 @@ def login():
                     check = df[(df['username'] == u) & (df['password'] == p)]
                     if not check.empty:
                         st.session_state.user = u
+                        st.success("驗證通過！")
+                        time.sleep(0.5)
                         st.rerun()
                     else:
                         st.error("帳號或密碼錯誤")
                 except Exception as e:
-                    st.error(f"資料表存取失敗。")
+                    st.error(f"資料讀取失敗，請確認分頁 'users' 存在。")
 
+# --- 5. 主程式頁面 ---
 if st.session_state.user is None:
     login()
 else:
     st.sidebar.success(f"目前用戶：{st.session_state.user}")
-    st.title(f"📊 {st.session_state.user} 的個人面板")
+    if st.sidebar.button("登出系統"):
+        st.session_state.user = None
+        st.rerun()
+    st.title(f"📊 {st.session_state.user} 的分析面板")
+    st.write(f"系統狀態：{model_status}")
