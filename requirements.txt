@@ -1,7 +1,8 @@
 streamlit
-tensorflow
+gspread
+google-auth
 yfinance
 pandas
-scikit-learn
 numpy
-st-gsheets-connection
+scikit-learn
+tensorflow
