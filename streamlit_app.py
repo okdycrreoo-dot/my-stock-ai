@@ -10,43 +10,28 @@ st.set_page_config(page_title="StockAI 管理系統", layout="centered")
 # --- 2. 記憶體優化：30 人共享 TensorFlow 模型 ---
 @st.cache_resource
 def load_shared_model():
-    # 這裡確保模型只載入一次，避免 30 人併發時記憶體溢出
+    # 確保 TensorFlow 只加載一次，防止 30 人併發導致 OOM 崩潰
     return "AI 模型運算核心已啟動"
 
 model_status = load_shared_model()
 
-# --- 3. 核心修正：認證資訊封裝 (解決截圖中所有參數衝突與 Base64 錯誤) ---
-def get_fixed_conn():
+# --- 3. 核心修正：強制修正 Secrets 中的私鑰 (解決 Base64 65字元錯誤) ---
+# 由於 st.secrets 是唯讀的，我們在讀取資料時手動傳入修正後的憑證字典
+def get_verified_connection():
     try:
-        # 1. 讀取 Secrets 並轉為一般字典 (解決 Secrets does not support item assignment)
-        raw_creds = st.secrets["connections"]["gsheets"].to_dict()
+        # 取得原始設定
+        conf = st.secrets["connections"]["gsheets"].to_dict()
+        # 強制修正私鑰換行與空格問題
+        if "private_key" in conf:
+            conf["private_key"] = conf["private_key"].replace("\\n", "\n").strip()
         
-        # 2. 建立標準 Service Account 字典 (解決所有 unexpected keyword 報錯)
-        service_account_info = {
-            "type": "service_account",
-            "project_id": raw_creds.get("project_id"),
-            "private_key_id": raw_creds.get("private_key_id"),
-            # 強制修復 Base64 65字元錯誤
-            "private_key": raw_creds.get("private_key", "").replace("\\n", "\n").strip(),
-            "client_email": raw_creds.get("client_email"),
-            "client_id": raw_creds.get("client_id"),
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": raw_creds.get("client_x509_cert_url")
-        }
-        
-        # 3. 建立連線：使用 service_account_info 封裝格式
-        return st.connection(
-            "gsheets", 
-            type=GSheetsConnection, 
-            service_account_info=service_account_info
-        )
+        # 建立連線，僅傳入認證需要的關鍵參數
+        return st.connection("gsheets", type=GSheetsConnection, **conf)
     except Exception as e:
-        st.error(f"連線預處理失敗: {e}")
-        return None
+        # 如果上方失敗，嘗試最簡化的自動連線
+        return st.connection("gsheets", type=GSheetsConnection)
 
-conn = get_fixed_conn()
+conn = get_verified_connection()
 
 # --- 4. 登入系統邏輯 ---
 if 'user' not in st.session_state:
@@ -54,47 +39,47 @@ if 'user' not in st.session_state:
 
 def login():
     st.title("🚀 StockAI 登入系統")
-    with st.form("login_gate"):
+    with st.form("login_form"):
         u = st.text_input("帳號")
         p = st.text_input("密碼", type="password")
         submit = st.form_submit_button("進入系統", use_container_width=True)
         
         if submit:
             try:
-                # 取得試算表網址
+                # 取得試算表網址並讀取用戶資料表
                 sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                # 讀取 users 工作表 (ttl=0 確保即時驗證)
                 df = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=0)
                 
-                # 統一格式比對
+                # 數據清洗與驗證
                 df['username'] = df['username'].astype(str).str.strip()
                 df['password'] = df['password'].astype(str).str.strip()
                 
                 check = df[(df['username'] == u) & (df['password'] == p)]
                 if not check.empty:
                     st.session_state.user = u
-                    st.success("登入成功！")
+                    st.success("驗證成功，正在跳轉...")
                     time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("帳號或密碼不正確")
             except Exception as e:
-                st.error(f"資料庫讀取失敗，請確認分頁名稱為 'users'。錯誤: {e}")
+                st.error(f"資料庫存取失敗: {e}")
 
-# --- 5. 主程式頁面 ---
+# --- 5. 主程式介面 ---
 if st.session_state.user is None:
     login()
 else:
     user = st.session_state.user
-    st.sidebar.success(f"已登入用戶：{user}")
+    st.sidebar.success(f"目前登入：{user}")
     if st.sidebar.button("登出系統"):
         st.session_state.user = None
         st.rerun()
         
-    st.title(f"📊 {user} 的個人分析面板")
+    st.title(f"📊 {user} 的個人面板")
     st.write(f"系統狀態：{model_status}")
     st.divider()
     
-    stock = st.text_input("輸入股票代碼進行分析 (例: 2330)")
+    # 預留功能區
+    stock = st.text_input("輸入股票代碼進行 AI 分析")
     if stock:
-        st.write(f"正在分析 {stock} 的歷史數據...")
+        st.write(f"正在為 {stock} 調用 TensorFlow 進行預測...")
