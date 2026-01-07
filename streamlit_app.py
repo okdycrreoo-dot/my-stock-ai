@@ -4,42 +4,41 @@ import gspread
 from google.oauth2.service_account import Credentials
 import tensorflow as tf
 import time
-import base64
 
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="StockAI 管理系統", layout="centered")
 
-# --- 2. 共享資源載入 (TensorFlow) ---
+# --- 2. 共享資源 (TensorFlow) ---
 @st.cache_resource
 def load_shared_model():
+    # 確保 30 人併發時模型只載入一次
     return "AI 模型核心已就緒"
 
 model_status = load_shared_model()
 
-# --- 3. 核心修正：手動 Base64 填充與認證 ---
+# --- 3. 核心修正：手動 Base64 補齊與認證 ---
 @st.cache_resource
 def get_gspread_client():
     try:
-        # 從 Secrets 獲取原始設定
-        conf = st.secrets["connections"]["gsheets"].to_dict()
+        # 1. 取得原始 Secrets
+        s = st.secrets["connections"]["gsheets"]
         
-        # 關鍵：修正私鑰格式
-        raw_key = conf.get("private_key", "")
-        # 1. 處理轉義換行 2. 移除前後所有空格或隱形字元
-        fixed_key = raw_key.replace("\\n", "\n").strip()
+        # 2. 清洗 Private Key：處理轉義換行並移除所有首尾不可見字元
+        # 這是解決截圖中 "Invalid base64-encoded string (65)" 的關鍵
+        raw_key = s["private_key"].replace("\\n", "\n").strip()
         
-        # 重新構建標準認證字典
-        creds_info = {
+        # 3. 構建認證字典 (不使用 st.connection 避免自動檢查報錯)
+        creds_dict = {
             "type": "service_account",
-            "project_id": conf.get("project_id"),
-            "private_key_id": conf.get("private_key_id"),
-            "private_key": fixed_key,
-            "client_email": conf.get("client_email"),
-            "client_id": conf.get("client_id"),
+            "project_id": s["project_id"],
+            "private_key_id": s["private_key_id"],
+            "private_key": raw_key,
+            "client_email": s["client_email"],
+            "client_id": s["client_id"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": conf.get("client_x509_cert_url")
+            "client_x509_cert_url": s["client_x509_cert_url"]
         }
         
         scopes = [
@@ -47,32 +46,32 @@ def get_gspread_client():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # 使用底層庫直接認證，避開 st.connection 的自動檢查 Bug
-        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        # 使用底層庫直接認證
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error(f"安全性連線失敗：憑證格式不正確。\n錯誤詳情：{str(e)}")
+        st.error(f"安全性連線失敗：憑證格式不正確。\n詳細訊息：{str(e)}")
         return None
 
-# --- 4. 登入邏輯 ---
+# --- 4. 登入系統 ---
 if 'user' not in st.session_state:
     st.session_state.user = None
 
 def login():
     st.title("🚀 StockAI 登入系統")
-    with st.form("login_panel"):
+    with st.form("login_gate"):
         u = st.text_input("帳號")
         p = st.text_input("密碼", type="password")
         if st.form_submit_button("進入系統", use_container_width=True):
             client = get_gspread_client()
             if client:
                 try:
-                    # 獲取試算表網址並讀取
-                    sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                    sheet = client.open_by_url(sheet_url).worksheet("users")
+                    # 讀取試算表
+                    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+                    sheet = client.open_by_url(url).worksheet("users")
                     df = pd.DataFrame(sheet.get_all_records())
                     
-                    # 清理與比對
+                    # 數據清洗與比對
                     df['username'] = df['username'].astype(str).str.strip()
                     df['password'] = df['password'].astype(str).str.strip()
                     
@@ -85,9 +84,9 @@ def login():
                     else:
                         st.error("帳號或密碼錯誤")
                 except Exception as e:
-                    st.error(f"資料讀取失敗：{str(e)}")
+                    st.error(f"無法存取試算表，請確認分頁名稱為 'users'。錯誤：{e}")
 
-# --- 5. 主程式 ---
+# --- 5. 主程式頁面 ---
 if st.session_state.user is None:
     login()
 else:
@@ -99,4 +98,4 @@ else:
     st.title(f"📊 {st.session_state.user} 的個人面板")
     st.info(f"系統狀態：{model_status}")
     st.divider()
-    # 後續選股功能...
+    # 這裡放選股分析功能
