@@ -4,104 +4,72 @@ import pandas as pd
 import tensorflow as tf
 import time
 
-# --- 頁面設定 ---
-st.set_page_config(page_title="StockAI 投資管理系統", layout="wide")
+# 頁面配置
+st.set_page_config(page_title="StockAI 管理系統", layout="centered")
 
-# --- 1. 記憶體優化：共用 TensorFlow 模型 ---
-# 使用 cache_resource 確保 30 人共用同一個模型，避免記憶體溢出 (OOM)
+# --- 1. 記憶體優化：共用模型 ---
 @st.cache_resource
-def load_stock_model():
+def load_model():
+    # 這裡請確保您的 GitHub 倉庫中有 model.h5 檔案
     try:
-        # 替換為您的模型路徑，例如 'model.h5'
-        # model = tf.keras.models.load_model('your_model.h5')
-        # return model
-        return "模型載入成功 (模擬)" 
-    except Exception as e:
-        st.error(f"模型載入失敗: {e}")
+        # return tf.keras.models.load_model('model.h5')
+        return "模型載入成功 (模擬)"
+    except:
         return None
 
-model = load_stock_model()
+model = load_model()
 
-# --- 2. 建立 Google Sheets 連線 ---
+# --- 2. Google Sheets 連線 ---
+# 確保 Secrets 已經設定好 [connections.gsheets]
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 讀取使用者資料表 (假設工作表名稱為 'users')
-def get_user_data():
-    return conn.read(worksheet="users", ttl=5) # ttl=5 表示每 5 秒快取過期
+# --- 3. 登入系統 ---
+if 'user_auth' not in st.session_state:
+    st.session_state.user_auth = None
 
-# --- 3. 登入邏輯 ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = None
-
-def login():
-    st.title("🚀 StockAI 系統登入")
-    
-    with st.container():
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            username = st.text_input("帳號")
-            password = st.text_input("密碼", type="password")
-            login_btn = st.button("確認登入", use_container_width=True)
-
-    if login_btn:
-        user_df = get_user_data()
-        # 驗證帳號密碼
-        user_match = user_df[(user_df['username'] == username) & (user_df['password'] == password)]
+def check_login():
+    st.title("🔐 StockAI 登入")
+    with st.form("login_form"):
+        user = st.text_input("帳號")
+        pw = st.text_input("密碼", type="password")
+        submit = st.form_submit_button("登入")
         
-        if not user_match.empty:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.success(f"歡迎回來，{username}！")
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error("帳號或密碼不正確，請重新檢查。")
+        if submit:
+            # 從 Google Sheets 的 'users' 工作表讀取資料
+            try:
+                df = conn.read(worksheet="users")
+                match = df[(df['username'] == user) & (df['password'] == pw)]
+                if not match.empty:
+                    st.session_state.user_auth = user
+                    st.success("登入成功！")
+                    st.rerun()
+                else:
+                    st.error("帳號或密碼錯誤")
+            except Exception as e:
+                st.error(f"資料庫連線失敗: {e}")
 
-# --- 4. 主程式內容 ---
-def main_app():
-    user = st.session_state.username
-    
-    # 側邊欄
-    st.sidebar.title("控制面板")
-    st.sidebar.write(f"當前使用者：**{user}**")
+# --- 4. 主程式介面 ---
+if st.session_state.user_auth is None:
+    check_login()
+else:
+    user = st.session_state.user_auth
+    st.sidebar.title(f"👤 {user}")
     if st.sidebar.button("登出"):
-        st.session_state.logged_in = False
-        st.session_state.username = None
+        st.session_state.user_auth = None
         st.rerun()
 
-    st.title(f"📈 {user} 的專屬選股工作區")
+    st.title(f"📊 歡迎回來，{user}")
     
-    # 功能區塊
-    tab1, tab2 = st.tabs(["AI 選股預測", "個人操作紀錄"])
+    # 互不干涉的核心：根據 user 篩選資料
+    st.info("正在載入您的專屬數據...")
     
-    with tab1:
-        st.subheader("TensorFlow AI 預測模型")
-        stock_code = st.text_input("輸入股票代號 (例如: 2330.TW)")
-        
-        if st.button("開始分析"):
-            with st.spinner("AI 運算中..."):
-                # 這裡執行您的 TensorFlow 預測邏輯
-                # result = model.predict(data)
-                time.sleep(2)
-                st.success(f"股票 {stock_code} 分析完成！預測結果：看多 (模擬)")
-                
-                # 將結果存回試算表 (假設有另一個工作表叫 'logs')
-                new_log = pd.DataFrame([{"user": user, "stock": stock_code, "action": "分析", "time": time.ctime()}])
-                # 注意：st-gsheets-connection 更新資料通常需要先讀取再寫入，或使用其 update 方法
-                # st.write("紀錄已同步至 Google Sheets")
+    # 範例：如果您的 'data' 工作表有一欄叫 'owner'
+    # all_data = conn.read(worksheet="data")
+    # user_data = all_data[all_data['owner'] == user]
+    # st.dataframe(user_data)
 
-    with tab2:
-        st.subheader("您的歷史紀錄")
-        # 這裡示範如何過濾「只顯示該使用者」的資料，達成互不干涉
-        # all_logs = conn.read(worksheet="logs")
-        # my_logs = all_logs[all_logs['user'] == user]
-        # st.dataframe(my_logs)
-        st.info("這裡將顯示您過去的選股分析紀錄。")
-
-# --- 執行進入點 ---
-if __name__ == "__main__":
-    if not st.session_state.logged_in:
-        login()
-    else:
-        main_app()
+    # 執行模型預測
+    if st.button("啟動 AI 選股預測"):
+        with st.spinner("AI 分析中..."):
+            time.sleep(2) # 模擬運算
+            st.success("分析完成！請查看下方結果。")
