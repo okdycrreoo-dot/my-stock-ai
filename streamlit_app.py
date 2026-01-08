@@ -77,25 +77,23 @@ def perform_ai_engine(df, p_days, precision):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
-    # AI 預測邏輯
     noise = np.random.normal(0, vol, p_days)
     trend = (int(precision) - 55) / 1000
     pred_prices = curr_p * np.cumprod(1 + trend + noise)
     
-    # 預測明日細節 (明日為預測序列第1天)
+    # 預測明日細節
     next_close = pred_prices[0]
     next_high = next_close * (1 + vol)
     next_low = next_close * (1 - vol)
     
-    # 1. 實戰積極型參數 (調整因子 f 讓價格更靠近現價)
+    # 實戰積極型參數
     periods = {
-        "5日短期": (last['MA5'], 0.8),   # 積極捕捉短線回檔
-        "20日中期": (last['MA20'], 1.5), # 強化中期佈局效率
-        "60日長期": (last['MA60'], 2.2)  # 避免等待過深的回調
+        "5日短期": (last['MA5'], 0.8),
+        "20日中期": (last['MA20'], 1.5),
+        "60日長期": (last['MA60'], 2.2)
     }
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
     
-    # AI 評語邏輯
     score = 0
     reasons = []
     if curr_p > last['MA20']: score += 1; reasons.append("站上月線")
@@ -116,7 +114,7 @@ def render_terminal(symbol, p_days, precision):
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision)
-    st.title(f"📊 {f_id} 實戰版技術終端")
+    st.title(f"📊 {f_id} 實戰終端 (MA 視覺強化)")
 
     # A. 橫向行情條
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
@@ -129,27 +127,30 @@ def render_terminal(symbol, p_days, precision):
         with m_cols[i]:
             st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
-    # B. AI 策略建議 (實戰積極型價格)
+    # B. AI 策略建議
     st.write("") 
     s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]:
             st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # C. 技術圖表 (加入 MA5, MA20, MA60)
+    # C. 技術圖表 (MA5 顏色與粗度修正)
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03)
     p_df = df.tail(90)
     
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
                                  increasing_line_color='#FF3131', increasing_fillcolor='#FF3131',
                                  decreasing_line_color='#00FF41', decreasing_fillcolor='#00FF41', name='K線'), 1, 1)
-    # 加入 2. MA5 與 MA60 線
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFFFF', width=1.2)), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5)), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=1.8)), 1, 1)
+    
+    # --- MA5 修正：亮黃色且加粗 ---
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5 (短)', line=dict(color='#FFFF00', width=2.5)), 1, 1)
+    # MA20: 亮藍色
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20 (中)', line=dict(color='#00F5FF', width=1.5)), 1, 1)
+    # MA60: 橙色
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60 (長)', line=dict(color='#FFAC33', width=2.0)), 1, 1)
     
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測線', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
     
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量', marker_color=v_colors), 2, 1)
@@ -162,7 +163,7 @@ def render_terminal(symbol, p_days, precision):
     fig.update_layout(template="plotly_dark", height=750, xaxis_rangeslider_visible=False, margin=dict(t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    # D. 右下角 AI 綜合評語 (新增預測明日收盤與區間)
+    # D. 右下角 AI 綜合評語
     st.markdown(f"""
     <div class='ai-advice-box'>
         <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
@@ -173,7 +174,6 @@ def render_terminal(symbol, p_days, precision):
             <p style='margin:5px 0 0 0; font-size:1.2rem; color:#FFAC33;'>預估收盤：{insight[3]:.2f}</p>
             <p style='margin:2px 0 0 0; font-size:0.95rem; color:#8899A6;'>預計波動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
         </div>
-        <p style='font-size:0.9rem; color:#8899A6; margin-top:10px;'>💡 建議：此價格為積極型參數設定。若明日股價進入預測區間下限，可考慮佈局。</p>
     </div>
     """, unsafe_allow_html=True)
 
