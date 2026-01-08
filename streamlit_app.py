@@ -30,9 +30,11 @@ st.markdown("""
         height: 3.5rem !important; width: 100% !important;
     }
     .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 18px; margin-bottom: 12px; border: 1px solid #30363D; }
-    .price-buy { color: #00FF41; font-weight: 900; font-size: 1.3rem; }
-    .price-sell { color: #FF3131; font-weight: 900; font-size: 1.3rem; }
-    .realtime-val { color: #FFFF00; font-size: 1.5rem; font-weight: 900; }
+    /* 修正買賣建議顏色顏色與行情一致 */
+    .price-buy { color: #FF3131; font-weight: 900; font-size: 1.3rem; }
+    .price-sell { color: #00FF41; font-weight: 900; font-size: 1.3rem; }
+    .realtime-val { font-size: 1.4rem; font-weight: 900; }
+    .label-text { color: #8899A6 !important; font-size: 0.85rem; }
     button[data-testid="sidebar-button"] { display: none !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -66,57 +68,80 @@ def fetch_comprehensive_data(symbol):
 
 # --- 3. AI 預測引擎 ---
 def perform_ai_engine(df, p_days, precision):
-    last = df.iloc[-1]
+    last, prev = df.iloc[-1], df.iloc[-2]
     vol = df['Close'].pct_change().tail(20).std()
     sens = (int(precision) / 55)
     
-    last_p = float(last['Close'])
+    curr_p, open_p, prev_c = float(last['Close']), float(last['Open']), float(prev['Close'])
+    curr_v = int(last['Volume'])
+    change_pct = ((curr_p - prev_c) / prev_c) * 100
+    
     noise = np.random.normal(0, vol, p_days)
     trend = (int(precision) - 55) / 1000
-    pred_prices = last_p * np.cumprod(1 + trend + noise)
+    pred_prices = curr_p * np.cumprod(1 + trend + noise)
     
     periods = {"5日短期": (last['MA5'], 1.6), "20日中期": (last['MA20'], 2.6), "60日長期": (last['MA60'], 4.0)}
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
-    return pred_prices, adv, last_p, int(last['Volume'])
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct
 
-# --- 4. 圖表渲染 (4層) ---
+# --- 4. 圖表渲染 ---
 def render_terminal(symbol, unit, p_days, precision):
     df, f_id = fetch_comprehensive_data(symbol)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    pred_line, ai_recs, curr_p, curr_v = perform_ai_engine(df, p_days, precision)
-    st.title(f"📊 {f_id} 全能技術終端")
+    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct = perform_ai_engine(df, p_days, precision)
+    st.title(f"📊 {f_id} 終端看板")
 
-    # 面板 1: 即時數據與 AI 建議
-    m1, m2 = st.columns([1, 2.5])
+    # --- 核心修正：台股配色邏輯 (漲紅跌綠) ---
+    color_code = "#FF3131" if change_pct >= 0 else "#00FF41"
+    sign = "+" if change_pct >= 0 else ""
+
+    m1, m2 = st.columns([1.5, 3])
     with m1:
         st.markdown(f"""
         <div class='diag-box'>
-            <center><b>即時行情數據</b></center><hr style='border:0.5px solid #333'>
-            當前價格: <span class='realtime-val'>{curr_p:.2f}</span><br>
-            今日成交: <span class='realtime-val'>{curr_v:,}</span>
+            <center><b>即時行情數據 (台股配色)</b></center><hr style='border:0.5px solid #333'>
+            <table style='width:100%'>
+                <tr><td class='label-text'>當前價格</td><td class='realtime-val' style='color:{color_code}'>{curr_p:.2f}</td></tr>
+                <tr><td class='label-text'>漲跌幅度</td><td class='realtime-val' style='color:{color_code}'>{sign}{change_pct:.2f}%</td></tr>
+                <tr><td class='label-text'>今日開盤</td><td class='realtime-val' style='color:#FFFFFF'>{open_p:.2f}</td></tr>
+                <tr><td class='label-text'>昨日收盤</td><td class='realtime-val' style='color:#FFFFFF'>{prev_c:.2f}</td></tr>
+                <tr><td class='label-text'>今日成交</td><td class='realtime-val' style='color:#FFFF00'>{curr_v:,}</td></tr>
+            </table>
         </div>
         """, unsafe_allow_html=True)
     with m2:
         cols = st.columns(3)
         for i, (label, p) in enumerate(ai_recs.items()):
             with cols[i]:
-                st.markdown(f"<div class='diag-box'><center><b>{label} AI 策略</b></center><hr style='border:0.5px solid #333'>買入: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #333'>
+                買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>
+                賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>
+                """, unsafe_allow_html=True)
 
-    # 繪圖
     
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03)
     p_df = df.tail(90)
     
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K線'), 1, 1)
+    # Layer 1: K線 (修正配色)
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
+                                 increasing_line_color='#FF3131', increasing_fillcolor='#FF3131',
+                                 decreasing_line_color='#00FF41', decreasing_fillcolor='#00FF41', name='K線'), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5)), 1, 1)
+    
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測線', line=dict(color='#FF4500', width=3, dash='dash')), 1, 1)
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測線', line=dict(color='#FFAC33', width=3, dash='dash')), 1, 1)
 
-    v_cols = ['#FF3131' if p_df['Open'].iloc[i] > p_df['Close'].iloc[i] else '#00FF41' for i in range(len(p_df))]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量', marker_color=v_cols), 2, 1)
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=v_cols), 3, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K', line=dict(color='#00FF41', width=3.5)), 4, 1)
+    # Layer 2 & 3: 量與 MACD (修正配色)
+    v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量', marker_color=v_colors), 2, 1)
+    
+    m_colors = ['#FF3131' if val >= 0 else '#00FF41' for val in p_df['Hist']]
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD柱', marker_color=m_colors), 3, 1)
+    
+    # Layer 4: KDJ
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K', line=dict(color='#00F5FF', width=3)), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D', line=dict(color='#FFFF00', width=1.2)), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J', line=dict(color='#FF00FF', width=1.2)), 4, 1)
 
