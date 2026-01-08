@@ -1,0 +1,16 @@
+{
+  "name": "StockAI 全能技術終端",
+  "short_name": "StockAI",
+  "description": "專業級 AI 股票診斷與技術分析系統",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E1117",
+  "theme_color": "#00F5FF",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
