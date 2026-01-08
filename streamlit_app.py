@@ -10,22 +10,23 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 PWA 強制圖示注入 (強化版) ---
+# --- 1. 配置與 PWA 強制圖示注入 ---
 st.set_page_config(page_title="StockAI 全能技術終端", layout="wide")
 
-# 加入版本號 ?v=1.1 是為了強制手機瀏覽器刷新已記錄的 Streamlit 預設圖示
-st.markdown("""
-    <link rel="manifest" href="./manifest.json?v=1.1">
-    <link rel="apple-touch-icon" href="./icon.png?v=1.1">
-    <link rel="icon" type="image/png" href="./icon.png?v=1.1">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+# 定義您的 GitHub 原始圖片路徑 (確保此網址能在瀏覽器直接開啟圖片)
+ICON_URL = "https://raw.githubusercontent.com/okdycrreoo-dot/kdstockai/main/icon.png"
+
+# 強制更換圖示與 manifest 連結 (加入版本號 ?v=1.2 強制刷新)
+st.markdown(f"""
+    <link rel="manifest" href="./manifest.json?v=1.2">
+    <link rel="apple-touch-icon" href="{ICON_URL}">
+    <link rel="icon" type="image/png" href="{ICON_URL}">
     <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js?v=1.1');
-      });
-    }
+    if ('serviceWorker' in navigator) {{
+      window.addEventListener('load', function() {{
+        navigator.serviceWorker.register('./sw.js?v=1.2');
+      }});
+    }}
     </script>
     """, unsafe_allow_html=True)
 
