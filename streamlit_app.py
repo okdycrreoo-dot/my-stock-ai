@@ -30,7 +30,7 @@ st.markdown("""
         height: 3.5rem !important; width: 100% !important;
     }
     .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 18px; margin-bottom: 12px; border: 1px solid #30363D; }
-    /* 修正買賣建議顏色顏色與行情一致 */
+    .ai-advice-box { background-color: #1C2128; border: 1px solid #FFAC33; border-radius: 12px; padding: 20px; margin-top: 15px; }
     .price-buy { color: #FF3131; font-weight: 900; font-size: 1.3rem; }
     .price-sell { color: #00FF41; font-weight: 900; font-size: 1.3rem; }
     .realtime-val { font-size: 1.4rem; font-weight: 900; }
@@ -66,7 +66,42 @@ def fetch_comprehensive_data(symbol):
         except: time.sleep(1.5); continue
     return None, s
 
-# --- 3. AI 預測引擎 ---
+# --- 3. AI 核心分析與建議生成 ---
+def get_ai_insight(df, curr_p, change_pct):
+    last = df.iloc[-1]
+    k, d, j = last['K'], last['D'], last['J']
+    macd_hist = last['Hist']
+    ma20 = last['MA20']
+    
+    # 評級邏輯
+    score = 0
+    reasons = []
+    
+    # 1. 趨勢判定
+    if curr_p > ma20:
+        score += 1; reasons.append("股價位於站上月線，多頭結構穩健。")
+    else:
+        score -= 1; reasons.append("股價低於月線，短期空方佔優。")
+        
+    # 2. 動能判定 (MACD)
+    if macd_hist > 0:
+        score += 1; reasons.append("MACD紅柱擴張，上攻動能強勁。")
+    else:
+        score -= 1; reasons.append("MACD處於空方區域，謹防回檔。")
+        
+    # 3. 超買超賣 (KDJ)
+    if k > 80: reasons.append("KDJ進入高檔超買區，不建議追高。")
+    elif k < 20: score += 1; reasons.append("KDJ進入低檔超賣區，具備反彈潛力。")
+    
+    # 評級分類
+    if score >= 2: status = "🚀 強力買入"; color = "#FF3131"
+    elif score == 1: status = "📈 偏多操作"; color = "#FF7A7A"
+    elif score == 0: status = "⚖️ 觀望中性"; color = "#FFFF00"
+    else: status = "📉 偏空警戒"; color = "#00FF41"
+    
+    advice = " | ".join(reasons)
+    return status, advice, color
+
 def perform_ai_engine(df, p_days, precision):
     last, prev = df.iloc[-1], df.iloc[-2]
     vol = df['Close'].pct_change().tail(20).std()
@@ -82,30 +117,34 @@ def perform_ai_engine(df, p_days, precision):
     
     periods = {"5日短期": (last['MA5'], 1.6), "20日中期": (last['MA20'], 2.6), "60日長期": (last['MA60'], 4.0)}
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct
+    
+    status, insight, s_color = get_ai_insight(df, curr_p, change_pct)
+    
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (status, insight, s_color)
 
 # --- 4. 圖表渲染 ---
 def render_terminal(symbol, unit, p_days, precision):
     df, f_id = fetch_comprehensive_data(symbol)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct = perform_ai_engine(df, p_days, precision)
+    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight_data = perform_ai_engine(df, p_days, precision)
     st.title(f"📊 {f_id} 終端看板")
 
-    # --- 核心修正：台股配色邏輯 (漲紅跌綠) ---
+    # 配置配色
     color_code = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
 
+    # 面板 1: 行情即時數據庫
     m1, m2 = st.columns([1.5, 3])
     with m1:
         st.markdown(f"""
         <div class='diag-box'>
-            <center><b>即時行情數據 (台股配色)</b></center><hr style='border:0.5px solid #333'>
+            <center><b>即時行情數據</b></center><hr style='border:0.5px solid #333'>
             <table style='width:100%'>
                 <tr><td class='label-text'>當前價格</td><td class='realtime-val' style='color:{color_code}'>{curr_p:.2f}</td></tr>
                 <tr><td class='label-text'>漲跌幅度</td><td class='realtime-val' style='color:{color_code}'>{sign}{change_pct:.2f}%</td></tr>
-                <tr><td class='label-text'>今日開盤</td><td class='realtime-val' style='color:#FFFFFF'>{open_p:.2f}</td></tr>
-                <tr><td class='label-text'>昨日收盤</td><td class='realtime-val' style='color:#FFFFFF'>{prev_c:.2f}</td></tr>
+                <tr><td class='label-text'>今日開盤</td><td class='realtime-val'>{open_p:.2f}</td></tr>
+                <tr><td class='label-text'>昨日收盤</td><td class='realtime-val'>{prev_c:.2f}</td></tr>
                 <tr><td class='label-text'>今日成交</td><td class='realtime-val' style='color:#FFFF00'>{curr_v:,}</td></tr>
             </table>
         </div>
@@ -120,33 +159,41 @@ def render_terminal(symbol, unit, p_days, precision):
                 賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>
                 """, unsafe_allow_html=True)
 
-    
+    # 繪圖區
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03)
     p_df = df.tail(90)
     
-    # Layer 1: K線 (修正配色)
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
                                  increasing_line_color='#FF3131', increasing_fillcolor='#FF3131',
                                  decreasing_line_color='#00FF41', decreasing_fillcolor='#00FF41', name='K線'), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5)), 1, 1)
-    
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測線', line=dict(color='#FFAC33', width=3, dash='dash')), 1, 1)
-
-    # Layer 2 & 3: 量與 MACD (修正配色)
+    
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量', marker_color=v_colors), 2, 1)
-    
     m_colors = ['#FF3131' if val >= 0 else '#00FF41' for val in p_df['Hist']]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD柱', marker_color=m_colors), 3, 1)
     
-    # Layer 4: KDJ
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K', line=dict(color='#00F5FF', width=3)), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D', line=dict(color='#FFFF00', width=1.2)), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J', line=dict(color='#FF00FF', width=1.2)), 4, 1)
 
-    fig.update_layout(template="plotly_dark", height=900, xaxis_rangeslider_visible=False, margin=dict(t=10, b=10))
+    fig.update_layout(template="plotly_dark", height=750, xaxis_rangeslider_visible=False, margin=dict(t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- 核心更新：圖表下方的 AI 綜合評語區塊 ---
+    status, insight, s_color = insight_data
+    st.markdown(f"""
+    <div class='ai-advice-box'>
+        <span style='font-size:1.4rem; color:{s_color}; font-weight:900;'>{status}</span>
+        <hr style='border:0.5px solid #444; margin: 10px 0;'>
+        <p style='color:#FFFFFF; font-size:1.1rem; line-height:1.6;'>
+            <b>💡 AI 綜合診斷：</b>{insight}<br>
+            <b>🎯 操作建議：</b>參考上方建議價區間進行分批布局。若股價跌破月線或KDJ高檔交叉向下，應適度減碼防範風險。
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- 5. 主程式 ---
 def main():
