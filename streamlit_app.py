@@ -10,28 +10,54 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與專業視覺優化 (完整保留 CSS) ---
+# --- 1. 配置與專業視覺優化 (含手機按鈕強化) ---
 st.set_page_config(page_title="StockAI 全能技術終端", layout="wide")
 
 st.markdown("""
     <style>
+    /* 全域背景與文字基礎 */
     .stApp { background-color: #0E1117; color: #FFFFFF !important; }
     label, p, span, .stMarkdown, .stCaption { color: #FFFFFF !important; font-weight: 600 !important; }
+    
+    /* 手機版側邊欄開關按鈕強化 (發光效果) */
+    button[data-testid="sidebar-button"] {
+        background-color: #00F5FF !important;
+        color: #0E1117 !important;
+        border-radius: 50% !important;
+        width: 52px !important;
+        height: 52px !important;
+        left: 15px !important;
+        top: 15px !important;
+        box-shadow: 0px 0px 20px #00F5FF !important;
+        z-index: 999999 !important;
+        border: 2px solid #FFFFFF !important;
+    }
+    button[data-testid="sidebar-button"] svg {
+        width: 32px !important;
+        height: 32px !important;
+        fill: #0E1117 !important;
+    }
+
+    /* 下拉選單與側邊欄視覺 */
     div[data-baseweb="select"] > div { color: #FFFFFF !important; background-color: #1C2128 !important; }
     section[data-testid="stSidebar"] { background-color: #11151C !important; border-right: 1px solid #30363D; }
     section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 { color: #00F5FF !important; }
+
+    /* 儀表板卡片 */
     [data-testid="stMetricValue"] { color: #00F5FF !important; font-weight: bold; font-size: 2.2rem !important; }
-    [data-testid="stMetricLabel"] { color: #CCCCCC !important; font-size: 1.1rem !important; }
     .stMetric { background-color: #1C2128; border: 2px solid #30363D; border-radius: 15px; padding: 20px; }
+    
+    /* 診斷卡片與管理員控制台 */
+    .diag-box { background-color: #161B22; border: 1px solid #30363D; border-left: 5px solid #00F5FF; border-radius: 10px; padding: 15px; margin-bottom: 10px; }
     .streamlit-expanderHeader { background-color: #232931 !important; color: #00F5FF !important; font-size: 1.1rem !important; }
+    
+    /* 按鈕樣式 */
     .stButton>button { background-color: #2D333B !important; color: #FFFFFF !important; border: 1px solid #444C56 !important; border-radius: 8px; font-weight: bold !important; }
     .stButton>button:hover { border-color: #00F5FF !important; color: #00F5FF !important; }
-    /* 診斷卡片樣式 */
-    .diag-box { background-color: #161B22; border: 1px solid #30363D; border-left: 5px solid #00F5FF; border-radius: 10px; padding: 15px; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 數據引擎 (完整 3 次重試與指標計算) ---
+# --- 2. 數據引擎 (含 3 次重試與指標) ---
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_comprehensive_data(symbol):
     for _ in range(3):
@@ -40,6 +66,7 @@ def fetch_comprehensive_data(symbol):
             if data is not None and not data.empty:
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
+                # 計算技術指標
                 data['MA5'] = data['Close'].rolling(5).mean()
                 data['MA20'] = data['Close'].rolling(20).mean()
                 exp1 = data['Close'].ewm(span=12, adjust=False).mean()
@@ -53,48 +80,46 @@ def fetch_comprehensive_data(symbol):
             time.sleep(1.5); continue
     return None
 
-# --- 3. 新增：AI 多因子診斷與情感分析邏輯 ---
-def get_ai_diagnosis(df, precision):
+# --- 3. AI 診斷與情感分析模組 ---
+def perform_ai_analysis(df, precision):
     last, prev = df.iloc[-1], df.iloc[-2]
     score = 50
     reasons = []
     
-    # 技術因子
+    # 因子 1: 均線趨勢
     if last['Close'] > last['MA20']:
-        score += 15; reasons.append("🟢 股價站於月線 (MA20) 之上，趨勢偏多。")
+        score += 15; reasons.append("🟢 **趨勢強勁**: 股價站穩月線，支撐力道扎實。")
     else:
-        score -= 10; reasons.append("🔴 股價跌破月線，需注意回檔風險。")
+        score -= 10; reasons.append("🔴 **趨勢偏弱**: 股價低於月線，短期動能承壓。")
         
+    # 因子 2: MACD 動能
     if last['Hist'] > prev['Hist']:
-        score += 10; reasons.append("🔥 MACD 柱狀體放大，多頭動能轉強。")
+        score += 10; reasons.append("🔥 **動能增溫**: MACD 紅色能量柱持續放大中。")
     
-    # 情感分析模擬
-    news_items = [
-        {"title": "產業景氣回溫，分析師調高投資評等", "sentiment": "利多", "weight": 10},
-        {"title": "短期面臨匯率波動與通膨壓力", "sentiment": "中性", "weight": -3}
+    # 情感分析模擬 (未來可串接新聞 API)
+    news = [
+        {"tag": "利多", "content": "產業需求展望優於預期，法人維持買進評等", "val": 10},
+        {"tag": "中性", "content": "短期市場情緒震盪，關注聯準會最新動向", "val": -2}
     ]
-    news_total = sum(item['weight'] for item in news_items)
-    
-    final_score = max(0, min(100, score + news_total + (int(precision)-55)))
-    return int(final_score), reasons, news_items
+    final_score = max(0, min(100, score + sum(n['val'] for n in news) + (int(precision)-55)))
+    return int(final_score), reasons, news
 
-# --- 4. 視覺強化繪圖引擎 (完整恢復原本的所有細節) ---
+# --- 4. 視覺強化繪圖與診斷展示 ---
 def show_ultimate_dashboard(symbol, unit, p_days, precision):
     df = fetch_comprehensive_data(symbol)
     if df is None:
-        st.error(f"❌ 無法讀取 '{symbol}'，請檢查代碼或稍後再試。")
-        return
+        st.error(f"❌ 無法讀取 '{symbol}'，請檢查後再試。"); return
 
-    # AI 預測邏輯 (原本的 Monte Carlo)
+    # AI 預測邏輯 (Monte Carlo)
     last_p = float(df['Close'].iloc[-1])
     noise = np.random.normal(0, 0.002, p_days)
     trend = (int(precision) - 55) / 500
     pred_prices = last_p * np.cumprod(1 + trend + noise)
+    
+    # 執行 AI 診斷
+    ai_score, ai_reasons, ai_news = perform_ai_analysis(df, precision)
 
-    # 診斷計算
-    score, reasons, news = get_ai_diagnosis(df, precision)
-
-    # 頂部卡片 (救回原本的 Metric 配置)
+    # 頂部卡片
     target_p = pred_prices[-1]
     pct = ((target_p - last_p)/last_p)*100
     c1, c2, c3 = st.columns(3)
@@ -102,40 +127,40 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
     c2.metric(f"AI 預估({p_days}天)", f"{target_p:.2f}")
     c3.metric("預期回報", f"{pct:.2f}%", delta=f"{pct:.2f}%")
 
-    # AI 診斷與新聞區域 (新功能整合)
+    # AI 診斷報告區塊
     st.divider()
-    d_col1, d_col2 = st.columns([1, 1])
+    d_col1, d_col2 = st.columns([1, 1.2])
     with d_col1:
-        st.subheader("💡 AI 因子分析")
-        for r in reasons: st.write(r)
-        st.markdown(f"**AI 綜合評分: `{score}` / 100**")
+        st.markdown(f"### 💡 AI 技術因子診斷 (得分: `{ai_score}`)")
+        for r in ai_reasons: st.write(r)
     with d_col2:
-        st.subheader("📰 新聞情感分析")
-        for n in news:
-            st.markdown(f"<div class='diag-box'><b>[{n['sentiment']}]</b> {n['title']}</div>", unsafe_allow_html=True)
+        st.markdown("### 📰 新聞情感分析")
+        for n in ai_news:
+            st.markdown(f"<div class='diag-box'><b>[{n['tag']}]</b> {n['content']}</div>", unsafe_allow_html=True)
 
-    # 圖表配置 (完全保留原本細節)
+    # 圖表配置 (完全救回原始細節)
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.55, 0.15, 0.3], vertical_spacing=0.04)
     zoom = {"日": 45, "月": 180, "年": 550}[unit]
     p_df = df.tail(zoom)
     
+    # 1. K線
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K線', increasing_line_color='#00FF41', decreasing_line_color='#FF3131'), row=1, col=1)
+    # 2. 均線與預測
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2.5)), row=1, col=1)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=2.5)), row=1, col=1)
-    
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scattergl(x=f_dates, y=pred_prices, name='AI 預測', line=dict(color='#FF4500', width=4.5, dash='dashdot')), row=1, col=1)
-    
+    # 3. 成交量
     v_colors = ['#FF3131' if p_df['Open'].iloc[i] > p_df['Close'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量', marker_color=v_colors, opacity=0.8), row=2, col=1)
-    
+    # 4. MACD
     h_colors = ['#FF3131' if v < 0 else '#00FF41' for v in p_df['Hist']]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD力道', marker_color=h_colors), row=3, col=1)
 
     fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10), legend=dict(font=dict(color="white"), bgcolor="rgba(0,0,0,0)"))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     
-    st.info(f"📍 **總結說明**：目前 {symbol} 在技術面上表現 {'偏多' if score > 50 else '偏空'}。AI 綜合多個因子（如月線支撐、MACD動能與情感分析）後給出 {score} 分。建議搭配下方 K 線圖確認具體進場位。")
+    st.info(f"📊 **總結說明**：{symbol} 目前 AI 綜合評分為 {ai_score}。技術面顯示 {ai_reasons[0][4:]}。綜合新聞面之情感反應，建議投資者關注後續成交量是否能有效放大以支撐預測趨勢。")
 
 # --- 5. 主程式 ---
 def main():
