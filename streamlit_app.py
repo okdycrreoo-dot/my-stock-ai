@@ -10,18 +10,20 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 PWA 強制圖示注入 ---
+# --- 1. 配置與 PWA 強制圖示注入 (強化版) ---
 st.set_page_config(page_title="StockAI 全能技術終端", layout="wide")
 
-# 強制更換圖示與 manifest 連結 (解決顯示 Streamlit 圖示問題)
+# 加入版本號 ?v=1.1 是為了強制手機瀏覽器刷新已記錄的 Streamlit 預設圖示
 st.markdown("""
-    <link rel="manifest" href="./manifest.json">
-    <link rel="apple-touch-icon" href="./icon.png">
-    <link rel="icon" type="image/png" href="./icon.png">
+    <link rel="manifest" href="./manifest.json?v=1.1">
+    <link rel="apple-touch-icon" href="./icon.png?v=1.1">
+    <link rel="icon" type="image/png" href="./icon.png?v=1.1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js');
+        navigator.serviceWorker.register('./sw.js?v=1.1');
       });
     }
     </script>
