@@ -10,8 +10,20 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與極致視覺修復 (確保所有文字在黑底下清晰可見) ---
+# --- 1. 配置與 PWA 注入 + 極致視覺修復 ---
 st.set_page_config(page_title="StockAI 全能技術終端", layout="wide")
+
+# PWA 必要腳本注入 (確保手機瀏覽器識別為 App)
+st.markdown("""
+    <link rel="manifest" href="manifest.json">
+    <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js');
+      });
+    }
+    </script>
+    """, unsafe_allow_html=True)
 
 st.markdown("""
     <style>
@@ -119,7 +131,6 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
     pred_prices = last_p * np.cumprod(1 + trend + noise)
     ai_score, ai_reasons, ai_news = perform_ai_analysis(df, precision)
 
-    # 數據指標
     target_p, pct = pred_prices[-1], ((pred_prices[-1] - last_p)/last_p)*100
     c1, c2, c3 = st.columns(3)
     c1.metric("當前價格", f"{last_p:.2f}")
@@ -135,7 +146,6 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
         st.markdown("### 📰 市場情感標籤")
         for n in ai_news: st.markdown(f"<div class='diag-box'><b>[{n['tag']}]</b> {n['content']}</div>", unsafe_allow_html=True)
 
-    # 繪圖
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.55, 0.15, 0.3], vertical_spacing=0.04)
     zoom = {"日": 45, "月": 180, "年": 550}[unit]
     p_df = df.tail(zoom)
@@ -151,7 +161,6 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
     fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # 【補回重要缺失：AI 總結建議區】
     st.info(f"📊 **AI 診斷總結**：目前 {symbol} 的綜合評分為 {ai_score}。技術面顯示 {ai_reasons[0][4:]}。綜合新聞面之情感反應，建議投資者關注後續成交量是否能有效放大，以確認趨勢延續性。")
 
 # --- 5. 主程式 ---
