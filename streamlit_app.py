@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與專業深色主題 ---
+# --- 1. 配置與主題 ---
 st.set_page_config(page_title="StockAI 全能技術終端", layout="wide")
 
 st.markdown("""
@@ -19,48 +19,54 @@ st.markdown("""
     [data-testid="stMetricValue"] { color: #00F5FF; font-weight: bold; }
     .stMetric { background-color: #1C2128; border: 2px solid #30363D; border-radius: 10px; padding: 15px; }
     div[data-testid="stExpander"] { background-color: #161B22; border: 1px solid #30363D; }
-    /* 調整 Tab 顏色 */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-size: 18px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 數據引擎 ---
+# --- 2. 強化版數據引擎 (加入 Retry 邏輯 + 原有指標) ---
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_comprehensive_data(symbol):
-    try:
-        data = yf.download(symbol, period="2y", interval="1d", progress=False, threads=False, auto_adjust=True)
-        if data.empty: return None
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-        
-        # 指標計算 (視覺強化版本)
-        data['MA5'] = data['Close'].rolling(5).mean()
-        data['MA20'] = data['Close'].rolling(20).mean()
-        std = data['Close'].rolling(20).std()
-        data['BB_up'] = data['MA20'] + (std * 2)
-        data['BB_low'] = data['MA20'] - (std * 2)
-        
-        # MACD
-        exp1 = data['Close'].ewm(span=12, adjust=False).mean()
-        exp2 = data['Close'].ewm(span=26, adjust=False).mean()
-        data['MACD'] = exp1 - exp2
-        data['Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-        data['Hist'] = data['MACD'] - data['Signal']
-        
-        # 支撐壓力
-        recent = data.tail(60)
-        data['Support'] = recent['Low'].min()
-        data['Resistance'] = recent['High'].max()
-        
-        return data.dropna()
-    except: return None
+    for attempt in range(3):
+        try:
+            # 補回 threads=False 與 repair=True
+            data = yf.download(symbol, period="2y", interval="1d", progress=False, threads=False, auto_adjust=True, repair=True)
+            
+            if data is not None and not data.empty:
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
+                
+                # 指標計算 (視覺強化版本)
+                data['MA5'] = data['Close'].rolling(5).mean()
+                data['MA20'] = data['Close'].rolling(20).mean()
+                std = data['Close'].rolling(20).std()
+                data['BB_up'] = data['MA20'] + (std * 2)
+                data['BB_low'] = data['MA20'] - (std * 2)
+                
+                # MACD
+                exp1 = data['Close'].ewm(span=12, adjust=False).mean()
+                exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+                data['MACD'] = exp1 - exp2
+                data['Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+                data['Hist'] = data['MACD'] - data['Signal']
+                
+                # 補回：支撐壓力計算
+                recent = data.tail(60)
+                data['Support'] = recent['Low'].min()
+                data['Resistance'] = recent['High'].max()
+                
+                return data.dropna()
+            time.sleep(1.5)
+        except:
+            time.sleep(1.5)
+            continue
+    return None
 
-# --- 3. 視覺強化繪圖引擎 ---
+# --- 3. 視覺強化繪圖引擎 (全指標補回) ---
 def show_ultimate_dashboard(symbol, unit, p_days, precision):
     df = fetch_comprehensive_data(symbol)
     if df is None:
-        st.error(f"❌ 無法讀取股票代碼 '{symbol}'")
+        st.error(f"❌ 無法讀取股票代碼 '{symbol}'。")
         return
 
     # AI 向量化預測
@@ -84,13 +90,13 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
     zoom = {"日": 45, "月": 180, "年": 550}[unit]
     p_df = df.tail(zoom)
     
-    # 1. K線 (強化色彩對比)
+    # 1. K線 (補回顏色對比)
     fig.add_trace(go.Candlestick(
         x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
         name='K線', increasing_line_color='#00FF41', decreasing_line_color='#FF3131'
     ), row=1, col=1)
 
-    # 加粗均線與預測線 (視覺更清晰)
+    # 加粗均線與預測線
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=3)), row=1, col=1)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=3)), row=1, col=1)
     
@@ -101,7 +107,7 @@ def show_ultimate_dashboard(symbol, unit, p_days, precision):
     v_colors = ['#FF3131' if p_df['Open'].iloc[i] > p_df['Close'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量', marker_color=v_colors, opacity=0.6), row=2, col=1)
 
-    # 3. MACD (線條強化)
+    # 3. MACD (補回 Hist 柱狀圖)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['MACD'], name='MACD', line=dict(color='#00F5FF', width=2.5)), row=3, col=1)
     fig.add_trace(go.Scattergl(x=p_df.index, y=p_df['Signal'], name='訊號線', line=dict(color='#FFD700', width=2.5)), row=3, col=1)
     
@@ -122,24 +128,23 @@ def main():
         client = gspread.authorize(creds)
         sh = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
         ws_user = sh.worksheet("users")
+        ws_watch = sh.worksheet("watchlist")
+        ws_settings = sh.worksheet("settings")
     except:
-        st.error("🚨 系統連線異常，請檢查 Secrets 設定。")
+        st.error("🚨 系統連線異常。")
         return
 
     # 管理員統一設定 (okdycrreoo 控制)
     try:
-        ws_settings = sh.worksheet("settings")
         s_data = {item['setting_name']: item['value'] for item in ws_settings.get_all_records()}
         curr_prec = int(s_data.get('global_precision', 55))
         curr_ttl = int(s_data.get('api_ttl_min', 5))
     except:
         curr_prec, curr_ttl = 55, 5
 
-    # 登入與註冊切換
     if st.session_state.user is None:
         st.title("🚀 StockAI 高級技術終端")
         tab_login, tab_reg = st.tabs(["🔑 登入系統", "📝 註冊帳號"])
-
         with tab_login:
             u = st.text_input("帳號", key="login_u")
             p = st.text_input("密碼", type="password", key="login_p")
@@ -148,18 +153,14 @@ def main():
                 if not user_df[(user_df['username'].astype(str)==u) & (user_df['password'].astype(str)==p)].empty:
                     st.session_state.user = u; st.rerun()
                 else: st.error("帳號或密碼錯誤")
-
         with tab_reg:
             new_u = st.text_input("設定帳號", key="reg_u")
             new_p = st.text_input("設定密碼", type="password", key="reg_p")
             if st.button("確認註冊"):
                 user_df = pd.DataFrame(ws_user.get_all_records())
-                if new_u in user_df['username'].astype(str).values:
-                    st.warning("此帳號已被註冊")
+                if new_u in user_df['username'].astype(str).values: st.warning("此帳號已被註冊")
                 elif new_u and new_p:
-                    ws_user.append_row([new_u, new_p])
-                    st.success("註冊成功！請切換至登入頁面")
-                else: st.error("帳號或密碼不可為空")
+                    ws_user.append_row([new_u, new_p]); st.success("註冊成功！")
     else:
         # 主介面
         remain = (st.session_state.last_sync + timedelta(minutes=curr_ttl)) - datetime.now()
@@ -173,23 +174,31 @@ def main():
                     if st.button("同步至資料庫"):
                         ws_settings.update_cell(2, 2, str(new_p))
                         ws_settings.update_cell(3, 2, str(new_t))
-                        st.cache_data.clear()
-                        st.session_state.last_sync = datetime.now(); st.rerun()
+                        st.cache_data.clear(); st.session_state.last_sync = datetime.now(); st.rerun()
             
-            ws_watch = sh.worksheet("watchlist")
+            st.subheader("📋 自選清單管理")
             all_w = pd.DataFrame(ws_watch.get_all_records())
             user_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
-            
             target = st.selectbox("我的清單", user_stocks if user_stocks else ["2330.TW"])
-            unit = st.selectbox("時間單位", ["日", "月", "年"])
-            p_days = st.number_input("AI 預測天數", 1, 30, 7)
             
-            new_s = st.text_input("新增代碼 (如: TSLA)").strip().upper()
-            if st.button("確認新增"):
+            # --- 刪除功能 ---
+            if user_stocks and st.button(f"🗑️ 刪除 {target}", use_container_width=True):
+                rows = ws_watch.get_all_values()
+                for i, row in enumerate(rows):
+                    if i == 0: continue
+                    if row[0] == st.session_state.user and row[1] == target:
+                        ws_watch.delete_rows(i + 1); st.success(f"已刪除 {target}"); time.sleep(1); st.rerun()
+            
+            st.divider()
+            new_s = st.text_input("新增代碼 (如: 6770.TW)").strip().upper()
+            if st.button("➕ 確認新增", use_container_width=True):
                 if new_s and new_s not in user_stocks:
                     ws_watch.append_row([st.session_state.user, new_s]); st.rerun()
             
-            if st.button("🚪 登出"):
+            st.divider()
+            unit = st.selectbox("時間單位", ["日", "月", "年"])
+            p_days = st.number_input("AI 預測天數", 1, 30, 7)
+            if st.button("🚪 登出", use_container_width=True):
                 st.session_state.user = None; st.rerun()
 
         show_ultimate_dashboard(target, unit, p_days, curr_prec)
