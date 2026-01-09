@@ -145,7 +145,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_high, next_low)
 
-# --- 4. 圖表與終端渲染 (視覺修正核心) ---
+# --- 4. 圖表與終端渲染 (導入舊代碼圖例優化) ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
@@ -153,6 +153,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
 
+    # A. 數據指標卡
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
@@ -165,47 +166,52 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # 修正重點：vertical_spacing 加大，並確保 subplot_titles 不遮擋標籤
+    # B. 圖表設定 (核心合併修正：使用 Legend Group)
     fig = make_subplots(
         rows=4, cols=1, 
         shared_xaxes=True, 
         row_heights=[0.4, 0.15, 0.2, 0.25], 
-        vertical_spacing=0.1,  
-        subplot_titles=("價格與均線", "成交量", "MACD", "KDJ")
+        vertical_spacing=0.04, 
+        subplot_titles=("價格與均線", "成交量分析", "MACD 能量柱", "KDJ 指標")
     )
     
     p_df = df.tail(90)
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線', showlegend=False), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2), showlegend=False), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=2), showlegend=False), 1, 1)
-    
+    # 子圖 1：價格與預測 (Legend Group 1)
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線系統', legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=2), legendgroup="1"), 1, 1)
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測', line=dict(color='#FF3131', width=3, dash='dash'), showlegend=False), 1, 1)
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測線', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
     
+    # 子圖 2：成交量 (Legend Group 2)
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能', marker_color=v_colors, showlegend=False), 2, 1)
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], showlegend=False), 3, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值', line=dict(color='#00F5FF'), showlegend=False), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00'), showlegend=False), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF'), showlegend=False), 4, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能分析', marker_color=v_colors, legendgroup="2"), 2, 1)
+    
+    # 子圖 3：MACD (Legend Group 3)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD力道', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], legendgroup="3"), 3, 1)
+    
+    # 子圖 4：KDJ (Legend Group 4)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值(藍)', line=dict(color='#00F5FF'), legendgroup="4"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值(黃)', line=dict(color='#FFFF00'), legendgroup="4"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值(紫)', line=dict(color='#E066FF'), legendgroup="4"), 4, 1)
 
-    # 關鍵修正：改用 layout 中的 annotations 並精確定位在每個 subplot 的右側邊緣
-    # x 設為 1.05 代表軸外右側，y 座標對應 subplot 的中心
-    annotations = [
-        dict(xref="paper", yref="paper", x=1.05, y=0.88, text="<b>均線/AI預測</b>", showarrow=False, font=dict(size=14, color="#FFFFFF"), xanchor="left"),
-        dict(xref="paper", yref="paper", x=1.05, y=0.55, text="<b>成交量能</b>", showarrow=False, font=dict(size=14, color="#8899A6"), xanchor="left"),
-        dict(xref="paper", yref="paper", x=1.05, y=0.35, text="<b>MACD力道</b>", showarrow=False, font=dict(size=14, color="#FF7A7A"), xanchor="left"),
-        dict(xref="paper", yref="paper", x=1.05, y=0.12, text="<b>KDJ(藍K/黃D/紫J)</b>", showarrow=False, font=dict(size=14, color="#00F5FF"), xanchor="left")
-    ]
-
+    # 佈局設定：合併舊代碼的 tracegroupgap 與 margin
     fig.update_layout(
         template="plotly_dark", 
-        height=900, 
+        height=880, 
         xaxis_rangeslider_visible=False, 
-        showlegend=False, 
-        margin=dict(r=200, l=60, t=100, b=50), # 增加 r 邊界以容納長文字
-        annotations=annotations
+        showlegend=True,
+        margin=dict(r=150, t=50, b=50), # 增加右側留白容納說明
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.01,
+            tracegroupgap=150, # 垂直散開說明的核心參數
+            font=dict(size=11, color="#FFFFFF")
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -250,10 +256,10 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 藍籌標本", s_map.get('benchmark_1', '2330'))
+                    b1 = st.text_input("1. 權值標本", s_map.get('benchmark_1', '2330'))
                     b2 = st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317'))
                     b3 = st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'))
-                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI趨勢權重", 0.5, 3.0, tw_val), st.number_input("API連線時間(1-10分)", 1, 10, api_ttl)
+                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI趨勢權重", 0.5, 3.0, tw_val), st.number_input("API快取(分鐘)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
                         st.success("✅ 同步成功！"); st.rerun()
