@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 (完整還原所有 CSS 權重) ---
+# --- 1. 配置與 UI 視覺 (完整還原所有 CSS 權重，逐行對照) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
@@ -98,6 +98,18 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
+# --- 新增功能：自動回測邏輯 (嵌入而不破壞結構) ---
+def run_auto_backtest(ws_p):
+    try:
+        recs = ws_p.get_all_records()
+        if not recs: return "等待初次記錄"
+        df_p = pd.DataFrame(recs)
+        valid = df_p[df_p['actual_close'] != ""].tail(20)
+        if valid.empty: return "待市場數據更新"
+        hit = sum((valid['actual_close'] >= valid['pred_min']) & (valid['actual_close'] <= valid['pred_max']))
+        return f"近 20 場區間命中率: {(hit/len(valid))*100:.1f}%"
+    except: return "回測引擎啟動中"
+
 # --- 3. AI 核心：深度微調連動引擎 ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
@@ -157,7 +169,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp):
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
 
 # --- 4. 圖表與終端渲染 ---
-def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
+def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
@@ -199,6 +211,10 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
     fig.update_layout(template="plotly_dark", height=880, xaxis_rangeslider_visible=False, showlegend=True, margin=dict(r=180, t=50, b=50), legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, tracegroupgap=155, font=dict(size=12)))
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
+    
+    if st.button("📝 記錄今日 AI 預測點位"):
+        ws_p.append_row([datetime.now().strftime("%Y-%m-%d"), f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""])
+        st.success("✅ 已寫入 Google Sheets 預測分頁！")
 
 # --- 5. 主程式 ---
 def main():
@@ -209,7 +225,7 @@ def main():
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-        ws_u, ws_w, ws_s = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings")
+        ws_u, ws_w, ws_s, ws_p = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings"), sh.worksheet("predictions")
     except: st.error("🚨 資料庫連線失敗"); return
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
@@ -233,7 +249,6 @@ def main():
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
                 if st.button("新增股票"): (ws_w.append_row([st.session_state.user, ns.upper()]), st.rerun()) if ns else None
-                # 新增刪除功能 (逐行補齊邏輯)
                 if st.button("🗑️ 刪除目前選定股票"):
                     all_rows = ws_w.get_all_values()
                     for idx, row in enumerate(all_rows):
@@ -243,6 +258,9 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
+                    # 顯示回測勝率
+                    st.info(f"📊 AI 實戰績效看板：{run_auto_backtest(ws_p)}")
+                    
                     b1 = st.text_input("1. 權值標本-藍籌股基準：用於校準 AI 對市場「地基」穩定度的感知，影響長期走勢的合理性。 (推薦: 2330)", s_map.get('benchmark_1', '2330'))
                     b2 = st.text_input("2. 成長標本-高波動指標：讓 AI 學習識別「異常爆發」或「動能切換」，提高對急漲急跌的預警能力。 (推薦: 2317)", s_map.get('benchmark_2', '2317'))
                     b3 = st.text_input("3. ETF 標本-市場資金流向：協助 AI 過濾掉個股的隨機雜訊，判斷整體族群的板塊輪動。 (推薦: 0050)", s_map.get('benchmark_3', '0050'))
@@ -257,6 +275,6 @@ def main():
                     if st.button("💾 同步觀察標本與學習參數"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v)); st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
-        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp)
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
