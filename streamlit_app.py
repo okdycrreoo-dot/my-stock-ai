@@ -74,7 +74,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
-            df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
+            df = yf.download(s, period="2y", interval="1d", auto_adjust=False, progress=False)
             if df is not None and not df.empty:
                 if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
@@ -207,7 +207,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
-    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交", f"{curr_v:,}", "#FFFF00")]
+    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")]
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
@@ -225,7 +225,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測路徑', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
     
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量能', marker_color=v_colors, legendgroup="2"), 2, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, name='成交量能', marker_color=v_colors, legendgroup="2"), 2, 1)
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD 力道', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], legendgroup="3"), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值 (藍)', line=dict(color='#00F5FF'), legendgroup="4"), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值 (黃)', line=dict(color='#FFFF00'), legendgroup="4"), 4, 1)
@@ -311,3 +311,4 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
+
