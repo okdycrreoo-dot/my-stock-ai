@@ -330,7 +330,23 @@ def main():
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
-                if st.button("新增股票"): (ws_w.append_row([st.session_state.user, ns.upper()]), st.rerun()) if ns else None
+                if st.button("新增股票"):
+                    if ns:
+                        new_stock = ns.upper().strip()
+                        # 取得目前所有自選清單（從變數 all_w 判斷，效率最高）
+                        # all_w 在上方已定義：all_w = pd.DataFrame(ws_w.get_all_records())
+                        existing_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].astype(str).tolist()
+        
+                        if new_stock in existing_stocks:
+                            st.warning(f"⚠️ {new_stock} 已在您的自選清單中，不需重複新增。")
+                        else:
+                            ws_w.append_row([st.session_state.user, new_stock])
+                            st.success(f"✅ {new_stock} 已加入清單！")
+                            time.sleep(1) # 給使用者看成功訊息的時間
+                            st.rerun()
+                    else:
+                        st.error("❌ 請輸入股票代碼")
+                    
                 if st.button("🗑️ 刪除目前選定股票"):
                     all_rows = ws_w.get_all_values()
                     for idx, row in reversed(list(enumerate(all_rows))):
@@ -363,6 +379,7 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
+
 
 
 
