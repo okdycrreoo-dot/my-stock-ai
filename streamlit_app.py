@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 (嚴格對照 262 行基準，不精簡 CSS) ---
+# --- 1. 配置與 UI 視覺 (完整還原 262 行基準之 CSS 權重) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
@@ -65,7 +65,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 數據引擎與回測計算 (對齊重試邏輯) ---
+# --- 2. 數據引擎與回測功能 ---
 @st.cache_data(show_spinner=False)
 def fetch_comprehensive_data(symbol, ttl_seconds):
     s = str(symbol).strip().upper()
@@ -101,17 +101,15 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
 def calculate_backtest_stats(ws_p):
     try:
         data = ws_p.get_all_records()
-        if not data: return "無數據"
+        if not data: return "無紀錄"
         df = pd.DataFrame(data)
-        # 篩選已有實際收盤價的紀錄進行回測
         valid = df[df['actual_close'] != ""].copy()
-        if valid.empty: return "待收盤數據更新"
-        # 判斷實際價格是否落在預測區間內
+        if valid.empty: return "待數據更新"
         valid['hit'] = (valid['actual_close'] >= valid['pred_min']) & (valid['actual_close'] <= valid['pred_max'])
-        hit_rate = (valid['hit'].sum() / len(valid)) * 100
-        return f"{hit_rate:.1f}% (基於 {len(valid)} 筆成交)"
+        rate = (valid['hit'].sum() / len(valid)) * 100
+        return f"{rate:.1f}% (樣本:{len(valid)})"
     except:
-        return "計算中..."
+        return "計算中"
 
 # --- 3. AI 核心：深度微調連動引擎 ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
@@ -136,7 +134,6 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
-    # 準確性計算邏輯 (用於 UI 第三格展示)
     acc_base = 100 - (abs(curr_p - last['MA5']) / curr_p * 100)
     accuracy_val = min(99.4, max(68.0, acc_base + (precision / 15)))
 
@@ -150,8 +147,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp):
     
     pred_prices = np.mean(sim_results, axis=0)
     next_close = pred_prices[0]
-    all_first_day = [p[0] for p in sim_results]
-    std_val = np.std(all_first_day)
+    std_val = np.std([p[0] for p in sim_results])
     
     periods = {"5日短期": (last['MA5'], 0.8), "20日中期": (last['MA20'], 1.5), "60日長期": (last['MA60'], 2.2)}
     adv = {k: {"buy": m * (1 - vol * v_comp * f * sens), "sell": m * (1 + vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
@@ -190,7 +186,6 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04, subplot_titles=("價格與均線系統", "成交量分析", "MACD 能量柱", "KDJ 擺動指標"))
     p_df = df.tail(90)
-    # 保持 262 行基準，不使用迴圈，逐一列出 trace 
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線走勢'), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2)), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5)), 1, 1)
@@ -198,9 +193,9 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測路徑', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量', marker_color='#30363D'), 2, 1)
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD Hist', marker_color='#FF3131'), 3, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='KDJ-K', line=dict(color='#00F5FF')), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='KDJ-D', line=dict(color='#FFFF00')), 4, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color='#FF3131'), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值', line=dict(color='#00F5FF')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00')), 4, 1)
     
     fig.update_layout(template="plotly_dark", height=880, xaxis_rangeslider_visible=False, margin=dict(r=180, t=50, b=50))
     st.plotly_chart(fig, use_container_width=True)
@@ -246,7 +241,6 @@ def main():
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
-                    # 管理員特有功能：顯示歷史勝率
                     st.markdown(f"### 🛡️ 管理員實戰看板")
                     st.info(f"📊 AI 歷史區間命中率：{calculate_backtest_stats(ws_p)}")
                     
