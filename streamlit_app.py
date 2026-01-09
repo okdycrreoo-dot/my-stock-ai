@@ -165,7 +165,6 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # 圖表設定：導入中文圖例標籤與垂直散開邏輯
     fig = make_subplots(
         rows=4, cols=1, 
         shared_xaxes=True, 
@@ -175,7 +174,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     )
     
     p_df = df.tail(90)
-    # 子圖 1：Legend Group 1
+    # 子圖 1：均線與 K 線
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線走勢', legendgroup="1"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5 均線', line=dict(color='#FFFF00', width=2), legendgroup="1"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20 均線', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
@@ -183,14 +182,14 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測路徑', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
     
-    # 子圖 2：Legend Group 2
+    # 子圖 2：成交量
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量能', marker_color=v_colors, legendgroup="2"), 2, 1)
     
-    # 子圖 3：Legend Group 3
+    # 子圖 3：MACD
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD 力道', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], legendgroup="3"), 3, 1)
     
-    # 子圖 4：Legend Group 4
+    # 子圖 4：KDJ
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值 (藍)', line=dict(color='#00F5FF'), legendgroup="4"), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值 (黃)', line=dict(color='#FFFF00'), legendgroup="4"), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值 (紫)', line=dict(color='#E066FF'), legendgroup="4"), 4, 1)
@@ -242,12 +241,19 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 權值標本", s_map.get('benchmark_1', '2330'))
-                    b2 = st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317'))
-                    b3 = st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'))
-                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI趨勢權重", 0.5, 3.0, tw_val), st.number_input("API快取(分鐘)", 1, 10, api_ttl)
+                    b1 = st.text_input("1. 藍籌基準標本 (推薦: 2330)", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本 (推薦: 2317)", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. 指數 ETF 標本 (推薦: 0050)", s_map.get('benchmark_3', '0050'))
+                    new_p = st.slider("系統靈敏度 (AI 推薦: 55)", 0, 100, cp)
+                    new_tw = st.number_input("AI 趨勢權重 (AI 推薦: 1.0)", 0.5, 3.0, tw_val)
+                    new_ttl = st.number_input("API 快取控管 (推薦: 1-10 分鐘)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
-                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
+                        ws_s.update_cell(2, 2, str(new_p))
+                        ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(4, 2, b1)
+                        ws_s.update_cell(5, 2, b2)
+                        ws_s.update_cell(6, 2, b3)
+                        ws_s.update_cell(7, 2, str(new_tw))
                         st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
         render_terminal(target, p_days, cp, tw_val, api_ttl)
