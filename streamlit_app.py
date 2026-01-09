@@ -145,7 +145,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_high, next_low)
 
-# --- 4. 圖表與終端渲染 (導入舊代碼圖例優化) ---
+# --- 4. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
@@ -153,7 +153,6 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
 
-    # A. 數據指標卡
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
@@ -166,52 +165,40 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # B. 圖表設定 (核心合併修正：使用 Legend Group)
+    # 圖表設定：導入中文圖例標籤與垂直散開邏輯
     fig = make_subplots(
         rows=4, cols=1, 
         shared_xaxes=True, 
         row_heights=[0.4, 0.15, 0.2, 0.25], 
         vertical_spacing=0.04, 
-        subplot_titles=("價格與均線", "成交量分析", "MACD 能量柱", "KDJ 指標")
+        subplot_titles=("價格與均線系統", "成交量分析", "MACD 能量柱", "KDJ 擺動指標")
     )
     
     p_df = df.tail(90)
-    # 子圖 1：價格與預測 (Legend Group 1)
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線系統', legendgroup="1"), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2), legendgroup="1"), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=2), legendgroup="1"), 1, 1)
+    # 子圖 1：Legend Group 1
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線走勢', legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5 均線', line=dict(color='#FFFF00', width=2), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20 均線', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60 均線', line=dict(color='#FFAC33', width=2), legendgroup="1"), 1, 1)
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測線', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測路徑', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
     
-    # 子圖 2：成交量 (Legend Group 2)
+    # 子圖 2：Legend Group 2
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能分析', marker_color=v_colors, legendgroup="2"), 2, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='成交量能', marker_color=v_colors, legendgroup="2"), 2, 1)
     
-    # 子圖 3：MACD (Legend Group 3)
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD力道', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], legendgroup="3"), 3, 1)
+    # 子圖 3：Legend Group 3
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD 力道', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], legendgroup="3"), 3, 1)
     
-    # 子圖 4：KDJ (Legend Group 4)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值(藍)', line=dict(color='#00F5FF'), legendgroup="4"), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值(黃)', line=dict(color='#FFFF00'), legendgroup="4"), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值(紫)', line=dict(color='#E066FF'), legendgroup="4"), 4, 1)
+    # 子圖 4：Legend Group 4
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值 (藍)', line=dict(color='#00F5FF'), legendgroup="4"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值 (黃)', line=dict(color='#FFFF00'), legendgroup="4"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值 (紫)', line=dict(color='#E066FF'), legendgroup="4"), 4, 1)
 
-    # 佈局設定：合併舊代碼的 tracegroupgap 與 margin
     fig.update_layout(
-        template="plotly_dark", 
-        height=880, 
-        xaxis_rangeslider_visible=False, 
-        showlegend=True,
-        margin=dict(r=150, t=50, b=50), # 增加右側留白容納說明
-        legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.01,
-            tracegroupgap=150, # 垂直散開說明的核心參數
-            font=dict(size=11, color="#FFFFFF")
-        )
+        template="plotly_dark", height=880, xaxis_rangeslider_visible=False, showlegend=True,
+        margin=dict(r=180, t=50, b=50),
+        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, tracegroupgap=155, font=dict(size=12))
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -222,7 +209,6 @@ def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
     if st.session_state.user and (time.time() - st.session_state.get('last_active', time.time()) > 600): st.session_state.user = None
     st.session_state.last_active = time.time()
-    
     try:
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
