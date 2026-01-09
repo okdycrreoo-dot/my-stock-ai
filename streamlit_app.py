@@ -334,13 +334,11 @@ def main():
                 if st.button("🗑️ 刪除目前選定股票"):
                     all_rows = ws_w.get_all_values()
                     for idx, row in reversed(list(enumerate(all_rows))):
-                        # 注意：row[0] 是 username, row[1] 是 stock_symbol
                         if row[0] == st.session_state.user and row[1] == target:
-                            # gspread 的行號是從 1 開始，所以 idx 需 + 1
                             ws_w.delete_rows(idx + 1)
-    
-    st.success(f"✅ 已成功移除 {target}")
-    st.rerun()
+                    st.success(f"✅ 已成功移除 {target}")
+                    st.rerun()
+            
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
@@ -358,12 +356,12 @@ def main():
                     
                     if st.button("💾 同步 AI 最優參數至雲端"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v)); st.success("✅ 參數同步成功！"); st.rerun()
-                if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
+                
+                if st.button("🚪 登出"): 
+                    st.session_state.user = None
+                    st.rerun()
         
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
-if __name__ == "__main__": main()
-
-
-
-
+if __name__ == "__main__": 
+    main()
