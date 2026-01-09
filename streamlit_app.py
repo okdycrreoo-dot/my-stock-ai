@@ -164,8 +164,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗")
-        return
+        st.error(f"❌ 讀取 {symbol} 失敗"); return
 
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
@@ -214,18 +213,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=160))
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown(f"""
-    <div class='ai-advice-box'>
-        <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
-        <hr style='border:0.5px solid #444; margin:10px 0;'>
-        <p><b>診斷：</b>{insight[1]}</p>
-        <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
-            <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (1,000次模擬)：</p>
-            <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
-            <p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
 
 # --- 5. 主程式 ---
 def main():
@@ -266,10 +254,10 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 權值標本(藍籌股基準：校準市場地基。建議: 2330.TW)", s_map.get('benchmark_1', '2330'))
-                    b2 = st.text_input("2. 成長標本(高波動指標：識別噴發動能。建議: 2317.TW)", s_map.get('benchmark_2', '2317'))
-                    b3 = st.text_input("3. ETF標本(資金流向：過濾個股雜訊。建議: 0050.TW)", s_map.get('benchmark_3', '0050'))
-                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重(預測增益。建議: 1.0~1.5)", 0.5, 3.0, tw_val), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
+                    b1 = st.text_input("1. 權值標本(藍籌股基準。建議: 2330.TW)", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本(高波動指標。建議: 2317.TW)", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF標本(資金流向濾網。建議: 0050.TW)", s_map.get('benchmark_3', '0050'))
+                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重(建議: 1.0~1.5)", 0.5, 3.0, tw_val), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
                         st.success("✅ 同步成功！"); st.rerun()
