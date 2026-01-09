@@ -99,18 +99,21 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
     return None, s
 
 # --- 3. AI 核心：深度微調連動引擎 ---
-def auto_fine_tune_engine(df, base_p, base_tw):
-    # 計算進階特徵：波動率(Vol) 與 趨勢強度(Relative Strength)
+def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     v = rets.tail(20).std()
-    # 微調邏輯：當波動率極高時，適度調低靈敏度以過濾雜訊；當趨勢明顯時，拉高權重
-    adj_p = base_p * (1 + (v * 1.5)) 
+    
+    # AI 根據個股波動率(v)與管理員手動係數(v_comp)進行微調
+    adj_p = base_p * (1 + (v * v_comp)) 
     adj_tw = base_tw * (1 + (rets.tail(5).mean() * 12))
     
-    # 限制物理邊界
+    # AI 建議邏輯：針對當前標的，給出最能收斂誤差的建議值
+    # 若波動極大(>3%)，建議調低係數；若牛皮(<1%)，建議調高
+    suggested_v = 1.2 if v > 0.03 else 1.8 if v < 0.01 else 1.5
+    
     f_p = max(25, min(92, adj_p))
     f_tw = max(0.45, min(2.7, adj_tw))
-    return int(f_p), round(f_tw, 2)
+    return int(f_p), round(f_tw, 2), suggested_v
 
 def perform_ai_engine(df, p_days, precision, trend_weight):
     last = df.iloc[-1]
@@ -126,7 +129,6 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     
     np.random.seed(42)
     sim_results = []
-    # 精準度微調：將趨勢增益與靈敏度進行非線性結合
     trend = ((int(precision) - 55) / 1000) * float(trend_weight)
     for _ in range(1000):
         noise = np.random.normal(0, vol, p_days)
@@ -154,16 +156,16 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
 
 # --- 4. 圖表與終端渲染 ---
-def render_terminal(symbol, p_days, cp, tw_val, api_ttl):
+def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 執行 AI 連動微調
-    final_p, final_tw = auto_fine_tune_engine(df, cp, tw_val)
+    # 執行 AI 連動微調與建議計算
+    final_p, final_tw, ai_suggested_v = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw)
     
     st.title(f"📊 {f_id} 實戰全能終端")
-    st.caption(f"✨ AI 精準校準：靈敏度 {final_p} | 趨勢增益 {final_tw} (已根據自選股指紋優化)")
+    st.caption(f"✨ AI 連動狀態：靈敏度 {final_p} | 趨勢增益 {final_tw} | 波動補償 {v_comp} (AI針對此股建議值: {ai_suggested_v})")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
@@ -210,6 +212,8 @@ def main():
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
+    # 讀取第 8 行波動補償係數
+    v_comp = float(s_map.get('vol_comp', 1.5))
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 登入系統")
@@ -238,6 +242,14 @@ def main():
                     new_p = st.slider("系統靈敏度 (AI 推薦: 55)", 0, 100, cp)
                     new_tw = st.number_input("AI 趨勢權重-預測傾斜增益：設定越高，AI 就越「偏執」地相信目前的趨勢會持續（慣性加成）。 (AI 推薦: 1.0)", 0.5, 3.0, tw_val)
                     new_ttl = st.number_input("API 快取控管 (推薦: 1-10 分鐘)", 1, 10, api_ttl)
+                    
+                    # 獲取 AI 建議係數（基於當前所選個股）
+                    # 為了在渲染前獲取建議，我們快速執行一次精簡引擎
+                    temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
+                    _, _, rec_v = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (0, 0, 1.5)
+                    
+                    new_v = st.slider(f"波動補償係數 - 當前建議值: {rec_v} (調整越高區間越敏感)", 0.5, 3.0, v_comp)
+                    
                     if st.button("💾 同步觀察標本與學習參數"):
                         ws_s.update_cell(2, 2, str(new_p))
                         ws_s.update_cell(3, 2, str(new_ttl))
@@ -245,8 +257,9 @@ def main():
                         ws_s.update_cell(5, 2, b2)
                         ws_s.update_cell(6, 2, b3)
                         ws_s.update_cell(7, 2, str(new_tw))
+                        ws_s.update_cell(8, 2, str(new_v))
                         st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
-        render_terminal(target, p_days, cp, tw_val, api_ttl)
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp)
 
 if __name__ == "__main__": main()
