@@ -183,7 +183,10 @@ def main():
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     cp = int(s_map.get('global_precision', 55))
     api_ttl = int(s_map.get('api_ttl_min', 1))
+    try:
     tw_val = float(s_map.get('trend_weight', 1.0))
+except (ValueError, TypeError):
+    tw_val = 1.0
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 登入系統")
@@ -248,3 +251,4 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl)
 
 if __name__ == "__main__": main()
+
