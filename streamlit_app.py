@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 (文字顏色修正) ---
+# --- 1. 配置與 UI 視覺 (保持原始展開格式) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
@@ -18,7 +18,7 @@ st.markdown("""
     .stApp { background-color: #0E1117; color: #FFFFFF !important; }
     label, p, span, .stMarkdown, .stCaption { color: #FFFFFF !important; font-weight: 800 !important; }
     
-    /* 強制輸入框文字為黑色，背景為白色，確保看得到輸入代碼 */
+    /* 強制輸入框文字為黑色，背景為白色 */
     input { 
         color: #000000 !important; 
         -webkit-text-fill-color: #000000 !important; 
@@ -29,7 +29,7 @@ st.markdown("""
         border-radius: 8px; 
     }
     
-    /* 強制下拉選單選中文字為黑色 */
+    /* 強制下拉選單 */
     div[data-baseweb="select"] > div { 
         background-color: #FFFFFF !important; 
         color: #000000 !important; 
@@ -100,7 +100,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. AI 核心與分析引擎 (升級千次模擬與同步種子) ---
+# --- 3. AI 核心與分析引擎 (補回模擬種子與隔日邏輯) ---
 def perform_ai_engine(df, p_days, precision, trend_weight):
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -113,8 +113,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
-    # 核心：1,000次模擬並固定種子確保雙設備一致
-    np.random.seed(42)
+    np.random.seed(42) # 固定種子，確保數值一致
     sim_results = []
     trend = ((int(precision) - 55) / 1000) * float(trend_weight)
     for _ in range(1000):
@@ -124,10 +123,9 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     
     pred_prices = np.mean(sim_results, axis=0)
     next_close = pred_prices[0]
-    all_first_day = [p[0] for p in sim_results]
-    std_val = np.std(all_first_day)
-    next_high = next_close + (std_val * 1.5)
-    next_low = next_close - (std_val * 1.5)
+    all_f = [p[0] for p in sim_results]
+    std_val = np.std(all_f)
+    next_high, next_low = next_close + (std_val * 1.5), next_close - (std_val * 1.5)
     
     periods = {
         "5日短期": (last['MA5'], 0.8), 
@@ -136,8 +134,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     }
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
     
-    score = 0
-    reasons = []
+    score, reasons = 0, []
     if curr_p > last['MA20']: 
         score += 1
         reasons.append("站上月線")
@@ -151,17 +148,12 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
         score += 1
         reasons.append("KDJ低位反彈")
     
-    status_map = {
-        2: ("🚀 強力買入", "#FF3131"), 
-        1: ("📈 偏多操作", "#FF7A7A"), 
-        0: ("⚖️ 觀望中性", "#FFFF00"), 
-        -1: ("📉 偏空警戒", "#00FF41")
-    }
+    status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_high, next_low)
 
-# --- 4. 圖表與終端渲染 ---
+# --- 4. 圖表與終端渲染 (補回 J 線與側邊圖例) ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: 
@@ -171,8 +163,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
 
-    c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
-    sign = "+" if change_pct >= 0 else ""
+    c_p, sign = ("#FF3131", "+") if change_pct >= 0 else ("#00FF41", "")
     m_cols = st.columns(5)
     metrics = [
         ("當前價格", f"{curr_p:.2f}", c_p), 
@@ -204,10 +195,17 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能', marker_color=v_colors), 2, 1)
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']]), 3, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K', line=dict(color='#00F5FF')), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D', line=dict(color='#FFFF00')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值', line=dict(color='#00F5FF')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF')), 4, 1)
 
-    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False)
+    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=True, legend=dict(yanchor="top", y=1, xanchor="left", x=1.02))
+    
+    # 指標位置註釋 (右側邊)
+    annos = [("均線系統", 0.88), ("成交量", 0.58), ("MACD柱", 0.38), ("KDJ 指標", 0.15)]
+    for txt, y_p in annos:
+        fig.add_annotation(xref="paper", yref="paper", x=1.1, y=y_p, text=f"<b>{txt}</b>", showarrow=False, font=dict(color="#00F5FF", size=13))
+
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(f"""
@@ -238,18 +236,20 @@ def main():
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     try:
-        cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
+        cp = int(s_map.get('global_precision', 55))
+        api_ttl = int(s_map.get('api_ttl_min', 1))
+        tw_val = float(s_map.get('trend_weight', 1.0))
     except: 
         cp, api_ttl, tw_val = 55, 1, 1.0
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 登入系統")
-        u, p = st.text_input("帳號", key="login_u"), st.text_input("密碼", type="password", key="login_p")
+        u = st.text_input("帳號", key="login_u")
+        p = st.text_input("密碼", type="password", key="login_p")
         if st.button("確認登入", use_container_width=True):
             udf = pd.DataFrame(ws_u.get_all_records())
             if not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
-                st.session_state.user = u
-                st.rerun()
+                st.session_state.user = u; st.rerun()
             else: 
                 st.error("驗證失敗")
     else:
@@ -268,14 +268,18 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1, b2, b3 = st.text_input("1. 權值標本", s_map.get('benchmark_1', '2330')), st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317')), st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'))
-                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重", 0.5, 3.0, tw_val), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
+                    b1 = st.text_input("1. 權值標本", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'))
+                    new_p = st.slider("系統靈敏度", 0, 100, cp)
+                    new_tw = st.number_input("AI 趨勢權重", 0.5, 3.0, tw_val)
+                    new_ttl = st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
-                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
-                        st.success("✅ 同步成功！"); st.rerun()
+                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
+                        ws_s.update_cell(7, 2, str(new_tw)); st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): 
-                    st.session_state.user = None
-                    st.rerun()
+                    st.session_state.user = None; st.rerun()
         render_terminal(target, p_days, cp, tw_val, api_ttl)
 
 if __name__ == "__main__":
