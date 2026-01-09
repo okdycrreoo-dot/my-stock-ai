@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 (文字顏色修正) ---
+# --- 1. 配置與 UI 視覺 (確保文字清晰，黑字白底) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
@@ -18,7 +18,7 @@ st.markdown("""
     .stApp { background-color: #0E1117; color: #FFFFFF !important; }
     label, p, span, .stMarkdown, .stCaption { color: #FFFFFF !important; font-weight: 800 !important; }
     
-    /* 強制輸入框文字為黑色，背景為白色，確保看得到輸入代碼 */
+    /* 修正輸入框文字顏色 */
     input { 
         color: #000000 !important; 
         -webkit-text-fill-color: #000000 !important; 
@@ -29,7 +29,7 @@ st.markdown("""
         border-radius: 8px; 
     }
     
-    /* 強制下拉選單選中文字為黑色 */
+    /* 修正下拉選單選中文字顏色 */
     div[data-baseweb="select"] > div { 
         background-color: #FFFFFF !important; 
         color: #000000 !important; 
@@ -100,7 +100,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. AI 核心與分析引擎 ---
+# --- 3. AI 核心與分析引擎 (千次模擬統一決策) ---
 def perform_ai_engine(df, p_days, precision, trend_weight):
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -113,13 +113,25 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
-    noise = np.random.normal(0, vol, p_days)
+    # 核心：固定種子並執行 1,000 次模擬以統一設備結果
+    np.random.seed(42) 
+    sim_results = []
     trend = ((int(precision) - 55) / 1000) * float(trend_weight)
-    pred_prices = curr_p * np.cumprod(1 + trend + noise)
     
+    for _ in range(1000):
+        noise = np.random.normal(0, vol, p_days)
+        path = curr_p * np.cumprod(1 + trend + noise)
+        sim_results.append(path)
+    
+    # 計算期望值路徑
+    pred_prices = np.mean(sim_results, axis=0)
     next_close = pred_prices[0]
-    next_high = next_close * (1 + vol)
-    next_low = next_close * (1 - vol)
+    
+    # 以標準差決定穩定的波動區間
+    all_first_day = [p[0] for p in sim_results]
+    std_val = np.std(all_first_day)
+    next_high = next_close + (std_val * 1.5)
+    next_low = next_close - (std_val * 1.5)
     
     periods = {
         "5日短期": (last['MA5'], 0.8), 
@@ -129,19 +141,9 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
     
     score = 0
-    reasons = []
-    if curr_p > last['MA20']: 
-        score += 1
-        reasons.append("站上月線")
-    else: 
-        score -= 1
-        reasons.append("破月線")
-    if last['Hist'] > 0: 
-        score += 1
-        reasons.append("MACD多頭")
-    if last['K'] < 25: 
-        score += 1
-        reasons.append("KDJ低位反彈")
+    if curr_p > last['MA20']: score += 1
+    if last['Hist'] > 0: score += 1
+    if last['K'] < 25: score += 1
     
     status_map = {
         2: ("🚀 強力買入", "#FF3131"), 
@@ -149,26 +151,24 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
         0: ("⚖️ 觀望中性", "#FFFF00"), 
         -1: ("📉 偏空警戒", "#00FF41")
     }
-    res = status_map.get(score, ("📉 偏空警戒", "#00FF41"))
+    st_text, st_col = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
     
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_high, next_low)
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (st_text, "統計期望值診斷完成", st_col, next_close, next_high, next_low)
 
 # --- 4. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗")
-        return
+        st.error(f"❌ 數據加載失敗"); return
 
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
-    sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
     metrics = [
         ("當前價格", f"{curr_p:.2f}", c_p), 
-        ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
+        ("今日漲跌", f"{change_pct:+.2f}%", c_p), 
         ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), 
         ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
         ("今日成交", f"{curr_v:,}", "#FFFF00")
@@ -177,7 +177,6 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
         with m_cols[i]: 
             st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
-    st.write("") 
     s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]: 
@@ -185,13 +184,14 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
 
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03, subplot_titles=("價格與均線", "成交量", "MACD", "KDJ"))
     p_df = df.tail(90)
+    
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線'), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2)), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=1.5)), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5)), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=2)), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=1.5)), 1, 1)
     
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI期望路徑', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
     
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能', marker_color=v_colors), 2, 1)
@@ -206,11 +206,10 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     <div class='ai-advice-box'>
         <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
         <hr style='border:0.5px solid #444; margin:10px 0;'>
-        <p><b>診斷：</b>{insight[1]}</p>
         <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
-            <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 預測：</p>
-            <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估收盤：{insight[3]:.2f}</p>
-            <p style='color:#8899A6;'>區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
+            <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (1,000次模擬平均)：</p>
+            <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>最優預估收盤：{insight[3]:.2f}</p>
+            <p style='color:#8899A6;'>穩定區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -227,8 +226,7 @@ def main():
         ws_w = sh.worksheet("watchlist")
         ws_s = sh.worksheet("settings")
     except: 
-        st.error("🚨 資料庫連線失敗")
-        return
+        st.error("🚨 資料庫連線失敗"); return
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     try:
@@ -247,8 +245,6 @@ def main():
             if not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
                 st.session_state.user = u
                 st.rerun()
-            else: 
-                st.error("驗證失敗")
     else:
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
@@ -278,11 +274,9 @@ def main():
                         ws_s.update_cell(5, 2, b2)
                         ws_s.update_cell(6, 2, b3)
                         ws_s.update_cell(7, 2, str(new_tw))
-                        st.success("✅ 同步成功！")
-                        st.rerun()
+                        st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): 
-                    st.session_state.user = None
-                    st.rerun()
+                    st.session_state.user = None; st.rerun()
         
         render_terminal(target, p_days, cp, tw_val, api_ttl)
 
