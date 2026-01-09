@@ -230,7 +230,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
 # --- 5. 主程式 ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
-    if st.session_state.user and time.time() - st.session_state.last_active > 600: st.session_state.user = None
+    if st.session_state.user and (time.time() - st.session_state.get('last_active', time.time()) > 600): st.session_state.user = None
     st.session_state.last_active = time.time()
     try:
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
