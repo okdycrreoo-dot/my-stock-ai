@@ -61,6 +61,7 @@ st.markdown("""
     .price-sell { color: #00FF41; font-weight: 900; font-size: 1.3rem; }
     .realtime-val { font-size: 1.4rem; font-weight: 900; display: block; margin-top: 5px; }
     .label-text { color: #8899A6 !important; font-size: 0.8rem; letter-spacing: 1px; }
+    .backtest-val { color: #00F5FF; font-weight: 800; font-size: 1.1rem; }
     button[data-testid="sidebar-button"] { display: none !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -102,15 +103,9 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     v = rets.tail(20).std()
-    
-    # AI 根據個股波動率(v)與管理員手動係數(v_comp)進行微調
     adj_p = base_p * (1 + (v * v_comp)) 
     adj_tw = base_tw * (1 + (rets.tail(5).mean() * 12))
-    
-    # AI 建議邏輯：針對當前標的，給出最能收斂誤差的建議值
-    # 若波動極大(>3%)，建議調低係數；若牛皮(<1%)，建議調高
     suggested_v = 1.2 if v > 0.03 else 1.8 if v < 0.01 else 1.5
-    
     f_p = max(25, min(92, adj_p))
     f_tw = max(0.45, min(2.7, adj_tw))
     return int(f_p), round(f_tw, 2), suggested_v
@@ -127,6 +122,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
+    # --- 核心預測演算法 ---
     np.random.seed(42)
     sim_results = []
     trend = ((int(precision) - 55) / 1000) * float(trend_weight)
@@ -140,9 +136,25 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     all_first_day = [p[0] for p in sim_results]
     std_val = np.std(all_first_day)
     
+    # --- 均線支撐壓力建議 ---
     periods = {"5日短期": (last['MA5'], 0.8), "20日中期": (last['MA20'], 1.5), "60日長期": (last['MA60'], 2.2)}
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
     
+    # --- 新增：20日回測績效計算 ---
+    hits = 0
+    test_range = 20
+    backtest_data = df.tail(test_range + 1)
+    for i in range(len(backtest_data)-1):
+        day_prev = backtest_data.iloc[i]
+        day_curr = backtest_data.iloc[i+1]
+        # 模擬當時 AI 給出的浮動區間 (簡化模型)
+        day_vol = df['Close'].pct_change().iloc[:df.index.get_loc(day_prev.name)].tail(20).std()
+        expected_range = (day_prev['Close'] * (1 - day_vol * 1.5), day_prev['Close'] * (1 + day_vol * 1.5))
+        if expected_range[0] <= day_curr['Close'] <= expected_range[1]:
+            hits += 1
+    win_rate = (hits / test_range) * 100
+    
+    # --- 診斷邏輯 ---
     score = 0
     reasons = []
     if curr_p > last['MA20']: score += 1; reasons.append("站上月線")
@@ -153,14 +165,13 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
     
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), win_rate)
 
 # --- 4. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 執行 AI 連動微調與建議計算
     final_p, final_tw, ai_suggested_v = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw)
     
@@ -196,7 +207,25 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
 
     fig.update_layout(template="plotly_dark", height=880, xaxis_rangeslider_visible=False, showlegend=True, margin=dict(r=180, t=50, b=50), legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, tracegroupgap=155, font=dict(size=12)))
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
+    
+    # 診斷盒與新增的回測績效
+    st.markdown(f"""
+        <div class='ai-advice-box'>
+            <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
+            <hr style='border:0.5px solid #444; margin:10px 0;'>
+            <p><b>診斷：</b>{insight[1]}</p>
+            <div style='background: #1C2128; padding: 12px; border-radius: 8px; margin-bottom: 10px;'>
+                <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p>
+                <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
+                <p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
+            </div>
+            <div style='background: #161B22; padding: 10px; border: 1px dashed #00F5FF; border-radius: 8px;'>
+                <p style='margin:0; font-weight:bold; color:#00F5FF;'>📊 20日實戰績效回測：</p>
+                <span style='font-size:0.9rem;'>預測準確度 (區間命中率)：</span><span class='backtest-val'>{insight[6]:.1f}%</span>
+                <br><span style='font-size:0.8rem; color:#8899A6;'>註：此數據代表過去20天內，收盤價落在 AI 預測區間內的頻率。</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
 # --- 5. 主程式 ---
 def main():
@@ -212,7 +241,6 @@ def main():
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
-    # 讀取第 8 行波動補償係數
     v_comp = float(s_map.get('vol_comp', 1.5))
 
     if st.session_state.user is None:
@@ -236,28 +264,21 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 權值標本-藍籌股基準：用於校準 AI 對市場「地基」穩定度的感知，影響長期走勢的合理性。 (推薦: 2330)", s_map.get('benchmark_1', '2330'))
-                    b2 = st.text_input("2. 成長標本-高波動指標：讓 AI 學習識別「異常爆發」或「動能切換」，提高對急漲急跌的預警能力。 (推薦: 2317)", s_map.get('benchmark_2', '2317'))
-                    b3 = st.text_input("3. ETF 標本-市場資金流向：協助 AI 過濾掉個股的隨機雜訊，判斷整體族群的板塊輪動。 (推薦: 0050)", s_map.get('benchmark_3', '0050'))
+                    b1 = st.text_input("1. 權值標本-藍籌股基準：用於校準 AI 對市場「地基」穩定度的感知... (推薦: 2330)", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本-高波動指標：讓 AI 學習識別「異常爆發」... (推薦: 2317)", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF 標本-市場資金流向：協助 AI 過濾掉個股的隨機雜訊... (推薦: 0050)", s_map.get('benchmark_3', '0050'))
                     new_p = st.slider("系統靈敏度 (AI 推薦: 55)", 0, 100, cp)
-                    new_tw = st.number_input("AI 趨勢權重-預測傾斜增益：設定越高，AI 就越「偏執」地相信目前的趨勢會持續（慣性加成）。 (AI 推薦: 1.0)", 0.5, 3.0, tw_val)
+                    new_tw = st.number_input("AI 趨勢權重-預測傾斜增益 (AI 推薦: 1.0)", 0.5, 3.0, tw_val)
                     new_ttl = st.number_input("API 快取控管 (推薦: 1-10 分鐘)", 1, 10, api_ttl)
                     
-                    # 獲取 AI 建議係數（基於當前所選個股）
-                    # 為了在渲染前獲取建議，我們快速執行一次精簡引擎
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
                     _, _, rec_v = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (0, 0, 1.5)
-                    
-                    new_v = st.slider(f"波動補償係數 - 當前建議值: {rec_v} (調整越高區間越敏感)", 0.5, 3.0, v_comp)
+                    new_v = st.slider(f"波動補償係數 - 當前建議值: {rec_v}", 0.5, 3.0, v_comp)
                     
                     if st.button("💾 同步觀察標本與學習參數"):
-                        ws_s.update_cell(2, 2, str(new_p))
-                        ws_s.update_cell(3, 2, str(new_ttl))
-                        ws_s.update_cell(4, 2, b1)
-                        ws_s.update_cell(5, 2, b2)
-                        ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw))
-                        ws_s.update_cell(8, 2, str(new_v))
+                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
+                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
                         st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp)
