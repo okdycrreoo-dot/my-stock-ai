@@ -100,7 +100,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. AI 核心與分析引擎 (還原 1,000 次模擬邏輯) ---
+# --- 3. AI 核心與分析引擎 ---
 def perform_ai_engine(df, p_days, precision, trend_weight):
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -137,68 +137,48 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     
     score = 0
     reasons = []
-    if curr_p > last['MA20']: 
-        score += 1
-        reasons.append("站上月線")
-    else: 
-        score -= 1
-        reasons.append("破月線")
-    if last['Hist'] > 0: 
-        score += 1
-        reasons.append("MACD多頭")
-    if last['K'] < 25: 
-        score += 1
-        reasons.append("KDJ低位反彈")
+    if curr_p > last['MA20']: score += 1; reasons.append("站上月線")
+    else: score -= 1; reasons.append("破月線")
+    if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
+    if last['K'] < 25: score += 1; reasons.append("KDJ低位反彈")
     
-    status_map = {
-        2: ("🚀 強力買入", "#FF3131"), 
-        1: ("📈 偏多操作", "#FF7A7A"), 
-        0: ("⚖️ 觀望中性", "#FFFF00"), 
-        -1: ("📉 偏空警戒", "#00FF41")
-    }
+    status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_high, next_low)
 
-# --- 4. 圖表與終端渲染 (修正分層與右側標籤) ---
+# --- 4. 圖表與終端渲染 (視覺修正核心) ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
-    if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗"); return
+    if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
 
+    # 指標卡片
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
-    metrics = [
-        ("當前價格", f"{curr_p:.2f}", c_p), 
-        ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
-        ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), 
-        ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
-        ("今日成交", f"{curr_v:,}", "#FFFF00")
-    ]
+    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交", f"{curr_v:,}", "#FFFF00")]
     for i, (lab, val, col) in enumerate(metrics):
-        with m_cols[i]: 
-            st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
+        with m_cols[i]: st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
     st.write("") 
     s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
-        with s_cols[i]: 
-            st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
+        with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # 修正重點：vertical_spacing 增加到 0.07 使圖表明顯分開
+    # 圖表間隔與標籤修正
     fig = make_subplots(
         rows=4, cols=1, 
         shared_xaxes=True, 
         row_heights=[0.4, 0.15, 0.2, 0.25], 
-        vertical_spacing=0.07, 
+        vertical_spacing=0.08,  # 增加間距
         subplot_titles=("價格與均線", "成交量", "MACD", "KDJ")
     )
     
     p_df = df.tail(90)
+    # 區塊 1
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線', showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
@@ -207,6 +187,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測', line=dict(color='#FF3131', width=3, dash='dash'), showlegend=False), 1, 1)
     
+    # 區塊 2-4
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能', marker_color=v_colors, showlegend=False), 2, 1)
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], showlegend=False), 3, 1)
@@ -214,35 +195,23 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF'), showlegend=False), 4, 1)
 
-    # 修正重點：右側顯眼標籤與顏色區分
-    annos = [
-        ("均線/AI預測", 0.92, "#FFFFFF"), 
-        ("成交量能", 0.58, "#8899A6"), 
-        ("MACD力道", 0.38, "#FF7A7A"), 
-        ("KDJ (藍K/黃D/紫J)", 0.12, "#00F5FF")
-    ]
-    for txt, y_p, clr in annos:
-        fig.add_annotation(
-            xref="paper", yref="paper", 
-            x=1.01, y=y_p, 
-            text=f"<b>{txt}</b>", 
-            showarrow=False, align="left", xanchor="left", 
-            font=dict(size=14, color=clr)
-        )
+    # 重大修正：精確標籤座標 (x 設為 1.02，y 根據 row_heights 換算)
+    # y=1.0 為頂端，y=0 為底端
+    fig.add_annotation(xref="paper", yref="paper", x=1.02, y=0.85, text="<b>均線/AI預測</b>", showarrow=False, align="left", xanchor="left", font=dict(size=14, color="#FFFFFF"))
+    fig.add_annotation(xref="paper", yref="paper", x=1.02, y=0.52, text="<b>成交量能</b>", showarrow=False, align="left", xanchor="left", font=dict(size=14, color="#8899A6"))
+    fig.add_annotation(xref="paper", yref="paper", x=1.02, y=0.35, text="<b>MACD力道</b>", showarrow=False, align="left", xanchor="left", font=dict(size=14, color="#FF7A7A"))
+    fig.add_annotation(xref="paper", yref="paper", x=1.02, y=0.12, text="<b>KDJ(藍K/黃D/紫J)</b>", showarrow=False, align="left", xanchor="left", font=dict(size=14, color="#00F5FF"))
 
-    # 增加右側邊距 (margin r=160) 以容納標籤
-    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=160, l=50, t=50, b=50))
+    # 必須顯著增加右邊距 (margin r) 否則文字會被裁掉
+    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=180, l=50, t=80, b=50))
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
 
 # --- 5. 主程式 ---
 def main():
-    if 'user' not in st.session_state: 
-        st.session_state.user, st.session_state.last_active = None, time.time()
-    
-    if st.session_state.user and (time.time() - st.session_state.get('last_active', time.time()) > 600): 
-        st.session_state.user = None
+    if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
+    if st.session_state.user and (time.time() - st.session_state.get('last_active', time.time()) > 600): st.session_state.user = None
     st.session_state.last_active = time.time()
     
     try:
@@ -250,16 +219,11 @@ def main():
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
         ws_u, ws_w, ws_s = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings")
-    except: 
-        st.error("🚨 資料庫連線失敗"); return
+    except: st.error("🚨 資料庫連線失敗"); return
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-    try: 
-        cp = int(s_map.get('global_precision', 55))
-        api_ttl = int(s_map.get('api_ttl_min', 1))
-        tw_val = float(s_map.get('trend_weight', 1.0))
-    except: 
-        cp, api_ttl, tw_val = 55, 1, 1.0
+    try: cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
+    except: cp, api_ttl, tw_val = 55, 1, 1.0
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 登入系統")
@@ -283,29 +247,14 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    # 依需求加入手動輸入標本
-                    b1 = st.text_input("1. 藍籌標本 (建議: 2330.TW)", s_map.get('benchmark_1', '2330'))
-                    b2 = st.text_input("2. 成長標本 (建議: 2317.TW)", s_map.get('benchmark_2', '2317'))
-                    b3 = st.text_input("3. ETF 標本 (建議: 0050.TW)", s_map.get('benchmark_3', '0050'))
-                    
-                    # 靈敏度與 API 時間
-                    new_p = st.slider("系統靈敏度", 0, 100, cp)
-                    new_tw = st.number_input("AI 趨勢權重 (建議: 1.0~1.5)", 0.5, 3.0, tw_val)
-                    new_ttl = st.number_input("API 快取/連線時間 (1-10分鐘)", 1, 10, api_ttl)
-                    
+                    b1 = st.text_input("1. 藍籌標本", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'))
+                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI趨勢權重", 0.5, 3.0, tw_val), st.number_input("API連線時間(1-10分)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
-                        # 對應資料庫欄位同步
-                        ws_s.update_cell(2, 2, str(new_p))
-                        ws_s.update_cell(3, 2, str(new_ttl))
-                        ws_s.update_cell(4, 2, b1)
-                        ws_s.update_cell(5, 2, b2)
-                        ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw))
-                        st.success("✅ okdycrreoo 設定已同步！"); st.rerun()
-                
+                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
+                        st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
-        
-        # 使用 okdycrreoo 設定的 api_ttl 進行渲染
         render_terminal(target, p_days, cp, tw_val, api_ttl)
 
 if __name__ == "__main__":
