@@ -318,7 +318,7 @@ def main():
                     if not udf.empty and new_u in udf['username'].astype(str).values:
                         st.error("⚠️ 此帳號已存在。")
                     else:
-                        ws_u.append_row([new_u, new_p, "user", datetime.now().strftime("%Y-%m-%d")])
+                        ws_u.append_row([new_u, new_p])
                         st.success("✅ 註冊成功！")
                 else:
                     st.warning("⚠️ 請檢查輸入資訊。")
@@ -358,4 +358,5 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
+
 
