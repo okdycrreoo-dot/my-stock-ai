@@ -262,13 +262,38 @@ def main():
     v_comp = float(s_map.get('vol_comp', 1.5))
 
     if st.session_state.user is None:
-        st.title("🚀 StockAI 登入系統")
-        u, p = st.text_input("帳號", key="login_u"), st.text_input("密碼", type="password", key="login_p")
-        if st.button("確認登入", use_container_width=True):
-            udf = pd.DataFrame(ws_u.get_all_records())
-            if not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
-                st.session_state.user = u; st.rerun()
-            else: st.error("驗證失敗")
+        st.title("🚀 StockAI 終端安全登入")
+        tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 申請權限"])
+        
+        with tab_login:
+            u = st.text_input("管理帳號", key="login_u")
+            p = st.text_input("存取密碼", type="password", key="login_p")
+            if st.button("確認進入終端", use_container_width=True):
+                # 確保讀取最新的用戶清單
+                udf = pd.DataFrame(ws_u.get_all_records())
+                if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
+                    st.session_state.user = u
+                    st.rerun()
+                else:
+                    st.error("❌ 驗證失敗：帳號或密碼錯誤，或該帳號尚未開通。")
+        
+        with tab_reg:
+            st.markdown("#### 申請新的終端存取權限")
+            new_u = st.text_input("欲設定的帳號", key="reg_u")
+            new_p = st.text_input("欲設定的密碼", type="password", key="reg_p")
+            confirm_p = st.text_input("再次確認密碼", type="password", key="reg_pc")
+            
+            if st.button("提交註冊申請"):
+                if new_u and new_p == confirm_p:
+                    udf = pd.DataFrame(ws_u.get_all_records())
+                    if not udf.empty and new_u in udf['username'].astype(str).values:
+                        st.error("⚠️ 此帳號已存在，請更換名稱。")
+                    else:
+                        # 格式：username, password, level, join_date
+                        ws_u.append_row([new_u, new_p, "user", datetime.now().strftime("%Y-%m-%d")])
+                        st.success("✅ 註冊成功！請切換回登入頁面進入系統。")
+                else:
+                    st.warning("⚠️ 請確認帳號已填寫且兩次密碼輸入一致。")
     else:
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
@@ -306,4 +331,5 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
+
 
