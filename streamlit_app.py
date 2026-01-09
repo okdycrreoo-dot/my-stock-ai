@@ -207,7 +207,7 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF'), showlegend=False), 4, 1)
 
-    annos = [("均線/AI預測", 0.92, "#FFFFFF"), ("成交量能", 0.58, "#8899A6"), ("MACD力道", 0.38, "#FF7A7A"), ("KDJ指標", 0.12, "#00F5FF")]
+    annos = [("均線/AI預測", 0.92, "#FFFFFF"), ("成交量能", 0.58, "#8899A6"), ("MACD力道", 0.38, "#FF7A7A"), ("KDJ (藍K/黃D/紫J)", 0.12, "#00F5FF")]
     for txt, y_p, clr in annos:
         fig.add_annotation(xref="paper", yref="paper", x=1.01, y=y_p, text=f"<b>{txt}</b>", showarrow=False, align="left", xanchor="left", font=dict(size=13, color=clr))
 
@@ -229,22 +229,20 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
 
 # --- 5. 主程式 ---
 def main():
-    if 'user' not in st.session_state: 
-        st.session_state.user = None
+    if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
+    if st.session_state.user and time.time() - st.session_state.last_active > 600: st.session_state.user = None
+    st.session_state.last_active = time.time()
     try:
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
         ws_u, ws_w, ws_s = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings")
     except: 
-        st.error("🚨 資料庫連線失敗")
-        return
+        st.error("🚨 資料庫連線失敗"); return
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-    try:
-        cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
-    except: 
-        cp, api_ttl, tw_val = 55, 1, 1.0
+    try: cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
+    except: cp, api_ttl, tw_val = 55, 1, 1.0
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 登入系統")
@@ -252,10 +250,8 @@ def main():
         if st.button("確認登入", use_container_width=True):
             udf = pd.DataFrame(ws_u.get_all_records())
             if not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
-                st.session_state.user = u
-                st.rerun()
-            else: 
-                st.error("驗證失敗")
+                st.session_state.user = u; st.rerun()
+            else: st.error("驗證失敗")
     else:
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
@@ -265,23 +261,19 @@ def main():
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
                 if st.button("新增股票"):
-                    if ns: 
-                        ws_w.append_row([st.session_state.user, ns.upper()])
-                        st.rerun()
+                    if ns: ws_w.append_row([st.session_state.user, ns.upper()]); st.rerun()
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 權值標本", s_map.get('benchmark_1', '2330'), help="藍籌股基準。用於校準 AI 對市場大盤穩定度的感知，通常輸入 2330。")
-                    b2 = st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317'), help="高波動股票。用於訓練 AI 識別噴發型行情與風險係數，如鴻海或聯發科。")
-                    b3 = st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'), help="籃子指標。幫助 AI 過濾單一股票雜訊，鎖定市場主流資金流向，如 0050 或 006208。")
-                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重", 0.5, 3.0, tw_val, help="預測增益。數值越高，AI 越傾向於放大目前的趨勢（看漲更漲、看跌更跌）。建議範圍 0.8-1.5。"), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
+                    b1 = st.text_input("1. 權值標本(藍籌股基準：校準市場地基。建議: 2330.TW)", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本(高波動指標：識別噴發動能。建議: 2317.TW)", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF標本(資金流向：過濾個股雜訊。建議: 0050.TW)", s_map.get('benchmark_3', '0050'))
+                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重(預測增益。建議: 1.0~1.5)", 0.5, 3.0, tw_val), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
                         st.success("✅ 同步成功！"); st.rerun()
-                if st.button("🚪 登出"): 
-                    st.session_state.user = None
-                    st.rerun()
+                if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
         render_terminal(target, p_days, cp, tw_val, api_ttl)
 
 if __name__ == "__main__":
