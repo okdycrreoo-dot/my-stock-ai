@@ -92,6 +92,13 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
                 df['K'] = rsv.ewm(com=2).mean()
                 df['D'] = df['K'].ewm(com=2).mean()
                 df['J'] = 3 * df['K'] - 2 * df['D']
+                delta = df['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                df['RSI'] = 100 - (100 / (1 + (gain / (loss + 0.00001))))
+                
+                tr = pd.concat([df['High']-df['Low'], abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
+                df['ATR'] = tr.rolling(14).mean()
                 return df.dropna(), s
             time.sleep(1.5)
         except: 
@@ -170,14 +177,18 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     prev_c = float(prev['Close'])
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
+
+    rsi_now, rsi_prev = last['RSI'], prev['RSI']
+    rsi_div = -1 if (curr_p > prev_c and rsi_now < rsi_prev) else (1 if (curr_p < prev_c and rsi_now > rsi_prev) else 0)
+    vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
     # 核心趨勢包含：設定趨勢 + 均值回歸拉力 (bias * 0.08)
-    base_drift = ((int(precision) - 55) / 1000) * float(trend_weight)
+    base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002)
     
     for _ in range(1000):
-        noise = np.random.normal(0, f_vol * v_comp, p_days)
+        noise = np.random.normal(0, f_vol * v_comp * vol_contract, p_days)
         # 加入均值回歸邏輯的路徑演化
         path = [curr_p]
         for i in range(p_days):
@@ -200,12 +211,12 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     else: score -= 1; reasons.append("破月線")
     if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
     if last['K'] < 25: score += 1; reasons.append("KDJ低位反彈")
-    
+    if rsi_div == 1: score += 1; reasons.append("RSI底背離(籌碼回補)")
+    elif rsi_div == -1: score -= 1; reasons.append("RSI頂背離(主力派發)")
+    if vol_contract < 0.8: reasons.append("ATR高度收縮(即將變盤)")
     status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
-    
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
-
 # --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
@@ -347,3 +358,4 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
+
