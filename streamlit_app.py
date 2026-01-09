@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 ---
+# --- 1. 配置與 UI 視覺 (完整 CSS) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
@@ -29,12 +29,13 @@ st.markdown("""
         border: none !important; border-radius: 12px; font-weight: 900 !important;
         height: 3.5rem !important; width: 100% !important;
     }
-    .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 18px; margin-bottom: 12px; border: 1px solid #30363D; }
-    /* 修正買賣建議顏色顏色與行情一致 */
+    .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #30363D; }
+    .info-box { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; padding: 10px; text-align: center; min-height: 80px; }
+    .ai-advice-box { background-color: #161B22; border: 1px solid #FFAC33; border-radius: 12px; padding: 20px; margin-top: 15px; border-left: 10px solid #FFAC33; }
     .price-buy { color: #FF3131; font-weight: 900; font-size: 1.3rem; }
     .price-sell { color: #00FF41; font-weight: 900; font-size: 1.3rem; }
-    .realtime-val { font-size: 1.4rem; font-weight: 900; }
-    .label-text { color: #8899A6 !important; font-size: 0.85rem; }
+    .realtime-val { font-size: 1.4rem; font-weight: 900; display: block; margin-top: 5px; }
+    .label-text { color: #8899A6 !important; font-size: 0.8rem; letter-spacing: 1px; }
     button[data-testid="sidebar-button"] { display: none !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -66,7 +67,7 @@ def fetch_comprehensive_data(symbol):
         except: time.sleep(1.5); continue
     return None, s
 
-# --- 3. AI 預測引擎 ---
+# --- 3. AI 核心與分析引擎 ---
 def perform_ai_engine(df, p_days, precision):
     last, prev = df.iloc[-1], df.iloc[-2]
     vol = df['Close'].pct_change().tail(20).std()
@@ -82,73 +83,84 @@ def perform_ai_engine(df, p_days, precision):
     
     periods = {"5日短期": (last['MA5'], 1.6), "20日中期": (last['MA20'], 2.6), "60日長期": (last['MA60'], 4.0)}
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct
+    
+    # AI 綜合評語邏輯
+    score = 0
+    reasons = []
+    if curr_p > last['MA20']: score += 1; reasons.append("站上月線")
+    else: score -= 1; reasons.append("破月線")
+    if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
+    if last['K'] < 25: score += 1; reasons.append("KDJ低位反彈")
+    
+    if score >= 2: status, color = "🚀 強力買入", "#FF3131"
+    elif score == 1: status, color = "📈 偏多操作", "#FF7A7A"
+    elif score == 0: status, color = "⚖️ 觀望中性", "#FFFF00"
+    else: status, color = "📉 偏空警戒", "#00FF41"
+    
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (status, " | ".join(reasons), color)
 
-# --- 4. 圖表渲染 ---
-def render_terminal(symbol, unit, p_days, precision):
+# --- 4. 圖表與終端渲染 ---
+def render_terminal(symbol, p_days, precision):
     df, f_id = fetch_comprehensive_data(symbol)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct = perform_ai_engine(df, p_days, precision)
-    st.title(f"📊 {f_id} 終端看板")
+    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision)
+    st.title(f"📊 {f_id} 全能技術終端")
 
-    # --- 核心修正：台股配色邏輯 (漲紅跌綠) ---
-    color_code = "#FF3131" if change_pct >= 0 else "#00FF41"
+    # A. 橫向行情條 (修正配色：紅漲綠跌)
+    c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
+    
+    m_cols = st.columns(5)
+    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
+               ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
+               ("今日成交", f"{curr_v:,}", "#FFFF00")]
+    for i, (lab, val, col) in enumerate(metrics):
+        with m_cols[i]:
+            st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
-    m1, m2 = st.columns([1.5, 3])
-    with m1:
-        st.markdown(f"""
-        <div class='diag-box'>
-            <center><b>即時行情數據 (台股配色)</b></center><hr style='border:0.5px solid #333'>
-            <table style='width:100%'>
-                <tr><td class='label-text'>當前價格</td><td class='realtime-val' style='color:{color_code}'>{curr_p:.2f}</td></tr>
-                <tr><td class='label-text'>漲跌幅度</td><td class='realtime-val' style='color:{color_code}'>{sign}{change_pct:.2f}%</td></tr>
-                <tr><td class='label-text'>今日開盤</td><td class='realtime-val' style='color:#FFFFFF'>{open_p:.2f}</td></tr>
-                <tr><td class='label-text'>昨日收盤</td><td class='realtime-val' style='color:#FFFFFF'>{prev_c:.2f}</td></tr>
-                <tr><td class='label-text'>今日成交</td><td class='realtime-val' style='color:#FFFF00'>{curr_v:,}</td></tr>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
-    with m2:
-        cols = st.columns(3)
-        for i, (label, p) in enumerate(ai_recs.items()):
-            with cols[i]:
-                st.markdown(f"""
-                <div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #333'>
-                買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>
-                賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>
-                """, unsafe_allow_html=True)
+    # B. AI 策略建議 (橫向排列)
+    st.write("") 
+    s_cols = st.columns(3)
+    for i, (label, p) in enumerate(ai_recs.items()):
+        with s_cols[i]:
+            st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
+    # C. 技術圖表 (4層 + J線修正)
     
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03)
     p_df = df.tail(90)
     
-    # Layer 1: K線 (修正配色)
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
                                  increasing_line_color='#FF3131', increasing_fillcolor='#FF3131',
                                  decreasing_line_color='#00FF41', decreasing_fillcolor='#00FF41', name='K線'), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5)), 1, 1)
-    
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測線', line=dict(color='#FFAC33', width=3, dash='dash')), 1, 1)
-
-    # Layer 2 & 3: 量與 MACD (修正配色)
+    
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量', marker_color=v_colors), 2, 1)
-    
     m_colors = ['#FF3131' if val >= 0 else '#00FF41' for val in p_df['Hist']]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD柱', marker_color=m_colors), 3, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=m_colors), 3, 1)
     
-    # Layer 4: KDJ
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K', line=dict(color='#00F5FF', width=3)), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D', line=dict(color='#FFFF00', width=1.2)), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J', line=dict(color='#FF00FF', width=1.2)), 4, 1)
 
-    fig.update_layout(template="plotly_dark", height=900, xaxis_rangeslider_visible=False, margin=dict(t=10, b=10))
+    fig.update_layout(template="plotly_dark", height=750, xaxis_rangeslider_visible=False, margin=dict(t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-# --- 5. 主程式 ---
+    # D. 右下角 AI 綜合評語
+    st.markdown(f"""
+    <div class='ai-advice-box'>
+        <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
+        <hr style='border:0.5px solid #444; margin:10px 0;'>
+        <p style='font-size:1.1rem;'><b>分析依據：</b>{insight[1]}</p>
+        <p style='font-size:1rem; color:#8899A6;'>💡 建議：結合上方 AI 建議價分批布局，跌破月線或 KDJ 死叉時應縮減部位。</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- 5. 主程式 (完整後端邏輯) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user = None
     try:
@@ -162,43 +174,44 @@ def main():
     cp = int(s_map.get('global_precision', 55))
 
     if st.session_state.user is None:
-        st.title("🚀 StockAI 登入系統")
+        st.title("🚀 StockAI 登入與註冊")
         t1, t2 = st.tabs(["🔑 登入", "📝 註冊"])
         with t1:
-            u, p = st.text_input("帳號"), st.text_input("密碼", type="password")
+            u = st.text_input("帳號", key="login_u")
+            p = st.text_input("密碼", type="password", key="login_p")
             if st.button("確認登入", use_container_width=True):
                 udf = pd.DataFrame(ws_u.get_all_records())
                 if not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
                     st.session_state.user = u; st.rerun()
-                else: st.error("帳密錯誤")
+                else: st.error("帳號或密碼錯誤")
         with t2:
-            nu, npw = st.text_input("新帳號"), st.text_input("新密碼", type="password")
+            nu = st.text_input("新帳號", key="reg_u")
+            npw = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("完成註冊", use_container_width=True):
-                if nu: ws_u.append_row([nu, npw]); st.success("註冊成功")
+                if nu and npw: ws_u.append_row([nu, npw]); st.success("註冊成功，請切換至登入頁面")
     else:
         with st.expander("⚙️ 終端管理面板", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
-                target = st.selectbox("我的選股", u_stocks if u_stocks else ["2330"])
+                target = st.selectbox("我的自選股", u_stocks if u_stocks else ["2330"])
                 if st.button(f"🗑️ 刪除 {target}"):
                     vals = ws_w.get_all_values()
                     for i, r in enumerate(vals):
                         if i>0 and r[0]==st.session_state.user and r[1]==target:
                             ws_w.delete_rows(i+1); st.rerun()
-                ns = st.text_input("➕ 新增代碼")
-                if st.button("執行新增"):
+                ns = st.text_input("➕ 新增股票代碼 (例: 2317)")
+                if st.button("新增至清單"):
                     if ns: ws_w.append_row([st.session_state.user, ns.upper()]); st.rerun()
             with m2:
                 p_days = st.number_input("AI 預測天數", 1, 30, 7)
-                unit = st.selectbox("時間單位", ["日", "月", "年"])
                 if st.session_state.user == "okdycrreoo":
                     new_p = st.slider("同步全域靈敏度", 0, 100, cp)
-                    if st.button("💾 更新同步"):
+                    if st.button("💾 儲存並同步全網"):
                         ws_s.update_cell(2, 2, str(new_p)); st.rerun()
                 if st.button("🚪 安全登出"): st.session_state.user = None; st.rerun()
         
-        render_terminal(target, unit, p_days, cp)
+        render_terminal(target, p_days, cp)
 
 if __name__ == "__main__": main()
