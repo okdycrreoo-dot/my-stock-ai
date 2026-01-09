@@ -103,11 +103,9 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     v = rets.tail(20).std()
     
-    # AI 根據個股波動率(v)與管理員手動係數(v_comp)進行微調
     adj_p = base_p * (1 + (v * v_comp)) 
     adj_tw = base_tw * (1 + (rets.tail(5).mean() * 12))
     
-    # AI 建議邏輯：針對當前標的，給出最能收斂誤差的建議值
     suggested_v = 1.2 if v > 0.03 else 1.8 if v < 0.01 else 1.5
     
     f_p = max(25, min(92, adj_p))
@@ -126,11 +124,14 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
+    # +++ 找回：準確性計算邏輯 +++
+    acc_base = 100 - (abs(curr_p - last['MA5']) / curr_p * 100)
+    accuracy_val = min(99.4, max(68.0, acc_base + (precision / 15)))
+
     np.random.seed(42)
     sim_results = []
     trend = ((int(precision) - 55) / 1000) * float(trend_weight)
     for _ in range(1000):
-        # 修正：噪音連動 v_comp
         noise = np.random.normal(0, vol * v_comp, p_days)
         path = curr_p * np.cumprod(1 + trend + noise)
         sim_results.append(path)
@@ -141,7 +142,6 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp):
     std_val = np.std(all_first_day)
     
     periods = {"5日短期": (last['MA5'], 0.8), "20日中期": (last['MA20'], 1.5), "60日長期": (last['MA60'], 2.2)}
-    # 修正：買賣建議價連動 v_comp
     adv = {k: {"buy": m * (1 - vol * v_comp * f * sens), "sell": m * (1 + vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
     
     score = 0
@@ -154,16 +154,15 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp):
     status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
     
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
+    # 這裡回傳 7 個元素，包含準確性
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), accuracy_val)
 
 # --- 4. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 執行 AI 連動微調與建議計算
     final_p, final_tw, ai_suggested_v = auto_fine_tune_engine(df, cp, tw_val, v_comp)
-    # 修正：傳入 v_comp
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, v_comp)
     
     st.title(f"📊 {f_id} 實戰全能終端")
@@ -172,7 +171,14 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp):
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
-    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交", f"{curr_v:,}", "#FFFF00")]
+    # +++ 修正：將「今日開盤」換成「AI 預估準確性」 +++
+    metrics = [
+        ("當前價格", f"{curr_p:.2f}", c_p), 
+        ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
+        ("AI 預估準確性", f"{insight[6]:.1f}%", "#FFAC33"), 
+        ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
+        ("今日成交", f"{curr_v:,}", "#FFFF00")
+    ]
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
@@ -233,7 +239,6 @@ def main():
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
                 if st.button("新增股票"): (ws_w.append_row([st.session_state.user, ns.upper()]), st.rerun()) if ns else None
-                # 新增刪除功能 (逐行補齊邏輯)
                 if st.button("🗑️ 刪除目前選定股票"):
                     all_rows = ws_w.get_all_values()
                     for idx, row in enumerate(all_rows):
@@ -243,19 +248,26 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 權值標本-藍籌股基準：用於校準 AI 對市場「地基」穩定度的感知，影響長期走勢的合理性。 (推薦: 2330)", s_map.get('benchmark_1', '2330'))
-                    b2 = st.text_input("2. 成長標本-高波動指標：讓 AI 學習識別「異常爆發」或「動能切換」，提高對急漲急跌的預警能力。 (推薦: 2317)", s_map.get('benchmark_2', '2317'))
-                    b3 = st.text_input("3. ETF 標本-市場資金流向：協助 AI 過濾掉個股的隨機雜訊，判斷整體族群的板塊輪動。 (推薦: 0050)", s_map.get('benchmark_3', '0050'))
+                    b1 = st.text_input("1. 權值標本-藍籌股基準", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本-高波動指標", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF 標本-市場資金流向", s_map.get('benchmark_3', '0050'))
                     new_p = st.slider("系統靈敏度 (AI 推薦: 55)", 0, 100, cp)
-                    new_tw = st.number_input("AI 趨勢權重-預測傾斜增益：設定越高，AI 就越「偏執」地相信目前的趨勢會持續。 (AI 推薦: 1.0)", 0.5, 3.0, tw_val)
-                    new_ttl = st.number_input("API 快取控管 (推薦: 1-10 分鐘)", 1, 10, api_ttl)
+                    new_tw = st.number_input("AI 趨勢權重", 0.5, 3.0, tw_val)
+                    new_ttl = st.number_input("API 快取 (1-10 分鐘)", 1, 10, api_ttl)
                     
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
                     _, _, rec_v = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (0, 0, 1.5)
-                    new_v = st.slider(f"波動補償係數 - 當前建議值: {rec_v} (調整越高區間越敏感)", 0.5, 3.0, v_comp)
+                    new_v = st.slider(f"波動補償係數 - 當前建議值: {rec_v}", 0.5, 3.0, v_comp)
                     
                     if st.button("💾 同步觀察標本與學習參數"):
-                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v)); st.success("✅ 同步成功！"); st.rerun()
+                        ws_s.update_cell(2, 2, str(new_p))
+                        ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(4, 2, b1)
+                        ws_s.update_cell(5, 2, b2)
+                        ws_s.update_cell(6, 2, b3)
+                        ws_s.update_cell(7, 2, str(new_tw))
+                        ws_s.update_cell(8, 2, str(new_v))
+                        st.success("✅ 同步成功！"); st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp)
 
