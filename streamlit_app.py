@@ -333,9 +333,14 @@ def main():
                 if st.button("新增股票"): (ws_w.append_row([st.session_state.user, ns.upper()]), st.rerun()) if ns else None
                 if st.button("🗑️ 刪除目前選定股票"):
                     all_rows = ws_w.get_all_values()
-                    for idx, row in enumerate(all_rows):
+                    for idx, row in reversed(list(enumerate(all_rows))):
+                        # 注意：row[0] 是 username, row[1] 是 stock_symbol
                         if row[0] == st.session_state.user and row[1] == target:
-                            ws_w.delete_rows(idx + 1); st.rerun()
+                            # gspread 的行號是從 1 開始，所以 idx 需 + 1
+                            ws_w.delete_rows(idx + 1)
+    
+    st.success(f"✅ 已成功移除 {target}")
+    st.rerun()
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
@@ -358,5 +363,6 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__": main()
+
 
 
