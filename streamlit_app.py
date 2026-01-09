@@ -189,10 +189,9 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
         with s_cols[i]: 
             st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03, subplot_titles=("價格與均線", "成交量", "MACD", "KDJ"))
+    # 修正間距: vertical_spacing 調升至 0.06 以達到 3mm 左右的隔離效果
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.06, subplot_titles=("價格與均線", "成交量", "MACD", "KDJ"))
     p_df = df.tail(90)
-    
-    # 強制關閉 legend 以免擋住手動說明的標籤
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線', showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
@@ -208,11 +207,18 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF'), showlegend=False), 4, 1)
 
-    annos = [("均線/AI預測", 0.92, "#FFFFFF"), ("成交量能", 0.58, "#8899A6"), ("MACD力道", 0.38, "#FF7A7A"), ("KDJ (藍K/黃D/紫J)", 0.12, "#00F5FF")]
+    # 修正線條標示: 增加詳細的顏色對照說明
+    annos = [
+        ("黃:MA5 / 藍:MA20 / 橘:MA60 / 紅虛:AI", 0.92, "#FFFFFF"), 
+        ("成交量 (紅漲綠跌)", 0.58, "#8899A6"), 
+        ("MACD 力道柱狀圖", 0.38, "#FF7A7A"), 
+        ("KDJ (藍:K / 黃:D / 紫:J)", 0.12, "#00F5FF")
+    ]
     for txt, y_p, clr in annos:
-        fig.add_annotation(xref="paper", yref="paper", x=1.01, y=y_p, text=f"<b>{txt}</b>", showarrow=False, align="left", xanchor="left", font=dict(size=13, color=clr))
+        fig.add_annotation(xref="paper", yref="paper", x=1.02, y=y_p, text=f"<b>{txt}</b>", showarrow=False, align="left", xanchor="left", font=dict(size=12, color=clr))
 
-    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=180))
+    # 拓寬右邊距確保標籤顯示完全
+    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=220))
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
