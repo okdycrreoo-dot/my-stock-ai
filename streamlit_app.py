@@ -18,6 +18,7 @@ st.markdown("""
     .stApp { background-color: #0E1117; color: #FFFFFF !important; }
     label, p, span, .stMarkdown, .stCaption { color: #FFFFFF !important; font-weight: 800 !important; }
     
+    /* 強制輸入框文字為黑色，背景為白色，確保看得到輸入代碼 */
     input { 
         color: #000000 !important; 
         -webkit-text-fill-color: #000000 !important; 
@@ -28,6 +29,7 @@ st.markdown("""
         border-radius: 8px; 
     }
     
+    /* 強制下拉選單選中文字為黑色 */
     div[data-baseweb="select"] > div { 
         background-color: #FFFFFF !important; 
         color: #000000 !important; 
@@ -98,7 +100,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. AI 核心與分析引擎 ---
+# --- 3. AI 核心與分析引擎 (還原 1,000 次模擬邏輯) ---
 def perform_ai_engine(df, p_days, precision, trend_weight):
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -158,7 +160,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_high, next_low)
 
-# --- 4. 圖表與終端渲染 (修正說明標記) ---
+# --- 4. 圖表與終端渲染 (分層說明標記) ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: 
@@ -190,49 +192,30 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03, subplot_titles=("價格與均線", "成交量", "MACD", "KDJ"))
     p_df = df.tail(90)
     
-    # 價格與均線
+    # 強制關閉 legend 以免擋住手動說明的標籤
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線', showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5', line=dict(color='#FFFF00', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20', line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60', line=dict(color='#FFAC33', width=2), showlegend=False), 1, 1)
     
-    # AI 預測線
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測', line=dict(color='#FF3131', width=3, dash='dash'), showlegend=False), 1, 1)
     
-    # 成交量
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能', marker_color=v_colors, showlegend=False), 2, 1)
-    
-    # MACD
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], showlegend=False), 3, 1)
-    
-    # KDJ
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值', line=dict(color='#00F5FF'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF'), showlegend=False), 4, 1)
 
-    # --- 關鍵修正：右側文字說明 ---
-    annos = [
-        ("價格與均線<br><span style='color:#FFFF00'>●</span>黃:MA5 <span style='color:#00F5FF'>●</span>藍:MA20<br><span style='color:#FFAC33'>●</span>橘:MA60 <span style='color:#FF3131'>--</span>紅:AI預測", 0.93, "#FFFFFF"), 
-        ("成交量能", 0.58, "#8899A6"), 
-        ("MACD力道柱", 0.38, "#FF7A7A"), 
-        ("KDJ指標<br><span style='color:#00F5FF'>●</span>藍:K線 <span style='color:#FFFF00'>●</span>黃:D線<br><span style='color:#E066FF'>●</span>紫:J線", 0.12, "#FFFFFF")
-    ]
+    annos = [("均線/AI預測", 0.92, "#FFFFFF"), ("成交量能", 0.58, "#8899A6"), ("MACD力道", 0.38, "#FF7A7A"), ("KDJ (藍K/黃D/紫J)", 0.12, "#00F5FF")]
     for txt, y_p, clr in annos:
-        fig.add_annotation(
-            xref="paper", yref="paper", 
-            x=1.02, y=y_p, 
-            text=f"<b>{txt}</b>", 
-            showarrow=False, align="left", xanchor="left", 
-            font=dict(size=12, color=clr)
-        )
+        fig.add_annotation(xref="paper", yref="paper", x=1.01, y=y_p, text=f"<b>{txt}</b>", showarrow=False, align="left", xanchor="left", font=dict(size=13, color=clr))
 
-    # 右側留白增加到 200，確保文字不會被遮住
-    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=200, l=10, t=30, b=10))
+    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=180))
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 1,000次模擬展望：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
 
 # --- 5. 主程式 ---
 def main():
@@ -273,10 +256,10 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    b1 = st.text_input("1. 權值標本", s_map.get('benchmark_1', '2330'))
-                    b2 = st.text_input("2. 成長標本", s_map.get('benchmark_2', '2317'))
-                    b3 = st.text_input("3. ETF標本", s_map.get('benchmark_3', '0050'))
-                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重", 0.5, 3.0, tw_val), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
+                    b1 = st.text_input("1. 權值標本(藍籌股基準。建議: 2330.TW)", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 成長標本(高波動指標。建議: 2317.TW)", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. ETF標本(資金流向濾網。建議: 0050.TW)", s_map.get('benchmark_3', '0050'))
+                    new_p, new_tw, new_ttl = st.slider("系統靈敏度", 0, 100, cp), st.number_input("AI 趨勢權重(建議: 1.0~1.5)", 0.5, 3.0, tw_val), st.number_input("API 快取(分鐘)", 1, 10, api_ttl)
                     if st.button("💾 同步觀察標本與學習參數"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl)); ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3); ws_s.update_cell(7, 2, str(new_tw))
                         st.success("✅ 同步成功！"); st.rerun()
