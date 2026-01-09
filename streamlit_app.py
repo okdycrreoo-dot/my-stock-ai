@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 (CSS 完全展開，不合併) ---
+# --- 1. 配置與 UI 視覺 (確保文字清晰，CSS 完全展開) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
@@ -24,7 +24,7 @@ st.markdown("""
         font-weight: 800 !important; 
     }
     
-    /* 修正輸入框：黑字白底 */
+    /* 修正輸入框文字顏色，確保黑字白底 */
     input { 
         color: #000000 !important; 
         -webkit-text-fill-color: #000000 !important; 
@@ -127,14 +127,14 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. AI 核心 (千次模擬隔日預測) ---
+# --- 3. AI 核心 (千次模擬與隔日預測) ---
 def perform_ai_engine(df, p_days, precision, trend_weight):
     last = df.iloc[-1]
     vol = df['Close'].pct_change().tail(20).std()
     sens = (int(precision) / 55)
     curr_p = float(last['Close'])
     
-    # 核心：固定種子
+    # 核心：固定種子並執行 1,000 次模擬以統一設備結果
     np.random.seed(42) 
     sim_results = []
     trend = ((int(precision) - 55) / 1000) * float(trend_weight)
@@ -144,11 +144,11 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
         path = curr_p * np.cumprod(1 + trend + noise)
         sim_results.append(path)
     
-    # 計算期望值
+    # 計算期望值路徑
     pred_prices = np.mean(sim_results, axis=0)
     next_close = pred_prices[0]
     
-    # 隔日價格浮動區間 (1.5倍標準差)
+    # 隔日波動區間 (1.5倍標準差)
     all_first_day = [p[0] for p in sim_results]
     std_val = np.std(all_first_day)
     next_high = next_close + (std_val * 1.5)
@@ -174,14 +174,13 @@ def perform_ai_engine(df, p_days, precision, trend_weight):
     }
     st_text, st_col = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
     
-    return pred_prices, adv, curr_p, (st_text, "統計診斷完成", st_col, next_close, next_high, next_low)
+    return pred_prices, adv, curr_p, (st_text, "統計期望值診斷", st_col, next_close, next_high, next_low)
 
 # --- 4. 渲染引擎 ---
 def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
     df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: 
-        st.error(f"❌ 數據獲取失敗")
-        return
+        st.error(f"❌ 數據加載失敗"); return
 
     pred_line, ai_recs, curr_p, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
@@ -221,10 +220,11 @@ def main():
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-        ws_u, ws_w, ws_s = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings")
+        ws_u = sh.worksheet("users")
+        ws_w = sh.worksheet("watchlist")
+        ws_s = sh.worksheet("settings")
     except Exception as e: 
-        st.error(f"🚨 連線錯誤: {e}")
-        return
+        st.error(f"🚨 資料庫連線失敗: {e}"); return
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     
@@ -267,8 +267,7 @@ def main():
                         ws_s.update_cell(4, 2, b1)
                         ws_s.update_cell(5, 2, b2)
                         ws_s.update_cell(6, 2, b3)
-                        st.success("✅ 同步成功！")
-                        st.rerun()
+                        st.success("✅ 同步成功！"); st.rerun()
         
         render_terminal(target, p_days, cp, tw_val, api_ttl)
 
