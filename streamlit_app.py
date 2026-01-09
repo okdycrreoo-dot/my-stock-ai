@@ -98,17 +98,20 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 新增功能：自動回測邏輯 (嵌入而不破壞結構) ---
+# --- 新增功能：強化版回測邏輯 (嵌入而不破壞結構) ---
 def run_auto_backtest(ws_p):
     try:
         recs = ws_p.get_all_records()
         if not recs: return "等待初次記錄"
         df_p = pd.DataFrame(recs)
-        valid = df_p[df_p['actual_close'] != ""].tail(20)
-        if valid.empty: return "待市場數據更新"
+        df_p['actual_close'] = pd.to_numeric(df_p['actual_close'], errors='coerce')
+        valid = df_p.dropna(subset=['actual_close']).tail(20)
+        if valid.empty: return "待收盤數據自動補入 (Google Script 運行中)"
         hit = sum((valid['actual_close'] >= valid['pred_min']) & (valid['actual_close'] <= valid['pred_max']))
-        return f"近 20 場區間命中率: {(hit/len(valid))*100:.1f}%"
-    except: return "回測引擎啟動中"
+        avg_diff = (valid['actual_close'] - valid['pred_close']).mean()
+        status = "偏多" if avg_diff > 0 else "偏空"
+        return f"近20場命中率: {(hit/len(valid))*100:.1f}% | 平均誤差: {avg_diff:.2f} ({status})"
+    except: return "回測引擎同步中..."
 
 # --- 3. AI 核心：深度微調連動引擎 ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
@@ -213,8 +216,9 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
     
     if st.button("📝 記錄今日 AI 預測點位"):
+        # 寫入格式：日期, 代碼, 預期收盤, 預期下限, 預期上限, 實際收盤(留白), 誤差(留白)
         ws_p.append_row([datetime.now().strftime("%Y-%m-%d"), f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""])
-        st.success("✅ 已寫入 Google Sheets 預測分頁！")
+        st.success("✅ 預測已存檔！自動對帳腳本將在收盤後補入真實價格。")
 
 # --- 5. 主程式 ---
 def main():
@@ -258,7 +262,7 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
-                    # 顯示回測勝率
+                    # 顯示強化版回測數據
                     st.info(f"📊 AI 實戰績效看板：{run_auto_backtest(ws_p)}")
                     
                     b1 = st.text_input("1. 權值標本-藍籌股基準：用於校準 AI 對市場「地基」穩定度的感知，影響長期走勢的合理性。 (推薦: 2330)", s_map.get('benchmark_1', '2330'))
