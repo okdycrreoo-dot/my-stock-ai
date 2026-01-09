@@ -41,8 +41,8 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. 數據引擎 ---
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_comprehensive_data(symbol):
+@st.cache_data(show_spinner=False)
+def fetch_comprehensive_data(symbol, ttl_seconds):
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): s = f"{s}.TW"
     for _ in range(3):
@@ -68,7 +68,7 @@ def fetch_comprehensive_data(symbol):
     return None, s
 
 # --- 3. AI 核心與分析引擎 ---
-def perform_ai_engine(df, p_days, precision):
+def perform_ai_engine(df, p_days, precision, trend_weight):
     last, prev = df.iloc[-1], df.iloc[-2]
     vol = df['Close'].pct_change().tail(20).std()
     sens = (int(precision) / 55)
@@ -77,9 +77,9 @@ def perform_ai_engine(df, p_days, precision):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
     
-    # AI 預測路徑
+    # AI 預測路徑 (引入手動趨勢因子)
     noise = np.random.normal(0, vol, p_days)
-    trend = (int(precision) - 55) / 1000
+    trend = ((int(precision) - 55) / 1000) * float(trend_weight)
     pred_prices = curr_p * np.cumprod(1 + trend + noise)
     
     # 明日預期細節
@@ -88,11 +88,7 @@ def perform_ai_engine(df, p_days, precision):
     next_low = next_close * (1 - vol)
     
     # 實戰積極型參數修正
-    periods = {
-        "5日短期": (last['MA5'], 0.8),
-        "20日中期": (last['MA20'], 1.5),
-        "60日長期": (last['MA60'], 2.2)
-    }
+    periods = {"5日短期": (last['MA5'], 0.8), "20日中期": (last['MA20'], 1.5), "60日長期": (last['MA60'], 2.2)}
     adv = {k: {"buy": m * (1 - vol*f*sens), "sell": m * (1 + vol*f*sens)} for k, (m, f) in periods.items()}
     
     score = 0
@@ -110,14 +106,14 @@ def perform_ai_engine(df, p_days, precision):
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (status, " | ".join(reasons), color, next_close, next_high, next_low)
 
 # --- 4. 圖表與終端渲染 ---
-def render_terminal(symbol, p_days, precision):
-    df, f_id = fetch_comprehensive_data(symbol)
+def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
+    df, f_id = fetch_comprehensive_data(symbol, ttl_min * 60)
     if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision)
+    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, precision, trend_weight)
     st.title(f"📊 {f_id} 實戰全能終端")
 
-    # A. 橫向行情條 (最上方)
+    # A. 橫向行情條
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
@@ -128,28 +124,17 @@ def render_terminal(symbol, p_days, precision):
         with m_cols[i]:
             st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
-    # B. AI 策略建議 (位於行情條下方)
+    # B. AI 策略建議
     st.write("") 
     s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]:
             st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # C. 技術圖表 (整合圖例位置優化)
-    
-    fig = make_subplots(
-        rows=4, cols=1, 
-        shared_xaxes=True, 
-        row_heights=[0.4, 0.15, 0.2, 0.25], 
-        vertical_spacing=0.03,
-        subplot_titles=("價格與均線系統", "成交量分析", "MACD 能量柱", "KDJ 擺動指標")
-    )
+    # C. 技術圖表
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.03, subplot_titles=("價格與均線系統", "成交量分析", "MACD 能量柱", "KDJ 擺動指標"))
     p_df = df.tail(90)
-    
-    # 第一層：主圖
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], 
-                                 increasing_line_color='#FF3131', increasing_fillcolor='#FF3131',
-                                 decreasing_line_color='#00FF41', decreasing_fillcolor='#00FF41', name='K線', legendgroup="1"), 1, 1)
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', increasing_fillcolor='#FF3131', decreasing_line_color='#00FF41', decreasing_fillcolor='#00FF41', name='K線', legendgroup="1"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5(短)', line=dict(color='#FFFF00', width=2.5), legendgroup="1"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20(中)', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60(長)', line=dict(color='#FFAC33', width=2.0), legendgroup="1"), 1, 1)
@@ -157,37 +142,21 @@ def render_terminal(symbol, p_days, precision):
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
     
-    # 第二層：成交量
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], name='量能', marker_color=v_colors, legendgroup="2"), 2, 1)
     
-    # 第三層：MACD
     m_colors = ['#FF3131' if val >= 0 else '#00FF41' for val in p_df['Hist']]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color=m_colors, legendgroup="3"), 3, 1)
     
-    # 第四層：KDJ
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K線', line=dict(color='#00F5FF', width=2.5), legendgroup="4"), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D線', line=dict(color='#FFFF00', width=1.2), legendgroup="4"), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J線', line=dict(color='#FF00FF', width=1.2), legendgroup="4"), 4, 1)
 
-    fig.update_layout(
-        template="plotly_dark", 
-        height=850, 
-        xaxis_rangeslider_visible=False, 
-        margin=dict(t=50, b=10, r=120), 
-        legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.01,
-            tracegroupgap=145, # 垂直散開說明文字，對齊子圖
-            font=dict(size=11)
-        )
-    )
+    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, margin=dict(t=50, b=10, r=120), 
+                      legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.01, tracegroupgap=145))
     st.plotly_chart(fig, use_container_width=True)
 
-    # D. 右下角 AI 綜合評語與展望
+    # D. AI 評語
     st.markdown(f"""
     <div class='ai-advice-box'>
         <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
@@ -198,7 +167,6 @@ def render_terminal(symbol, p_days, precision):
             <p style='margin:8px 0 0 0; font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估收盤：{insight[3]:.2f}</p>
             <p style='margin:4px 0 0 0; font-size:1rem; color:#8899A6;'>預期區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
         </div>
-        <p style='font-size:0.9rem; color:#8899A6; margin-top:10px;'>💡 提示：目前採用實戰積極型參數。若股價接近預期低點且 KDJ 低檔金叉，為理想切入點。</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -214,6 +182,8 @@ def main():
 
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
     cp = int(s_map.get('global_precision', 55))
+    api_ttl = int(s_map.get('api_ttl_min', 1))
+    tw_val = float(s_map.get('trend_weight', 1.0))
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 登入系統")
@@ -248,11 +218,33 @@ def main():
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
-                    new_p = st.slider("系統靈敏度", 0, 100, cp)
-                    if st.button("💾 同步全網"):
-                        ws_s.update_cell(2, 2, str(new_p)); st.rerun()
+                    st.markdown("---")
+                    st.markdown("### 🛠️ 管理員戰情室")
+                    # 標本輸入欄位
+                    b1 = st.text_input("1. 指標性權值股", s_map.get('benchmark_1', '2330'))
+                    b2 = st.text_input("2. 高波動成長股", s_map.get('benchmark_2', '2317'))
+                    b3 = st.text_input("3. 指數型 ETF", s_map.get('benchmark_3', '0050'))
+                    
+                    # 學習參數設定 (顯示 AI 建議值)
+                    suggest_p = 50 if "0050" in [b1, b2, b3] else 65
+                    new_p = st.slider(f"系統靈敏度 (AI 建議: {suggest_p})", 0, 100, cp)
+                    
+                    suggest_tw = 1.2 if "2317" in [b1, b2, b3] else 1.0
+                    new_tw = st.number_input(f"AI 趨勢權重 (AI 建議: {suggest_tw})", 0.5, 3.0, tw_val)
+                    
+                    new_ttl = st.number_input("API 快取連線時間 (分鐘)", 1, 10, api_ttl)
+                    
+                    if st.button("💾 同步觀察標本與學習參數"):
+                        ws_s.update_cell(2, 2, str(new_p))   # global_precision
+                        ws_s.update_cell(3, 2, str(new_ttl)) # api_ttl_min
+                        ws_s.update_cell(4, 2, b1)           # benchmark_1
+                        ws_s.update_cell(5, 2, b2)           # benchmark_2
+                        ws_s.update_cell(6, 2, b3)           # benchmark_3
+                        ws_s.update_cell(7, 2, str(new_tw))  # trend_weight
+                        st.success("✅ 雲端設定已同步！")
+                        st.rerun()
                 if st.button("🚪 登出"): st.session_state.user = None; st.rerun()
         
-        render_terminal(target, p_days, cp)
+        render_terminal(target, p_days, cp, tw_val, api_ttl)
 
 if __name__ == "__main__": main()
