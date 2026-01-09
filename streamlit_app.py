@@ -208,9 +208,11 @@ def render_terminal(symbol, p_days, precision, trend_weight, ttl_min):
 
     annos = [("均線/AI預測", 0.92, "#FFFFFF"), ("成交量能", 0.58, "#8899A6"), ("MACD力道", 0.38, "#FF7A7A"), ("KDJ (藍K/黃D/紫J)", 0.12, "#00F5FF")]
     for txt, y_p, clr in annos:
-        fig.add_annotation(xref="paper", yref="paper", x=1.01, y=y_p, text=f"<b>{txt}</b>", showarrow=False, align="left", xanchor="left", font=dict(size=13, color=clr))
+        # 修改點：x 座標從 1.01 微調至 1.02，確保文字不會與座標軸重疊
+        fig.add_annotation(xref="paper", yref="paper", x=1.02, y=y_p, text=f"<b>{txt}</b>", showarrow=False, align="left", xanchor="left", font=dict(size=13, color=clr))
 
-    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=160))
+    # 修改點：margin 右側從 160 增加到 180，為標籤留出更多顯示空間
+    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(r=180, l=10, t=30, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(f"<div class='ai-advice-box'><span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span><hr style='border:0.5px solid #444; margin:10px 0;'><p><b>診斷：</b>{insight[1]}</p><div style='background: #1C2128; padding: 12px; border-radius: 8px;'><p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p><p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p><p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p></div></div>", unsafe_allow_html=True)
