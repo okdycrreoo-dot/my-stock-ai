@@ -126,10 +126,20 @@ def auto_sync_feedback(ws_p, f_id, insight):
             new_row = [today, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
             ws_p.append_row(new_row)
         
-        df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].tail(10)
+# --- 命中率計算：過濾假日重複數據 ---
+        df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
+        
         if not df_stock.empty:
-            hit = sum((df_stock['actual_close'] >= df_stock['range_low']) & (df_stock['actual_close'] <= df_stock['range_high']))
-            return f"🎯 此股實戰命中率: {(hit/len(df_stock))*100:.1f}%"
+            # 關鍵修正：如果連續兩天的價格完全一樣(休市)，只保留最新的一筆
+            df_stock = df_stock.loc[df_stock['actual_close'].shift() != df_stock['actual_close']]
+            
+            # 取最近 10 個「真正有價格波動」的交易日
+            df_recent = df_stock.tail(10)
+            hit = sum((df_recent['actual_close'] >= df_recent['range_low']) & 
+                      (df_recent['actual_close'] <= df_recent['range_high']))
+            
+            return f"🎯 此股實戰命中率: {(hit/len(df_recent))*100:.1f}%"
+        
         return "🎯 數據累積中"
     except:
         return "🎯 同步中"
@@ -408,6 +418,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
