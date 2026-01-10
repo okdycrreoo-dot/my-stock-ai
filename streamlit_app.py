@@ -167,10 +167,19 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     # 根據成交量異動調整趨勢權重
     f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_spike))))
     
-    # [進化三：均值回歸 Bias Correction]
+    # [進化三：多段均值回歸 Bias Correction - 6段參照]
     price_now = float(df['Close'].iloc[-1])
-    ma20_val = df['MA20'].iloc[-1]
-    bias_val = (price_now - ma20_val) / (ma20_val + 0.1)
+    b_periods = [5, 10, 15, 20, 25, 30]
+    b_weights = [0.35, 0.20, 0.15, 0.10, 0.10, 0.10] # 短期權重較高，反應敏銳
+    
+    bias_list = []
+    for p in b_periods:
+        # 動態計算不同週期的乖離率
+        ma_tmp = df['Close'].rolling(p).mean().iloc[-1]
+        bias_list.append((price_now - ma_tmp) / (ma_tmp + 1e-5))
+    
+    # 計算融合乖離率 (作為 AI 模擬的中心引力)
+    bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
     
     # AI 全面優化配置
     f_p = 45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60
@@ -194,8 +203,26 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
 
-    rsi_now, rsi_prev = last['RSI'], prev['RSI']
-    rsi_div = -1 if (curr_p > prev_c and rsi_now < rsi_prev) else (1 if (curr_p < prev_c and rsi_now > rsi_prev) else 0)
+    # [多段 RSI 強度背離偵測 - 6段參照]
+    rsi_p = [5, 10, 15, 20, 25, 30]
+    div_scores = []
+    
+    for p in rsi_p:
+        # 簡單計算各週期的 RSI
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=p).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=p).mean()
+        rsi_tmp = 100 - (100 / (1 + (gain / (loss + 1e-5))))
+        
+        r_now = rsi_tmp.iloc[-1]
+        r_prev = rsi_tmp.iloc[-2]
+        
+        # 判斷各週期背離狀態
+        d = -1 if (curr_p > prev_c and r_now < r_prev) else (1 if (curr_p < prev_c and r_now > r_prev) else 0)
+        div_scores.append(d)
+    
+    # 取平均背離分數 (若 6 個週期都背離，值會趨近 1 或 -1)
+    rsi_div = sum(div_scores) / len(div_scores)
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
@@ -439,6 +466,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
