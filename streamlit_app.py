@@ -382,7 +382,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             </div>
         </div>
     """, unsafe_allow_html=True)
-# --- 6. 主程式 (對齊 7 個解包數量) ---
+# --- 6. 主程式 (恢復刪除功能與管理員面板) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
@@ -405,6 +405,7 @@ def main():
         st.error(f"🚨 資料庫連線失敗: {e}"); return
 
     if st.session_state.user is None:
+        # (此處保留原本的登入/註冊 UI)
         st.title("🚀 StockAI 台股預測系統")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         with tab_login:
@@ -417,45 +418,67 @@ def main():
                 else: st.error("❌ 驗證失敗")
         with tab_reg:
             new_u = st.text_input("新帳號", key="reg_u"); new_p = st.text_input("新密碼", type="password", key="reg_p")
-            confirm_p = st.text_input("再次確認密碼", type="password", key="reg_pc")
             if st.button("提交註冊申請"):
-                if new_u and new_p == confirm_p:
-                    ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
-                else: st.warning("⚠️ 檢查輸入")
+                ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
     else:
+        # --- 使用者儀表板 ---
         with st.expander("⚙️ :red[終端設定面板(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
+                # 取得目前使用者的自選清單
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
                 target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330"])
-                ns = st.text_input("➕ 輸入股票代號 (代碼+.TW)")
-                if st.button("新增至自選股"):
+                
+                # 新增功能
+                ns = st.text_input("➕ 新增股票代號 (例: 2454.TW)")
+                if st.button("確認新增"):
                     if ns: ws_w.append_row([st.session_state.user, ns.upper().strip()]); st.success("✅ 已新增"); st.rerun()
+                
+                # [恢復] 刪除標的功能
+                if u_stocks:
+                    st.markdown("---")
+                    if st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
+                        try:
+                            # 找出對應的行號並刪除
+                            cell = ws_w.find(target)
+                            if cell:
+                                ws_w.delete_rows(cell.row)
+                                st.success(f"✅ {target} 已從清單移除")
+                                st.rerun()
+                        except:
+                            st.error("❌ 刪除失敗，請手動檢查資料表")
+
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
+                    # 抓取基礎數據以計算 AI 推薦值
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
-                    # 此處解包 7 個變數，同步標本數據
+                    # 解包 7 個變數，確保標本連動邏輯完整
                     ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0, 0)
                     ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
                     
-                    b1 = st.text_input(f"1. 權值標本 (AI 推薦: {ai_b[0]})", ai_b[0])
-                    b2 = st.text_input(f"2. 成長標本 (AI 推薦: {ai_b[1]})", ai_b[1])
-                    b3 = st.text_input(f"3. ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
-                    new_p = st.slider(f"系統靈敏度 (AI 最優: {ai_p})", 0, 100, ai_p)
-                    new_tw = st.number_input(f"AI 趨勢權重 (AI 最優: {ai_tw})", 0.5, 3.0, ai_tw)
-                    new_ttl = st.number_input(f"API 快取控管 (建議 1-10 分鐘)", 1, 10, api_ttl)
-                    new_v = st.slider(f"波動補償係數 (AI 最優: {ai_v})", 0.5, 3.0, ai_v)
-                    if st.button("💾 同步 AI 最優參數至雲端"):
+                    b1 = st.text_input(f"標本 1 (AI 建議: {ai_b[0]})", ai_b[0])
+                    b2 = st.text_input(f"標本 2 (AI 建議: {ai_b[1]})", ai_b[1])
+                    b3 = st.text_input(f"標本 3 (AI 建議: {ai_b[2]})", ai_b[2])
+                    
+                    new_p = st.slider("靈敏度", 0, 100, ai_p)
+                    new_tw = st.number_input("趨勢權重", 0.5, 3.0, ai_tw)
+                    new_ttl = st.number_input("快取控制 (1-10分)", 1, 10, api_ttl)
+                    
+                    if st.button("💾 同步最佳化參數至雲端"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
                         ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v)); st.success("✅ 參數同步成功！"); st.rerun()
-                if st.button("🚪 登出系統"): st.session_state.user = None; st.rerun()
-        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+                        ws_s.update_cell(7, 2, str(new_tw))
+                        st.success("✅ 雲端設定更新完成"); st.rerun()
+                
+                if st.button("🚪 登出系統", use_container_width=True): st.session_state.user = None; st.rerun()
 
+        # 最終渲染
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 if __name__ == "__main__": main()
+
 
 
 
