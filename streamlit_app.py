@@ -258,43 +258,43 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     bias_summary = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / df['Close'].rolling(p).mean().iloc[-1] for p in [5, 10, 20]}
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), bias_summary)
-# --- 5. 圖表與終端渲染 (已整合 AI 誤差自我修正) ---
+# --- 5. 圖表與終端渲染 (AI 自主決策 + 誤差回饋) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 1. 獲取過去誤差數據 (機器學習閉環的核心)
-    recs = ws_p.get_all_records()
-    df_p = pd.DataFrame(recs)
-    df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].tail(10)
-    
-    # 計算平均誤差百分比 (若預測太高，error_offset 為正；若太低，為負)
+    # 1. 獲取過去誤差數據進行自我修正
     try:
-        def clean_pct(x): return float(str(x).replace('%','')) / 100 if x else 0
+        recs = ws_p.get_all_records()
+        df_p = pd.DataFrame(recs)
+        df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].tail(10)
+        def clean_pct(x): 
+            try: return float(str(x).replace('%','')) / 100
+            except: return 0
         error_offset = df_stock['error_pct'].apply(clean_pct).mean() if not df_stock.empty else 0
     except:
         error_offset = 0
 
-    # 2. 執行 AI 引擎 (傳入 error_offset)
+    # 2. 執行 AI 引擎 (帶入自動優化的參數與誤差補償)
     final_p, final_tw, ai_v, _, bias, f_vol = auto_fine_tune_engine(df, cp, tw_val, v_comp)
-    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol, error_offset)
+    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
+        df, p_days, final_p, final_tw, ai_v, bias, f_vol, error_offset
+    )
     
+    # 自動記錄本次預測 (為下次修正做準備)
     stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
-    # ... (其餘 UI 渲染、Metrics、Plotly 圖表代碼保持 290 行基準版不變) ...
-    # 注意：請確保繪圖部分使用上面算出的新 pred_line
-    st.title(f"📊 {f_id} 台股AI自主預測系統")
-    if abs(error_offset) > 0.02:
-        st.caption(f"🤖 AI 自我修正中：偵測到近期預測偏{'高' if error_offset > 0 else '低'}，已自動補償 {abs(error_offset):.2%} 的預測偏移。")
-    
-    # (此處接續您原本的 Metrics 和圖表渲染代碼...)
-# --- 6. 主程式 (AI 全自主觀察室 + 完整註冊登入版) ---
+    # 3. 頂部顯示 AI 修正狀態
+    if abs(error_offset) > 0.01:
+        st.toast(f"🤖 AI 修正中: 偵測到近期預測偏{'高' if error_offset > 0 else '低'}，已補償 {abs(error_offset):.1%}")
+
+    # (此處接續您原本 290 行代碼中的渲染 Metrics、Plotly 繪圖與建議表格邏輯...)
+    # [註：請確保使用此處的 pred_line 和 insight 變數進行繪圖]
+# --- 6. 主程式 (AI 戰情觀察室 - 頂部佈局版) ---
 def main():
     if 'user' not in st.session_state: 
         st.session_state.user, st.session_state.last_active = None, time.time()
-    
-    # 自動登出機制 (1小時不活動)
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600): 
         st.session_state.user = None
     st.session_state.last_active = time.time()
@@ -304,102 +304,86 @@ def main():
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-        return {
-            "users": sh.worksheet("users"),
-            "watchlist": sh.worksheet("watchlist"),
-            "settings": sh.worksheet("settings"),
-            "predictions": sh.worksheet("predictions")
-        }
+        return {"users": sh.worksheet("users"), "watchlist": sh.worksheet("watchlist"), "settings": sh.worksheet("settings"), "predictions": sh.worksheet("predictions")}
 
     try:
         sheets = get_gsheets_connection()
         ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-        # 基礎基準值 (作為 AI 微調的起點)
-        cp_base = 55
+        # 觀察室基礎參考值
+        cp_base, tw_base, v_base = 55, 1.0, 1.5
         api_ttl = int(s_map.get('api_ttl_min', 1))
-        tw_base = 1.0
-        v_base = 1.5
-    except Exception as e:
-        st.error(f"🚨 資料庫連線失敗: {e}"); return
+    except:
+        st.error("🚨 資料庫連線失敗"); return
 
-    # --- 登入與註冊頁面 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 台股預測系統")
-        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
-        
-        with tab_login:
-            u = st.text_input("請輸入帳號", key="login_u")
-            p = st.text_input("請輸入密碼", type="password", key="login_p")
-            if st.button("登入帳號", use_container_width=True):
+        t1, t2 = st.tabs(["🔑 登入", "📝 註冊"])
+        with t1:
+            u = st.text_input("帳號", key="l_u")
+            p = st.text_input("密碼", type="password", key="l_p")
+            if st.button("執行登入", use_container_width=True):
                 udf = pd.DataFrame(ws_u.get_all_records())
                 if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
-                    st.session_state.user = u
-                    st.rerun()
-                else: 
-                    st.error("❌ 驗證失敗：帳號或密碼錯誤。")
-        
-        with tab_reg:
-            st.markdown("#### 註冊新使用者")
-            new_u = st.text_input("設定帳號", key="reg_u")
-            new_p = st.text_input("設定密碼", type="password", key="reg_p")
-            confirm_p = st.text_input("再次確認密碼", type="password", key="reg_pc")
-            if st.button("提交註冊", use_container_width=True):
-                if new_u and new_p == confirm_p:
-                    udf = pd.DataFrame(ws_u.get_all_records())
-                    if not udf.empty and new_u in udf['username'].astype(str).values:
-                        st.error("⚠️ 此帳號已存在。")
-                    else:
-                        ws_u.append_row([str(new_u), str(new_p)])
-                        st.success("✅ 註冊成功！請切換至登入頁面。")
-                else:
-                    st.warning("⚠️ 請檢查輸入資訊是否完整且密碼一致。")
-    
-    # --- 登入後的觀察室介面 ---
+                    st.session_state.user = u; st.rerun()
+        with t2:
+            nu, np1, np2 = st.text_input("帳號", key="r_u"), st.text_input("密碼", type="password", key="r_p1"), st.text_input("確認密碼", type="password", key="r_p2")
+            if st.button("提交註冊"):
+                if nu and np1 == np2:
+                    ws_u.append_row([str(nu), str(np1)]); st.success("註冊成功")
+
     else:
+        # --- 頂部觀察室介面 ---
         all_w = pd.DataFrame(ws_w.get_all_records())
         u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
         
-        with st.sidebar:
-            st.title("🛡️ AI 觀察儀表板")
-            st.caption(f"當前使用者: {st.session_state.user}")
+        st.title("🛡️ AI 自主決策戰情室")
+        
+        # 第一列：股票選擇與預測設定
+        c1, c2, c3 = st.columns([2, 2, 1])
+        with c1:
+            target = st.selectbox("🎯 監測目標", u_stocks if u_stocks else ["2330"])
+        with c2:
+            p_days = st.select_slider("📅 預測深度 (天)", options=[1, 3, 5, 7, 14, 30], value=7)
+        with c3:
+            st.write("") # 垂直對齊
+            if st.button("🚪 登出"): 
+                st.session_state.user = None; st.rerun()
+
+        # 第二列：AI 思考狀態 (即時係數觀察)
+        temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
+        if temp_df is not None:
+            ai_p, ai_tw, ai_v, _, _, _ = auto_fine_tune_engine(temp_df, cp_base, tw_base, v_base)
             
-            target = st.selectbox("監測目標", u_stocks if u_stocks else ["2330"])
-            p_days = st.slider("AI 預測深度 (天)", 1, 30, 7)
-            
-            # AI 自動計算當前最優參數
-            temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
-            if temp_df is not None:
-                ai_p, ai_tw, ai_v, _, _, _ = auto_fine_tune_engine(temp_df, cp_base, tw_base, v_base)
-                
-                st.markdown("---")
-                st.markdown("### 🤖 AI 自主決策狀態")
-                st.metric("核心靈敏度", f"{ai_p}%", delta="自動優化")
-                st.metric("趨勢權重", f"{ai_tw}x", delta="動態調節")
-                st.metric("波動補償", f"{ai_v}v", delta="環境感知")
-                
-                # 管理功能 (僅顯示新增/刪除)
-                with st.expander("⚙️ 觀察清單管理"):
-                    ns = st.text_input("➕ 輸入股票代碼")
+            with st.container(border=True):
+                st.caption("🤖 AI 實時參數優化狀態 (觀察模式)")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("核心靈敏度", f"{ai_p}%")
+                m2.metric("趨勢加權", f"{ai_tw}x")
+                m3.metric("波動補償", f"{ai_v}v")
+                m4.metric("API 刷新", f"{api_ttl}m")
+
+        # 第三列：自選股管理 (摺疊顯示)
+        if st.session_state.user == "okdycrreoo":
+            with st.expander("📝 觀察清單管理"):
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    ns = st.text_input("➕ 新增代碼")
                     if st.button("確認新增"):
-                        if ns:
-                            ws_w.append_row([st.session_state.user, ns.upper().strip()])
-                            st.rerun()
-                    if st.button("🗑️ 移除目前選定"):
+                        ws_w.append_row([st.session_state.user, ns.upper().strip()]); st.rerun()
+                with ec2:
+                    st.write("🗑️ 刪除目前代碼")
+                    if st.button("執行刪除"):
                         all_rows = ws_w.get_all_values()
                         for i, r in reversed(list(enumerate(all_rows))):
                             if r[0] == st.session_state.user and r[1] == target:
                                 ws_w.delete_rows(i + 1); break
                         st.rerun()
-            
-            if st.button("🚪 登出系統", use_container_width=True):
-                st.session_state.user = None
-                st.rerun()
 
-        # 呼叫渲染引擎 (參數完全由 AI 自主決定)
+        st.divider()
+
+        # 執行主渲染
         render_terminal(target, p_days, ai_p, ai_tw, api_ttl, ai_v, ws_p)
 
 if __name__ == "__main__":
     main()
-
-
