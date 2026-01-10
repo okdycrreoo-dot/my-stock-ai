@@ -259,8 +259,16 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     if vol_contract < 0.8: reasons.append("ATR高度收縮(即將變盤)")
     status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
-# --- 5. 圖表與終端渲染 ---
+    # 在 return 之前先整理多段乖離率數據
+    bias_summary = {
+        5: (curr_p - df['Close'].rolling(5).mean().iloc[-1]) / df['Close'].rolling(5).mean().iloc[-1],
+        10: (curr_p - df['Close'].rolling(10).mean().iloc[-1]) / df['Close'].rolling(10).mean().iloc[-1],
+        20: (curr_p - df['MA20'].iloc[-1]) / df['MA20'].iloc[-1],
+        30: (curr_p - df['Close'].rolling(30).mean().iloc[-1]) / df['Close'].rolling(30).mean().iloc[-1]
+    }
+    
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), bias_summary)
+    # --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -325,7 +333,17 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             <div class='confidence-tag'>{stock_accuracy}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
-            <p><b>診斷：</b>{insight[1]} (乖離率: {bias:.2%})</p>
+    # 提取多段乖離率
+    b_sum = insight[6]
+    bias_html = " | ".join([f"{k}日: <span style='color:{'#FF3131' if v > 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in b_sum.items()])
+
+    st.markdown(f"""
+        <div class='ai-advice-box'>
+            <div class='confidence-tag'>{stock_accuracy}</div>
+            <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
+            <hr style='border:0.5px solid #444; margin:10px 0;'>
+            <p><b>診斷：</b>{insight[1]}</p>
+            <p style='font-size:0.9rem; color:#8899A6;'>📊 多段乖離率參照：{bias_html}</p>
             <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
                 <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p>
                 <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
@@ -466,6 +484,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
