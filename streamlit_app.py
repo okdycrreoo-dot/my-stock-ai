@@ -277,19 +277,26 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     """, unsafe_allow_html=True)
 
 # --- 6. 主程式 ---
+# --- 6. 主程式 (請直接替換掉原本的整個 main 函數) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
     if st.session_state.user and (time.time() - st.session_state.last_active > 600): st.session_state.user = None
     st.session_state.last_active = time.time()
+    
     try:
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
         ws_u, ws_w, ws_s, ws_p = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings"), sh.worksheet("predictions")
-    except: st.error("🚨 資料庫連線失敗"); return
+    except Exception as e:
+        st.error(f"🚨 資料庫連線失敗: {e}")
+        return
 
+    # 讀取雲端參數
     s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-    cp, api_ttl, tw_val = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0))
+    cp = int(s_map.get('global_precision', 55))
+    api_ttl = int(s_map.get('api_ttl_min', 1))
+    tw_val = float(s_map.get('trend_weight', 1.0))
     v_comp = float(s_map.get('vol_comp', 1.5))
 
     if st.session_state.user is None:
@@ -318,12 +325,13 @@ def main():
                     if not udf.empty and new_u in udf['username'].astype(str).values:
                         st.error("⚠️ 此帳號已存在。")
                     else:
-                        # 使用固定陣列長度，確保不會寫入 C 欄位
                         ws_u.append_row([str(new_u), str(new_p)])
                         st.success("✅ 註冊成功！")
                 else:
                     st.warning("⚠️ 請檢查輸入資訊。")
-else:
+    
+    else:
+        # --- 登入成功後的介面 ---
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
             with m1:
@@ -332,7 +340,6 @@ else:
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
                 
-                # 並排按鈕設計
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("新增股票"):
@@ -363,10 +370,10 @@ else:
                     b1 = st.text_input(f"1. 權值標本 (AI: {ai_b[0]})", ai_b[0])
                     b2 = st.text_input(f"2. 成長標本 (AI: {ai_b[1]})", ai_b[1])
                     b3 = st.text_input(f"3. ETF 標本 (AI: {ai_b[2]})", ai_b[2])
-                    new_p = st.slider(f"系統靈敏度", 0, 100, ai_p)
-                    new_tw = st.number_input(f"AI 趨勢權重", 0.5, 3.0, ai_tw)
+                    new_p = st.slider("系統靈敏度", 0, 100, ai_p)
+                    new_tw = st.number_input("AI 趨勢權重", 0.5, 3.0, ai_tw)
                     new_ttl = st.number_input("API 快取控管", 1, 10, api_ttl)
-                    new_v = st.slider(f"波動補償係數", 0.5, 3.0, ai_v)
+                    new_v = st.slider("波動補償係數", 0.5, 3.0, ai_v)
                     
                     if st.button("💾 同步 AI 最優參數至雲端"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
@@ -377,11 +384,13 @@ else:
                 if st.button("🚪 登出系統"): 
                     st.session_state.user = None
                     st.rerun()
+        
         # 渲染主圖表
-        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p
-
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+        
 if __name__ == "__main__": 
     main()
+
 
 
 
