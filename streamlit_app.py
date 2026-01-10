@@ -318,22 +318,21 @@ def main():
                     if not udf.empty and new_u in udf['username'].astype(str).values:
                         st.error("⚠️ 此帳號已存在。")
                     else:
-                        ws_u.append_row([str(new_u), str(new_p)], value_input_option='RAW')
+                        # 使用固定陣列長度，確保不會寫入 C 欄位
+                        ws_u.append_row([str(new_u), str(new_p)])
                         st.success("✅ 註冊成功！")
                 else:
                     st.warning("⚠️ 請檢查輸入資訊。")
 else:
-        # 登入成功後的介面
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
-            
-            # --- 左側：自選股管理 (m1) ---
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
                 
+                # 並排按鈕設計
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("新增股票"):
@@ -353,7 +352,6 @@ else:
                                 break
                         st.success(f"✅ 已移除 {target}"); st.rerun()
             
-            # --- 右側：預測參數與管理員面板 (m2) ---
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
@@ -371,22 +369,20 @@ else:
                     new_v = st.slider(f"波動補償係數", 0.5, 3.0, ai_v)
                     
                     if st.button("💾 同步 AI 最優參數至雲端"):
-                        ws_s.update_cell(2, 2, str(new_p))
-                        ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
                         ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw))
-                        ws_s.update_cell(8, 2, str(new_v))
+                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
                         st.success("✅ 參數同步成功！"); st.rerun()
                 
                 if st.button("🚪 登出系統"): 
                     st.session_state.user = None
                     st.rerun()
-        
         # 渲染主圖表
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p
 
 if __name__ == "__main__": 
     main()
+
 
 
 
