@@ -197,11 +197,11 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     # 使用融合波動率進行模擬
     sens = (int(precision) / 55)
     
-    curr_p = float(last['Close'])
+     = float(last['Close'])
     open_p = float(last['Open'])
     prev_c = float(prev['Close'])
     curr_v = int(last['Volume'])
-    change_pct = ((curr_p - prev_c) / prev_c) * 100
+    change_pct = (( - prev_c) / prev_c) * 100
 
     # [多段 RSI 強度背離偵測 - 6段參照]
     rsi_p = [5, 10, 15, 20, 25, 30]
@@ -218,7 +218,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
         r_prev = rsi_tmp.iloc[-2]
         
         # 判斷各週期背離狀態
-        d = -1 if (curr_p > prev_c and r_now < r_prev) else (1 if (curr_p < prev_c and r_now > r_prev) else 0)
+        d = -1 if ( > prev_c and r_now < r_prev) else (1 if (curr_p < prev_c and r_now > r_prev) else 0)
         div_scores.append(d)
     
     # 取平均背離分數 (若 6 個週期都背離，值會趨近 1 或 -1)
@@ -276,8 +276,15 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     }
     
     # 在元組最後方增加 b_sum 變數 (索引值為 6)
+    # 計算 5, 10, 20, 30 日乖離率
+    b_sum = {
+        5: (curr_p - df['Close'].rolling(5).mean().iloc[-1]) / (df['Close'].rolling(5).mean().iloc[-1] + 1e-5),
+        10: (curr_p - df['Close'].rolling(10).mean().iloc[-1]) / (df['Close'].rolling(10).mean().iloc[-1] + 1e-5),
+        20: (curr_p - df['MA20'].iloc[-1]) / (df['MA20'].iloc[-1] + 1e-5),
+        30: (curr_p - df['Close'].rolling(30).mean().iloc[-1]) / (df['Close'].rolling(30).mean().iloc[-1] + 1e-5)
+    }
+    # 回傳時將 b_sum 放在元組最後
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-    # --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -356,8 +363,26 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             <div class='confidence-tag'>{stock_accuracy}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
-            <p><b>診斷:</b> {insight[1]}</p>
-            <p style='font-size:0.9rem; color:#8899A6;'>📊 多段乖離率參照: {b_html}</p>
+            # 1. 先處理數據格式化 (放在 st.markdown 之前)
+            b_data = insight[6]
+            # 使用標準半形符號，並移除 Emoji 以確保穩定性
+            b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in b_data.items()])
+
+            # 2. 渲染 UI
+            st.markdown(f"""
+                <div class='ai-advice-box'>
+                    <div class='confidence-tag'>{stock_accuracy}</div>
+                    <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
+                    <hr style='border:0.5px solid #444; margin:10px 0;'>
+                    <p><b>Analysis:</b> {insight[1]}</p>
+                    <p style='font-size:0.9rem; color:#8899A6;'>Bias Reference: {b_html}</p>
+                    <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
+                        <p style='color:#00F5FF; font-weight:bold;'>AI Outlook (Base: {df.index[-1].strftime('%Y/%m/%d')}):</p>
+                        <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>Est. Next Close: {insight[3]:.2f}</p>
+                        <p style='color:#8899A6;'>Range: {insight[5]:.2f} ~ {insight[4]:.2f}</p>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
             <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
                 <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬):</p>
                 <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價: {insight[3]:.2f}</p>
@@ -504,6 +529,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
