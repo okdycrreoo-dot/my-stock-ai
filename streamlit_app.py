@@ -271,14 +271,14 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     if is_weekend: st.warning(f"📅 目前為非交易時段 (週末)。顯示數據更新至：{last_date}")
     elif now.hour < 9: st.info(f"⏳ 市場尚未開盤。顯示數據更新至：{last_date}")
 
-    st.title(f"📊 {f_id} 實戰全能終端")
+    st.title(f"📊 {f_id} 台股AI預測系統 作者：KD")
     st.subheader(stock_accuracy) 
-    st.caption(f"✨ AI 三大腦升級：均值回歸控管 | 量價加權權重 | 波動融合引擎 (已根據證交所市價同步)")
+    st.caption(f"✨ AI 大腦升級：蒙特卡羅路徑模擬 | 隱性籌碼力道連動 | 多週期均線集群診斷 | 實戰命中率反饋系統 | 動態波動融合引擎 (已根據證交所市價同步)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
-    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")]
+    metrics = [("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")]
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
@@ -356,8 +356,8 @@ def main():
         return
 
     if st.session_state.user is None:
-        st.title("🚀 StockAI 終端安全登入")
-        tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 申請權限"])
+        st.title("🚀 StockAI 台股預測系統")
+        tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 註冊帳號"])
         with tab_login:
             u = st.text_input("管理帳號", key="login_u")
             p = st.text_input("存取密碼", type="password", key="login_p")
@@ -431,6 +431,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
