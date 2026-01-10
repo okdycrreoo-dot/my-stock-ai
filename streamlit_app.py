@@ -248,25 +248,33 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     slope_decay = -0.0015 if (slope_now > 0 and slope_now < slope_prev) else 0
 
     # --- [新增指標 E] 波動校正乖離 (ATR-Bias) ---
-    # 利用 ATR 衡量目前的「乖離是否合理」，若超過 2 倍 ATR 乖離，強制拉回
     atr_val = last['ATR']
     dist_from_ma20 = curr_p - last['MA20']
     normalized_bias = dist_from_ma20 / (atr_val + 1e-5)
     vol_bias_pull = -0.002 if normalized_bias > 2.0 else 0.002 if normalized_bias < -2.0 else 0
+
+    # --- [新增指標 F] 量價背離偵測 (V-P Divergence) ---
+    # 漲勢中若量能低於均量 20%，視為虛漲，增加向下阻力
+    vp_divergence = -0.0025 if (change_pct > 0.5 and vol_ratio < 0.8) else 0
+
+    # --- [新增指標 G] 波動率極度壓縮校正 (Vol Squeeze) ---
+    # 若目前 ATR 低於 60 日均值的 75%，代表即將有大變盤，擴大模擬區間
+    atr_long_avg = df['ATR'].tail(60).mean()
+    vol_gap_boost = 1.4 if (last['ATR'] < atr_long_avg * 0.75) else 1.0
 
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
     
-    # [核心連動公式最終注入] 加入斜率衰減與歸一化乖離
+    # [核心連動公式最終注入] 加入斜率衰減、歸一化乖離與量價背離
     base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
                   (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + 
-                  exhaustion_drag + slope_decay + vol_bias_pull)
+                  exhaustion_drag + slope_decay + vol_bias_pull + vp_divergence)
     
     for _ in range(1000):
-        # 注入擠壓補償，讓預測區間對噴發更有防禦性
-        noise = np.random.normal(0, f_vol * v_comp * vol_contract * squeeze_boost, p_days)
+        # 注入擠壓補償與波動壓縮擴張 (vol_gap_boost)
+        noise = np.random.normal(0, f_vol * v_comp * vol_contract * squeeze_boost * vol_gap_boost, p_days)
         path = [curr_p]
         for i in range(p_days):
             reversion_pull = bias * 0.08
@@ -300,6 +308,13 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
         score -= 0.5; reasons.append("波動超漲(引力修正)")
     elif normalized_bias < -2.0: 
         score += 0.5; reasons.append("波動超跌(引力支撐)")
+    
+    # --- [新增] 量價與變盤監控 ---
+    if vol_gap_boost > 1.0:
+        reasons.append("⚠️ 波動率極度壓縮(變盤在即)") # 加入警示符號
+    if vp_divergence < 0:
+        score -= 0.4
+        reasons.append("📉 量價背離(警惕虛漲)") # 讓文字更具動作感
 
     # --- D. 籌碼與共振 ---
     if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
@@ -519,6 +534,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
