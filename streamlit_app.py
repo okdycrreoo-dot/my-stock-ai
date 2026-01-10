@@ -151,9 +151,12 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     
     # [進化一：波動融合 Volatility Fusion - 6段短中期採樣]
+    # 背景計算：5, 10, 15, 20, 25, 30 交易日標準差
     v_p = [5, 10, 15, 20, 25, 30]
+    # 分配權重：越近期權重越高 (總和為 1.0)
     v_w = [0.25, 0.20, 0.15, 0.15, 0.15, 0.10]
     
+    # 執行加權計算
     v_vals = [rets.tail(p).std() for p in v_p]
     f_vol = sum(v * w for v, w in zip(v_vals, v_w))
     
@@ -161,18 +164,21 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     v_curr = df['Volume'].iloc[-1]
     v_avg5 = df['Volume'].tail(5).mean()
     vol_spike = v_curr / (v_avg5 + 0.1)
+    # 根據成交量異動調整趨勢權重
     f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_spike))))
     
     # [進化三：多段均值回歸 Bias Correction - 6段參照]
     price_now = float(df['Close'].iloc[-1])
     b_periods = [5, 10, 15, 20, 25, 30]
-    b_weights = [0.35, 0.20, 0.15, 0.10, 0.10, 0.10]
+    b_weights = [0.35, 0.20, 0.15, 0.10, 0.10, 0.10] # 短期權重較高，反應敏銳
     
     bias_list = []
     for p in b_periods:
+        # 動態計算不同週期的乖離率
         ma_tmp = df['Close'].rolling(p).mean().iloc[-1]
         bias_list.append((price_now - ma_tmp) / (ma_tmp + 1e-5))
     
+    # 計算融合乖離率 (作為 AI 模擬的中心引力)
     bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
     
     # AI 全面優化配置
@@ -180,6 +186,7 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
     f_v = 1.3 if high_low_range > 0.035 else 2.1 if high_low_range < 0.015 else 1.7
     
+    # AI 自動匹配推薦標本
     benchmarks = ("2330", "2382", "00878") if f_vol > 0.02 else ("2317", "2454", "0050")
     
     return int(f_p), round(f_tw, 2), f_v, benchmarks, bias_val, f_vol
@@ -187,6 +194,7 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
 def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     last = df.iloc[-1]
     prev = df.iloc[-2]
+    # 使用融合波動率進行模擬
     sens = (int(precision) / 55)
     
     curr_p = float(last['Close'])
@@ -198,25 +206,33 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     # [多段 RSI 強度背離偵測 - 6段參照]
     rsi_p = [5, 10, 15, 20, 25, 30]
     div_scores = []
+    
     for p in rsi_p:
+        # 簡單計算各週期的 RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=p).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=p).mean()
         rsi_tmp = 100 - (100 / (1 + (gain / (loss + 1e-5))))
+        
         r_now = rsi_tmp.iloc[-1]
         r_prev = rsi_tmp.iloc[-2]
+        
+        # 判斷各週期背離狀態
         d = -1 if (curr_p > prev_c and r_now < r_prev) else (1 if (curr_p < prev_c and r_now > r_prev) else 0)
         div_scores.append(d)
     
+    # 取平均背離分數 (若 6 個週期都背離，值會趨近 1 或 -1)
     rsi_div = sum(div_scores) / len(div_scores)
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
+    # 核心趨勢包含：設定趨勢 + 均值回歸拉力 (bias * 0.08)
     base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002)
     
     for _ in range(1000):
         noise = np.random.normal(0, f_vol * v_comp * vol_contract, p_days)
+        # 加入均值回歸邏輯的路徑演化
         path = [curr_p]
         for i in range(p_days):
             reversion_pull = bias * 0.08
@@ -238,22 +254,13 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     else: score -= 1; reasons.append("破月線")
     if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
     if last['K'] < 25: score += 1; reasons.append("KDJ低位反彈")
-    if rsi_div >= 0.3: score += 1; reasons.append("RSI群體底背離")
-    elif rsi_div <= -0.3: score -= 1; reasons.append("RSI群體頂背離")
-    
+    if rsi_div == 1: score += 1; reasons.append("RSI底背離(籌碼回補)")
+    elif rsi_div == -1: score -= 1; reasons.append("RSI頂背離(主力派發)")
+    if vol_contract < 0.8: reasons.append("ATR高度收縮(即將變盤)")
     status_map = {2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(score if score in status_map else -1, ("📉 偏空警戒", "#00FF41"))
-    
-    # 封裝多段乖離率用於顯示
-    b_sum = {
-        5: (curr_p - df['Close'].rolling(5).mean().iloc[-1]) / (df['Close'].rolling(5).mean().iloc[-1] + 1e-5),
-        10: (curr_p - df['Close'].rolling(10).mean().iloc[-1]) / (df['Close'].rolling(10).mean().iloc[-1] + 1e-5),
-        20: (curr_p - last['MA20']) / (last['MA20'] + 1e-5),
-        30: (curr_p - df['Close'].rolling(30).mean().iloc[-1]) / (df['Close'].rolling(30).mean().iloc[-1] + 1e-5)
-    }
-    
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5))
+# --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -264,48 +271,71 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     final_p, final_tw, ai_v, _, bias, f_vol = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol)
     
+    # 2. 呼叫具備「雙重防禦」的命中率函數
     stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 2. 頂部狀態顯示
+    # 3. 假日與盤前提示邏輯
+    now = datetime.now()
+    is_weekend = now.weekday() >= 5  # 5=週六, 6=週日
+    last_date = df.index[-1].date()
+    
+    if is_weekend:
+        st.warning(f"📅 目前為非交易時段 (週末)。顯示數據更新至：{last_date}")
+    elif now.hour < 9:
+        st.info(f"⏳ 市場尚未開盤。顯示數據更新至：{last_date}")
+
+    # 4. 頂部標題與命中率顯示
     st.title(f"📊 {f_id} 實戰全能終端")
     st.subheader(stock_accuracy) 
+    st.caption(f"✨ AI 三大腦升級：均值回歸控管 | 量價加權權重 | 波動融合引擎 (已根據證交所市價同步)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
-    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交(張)", f"{int(curr_v/1000):,}", "#FFFF00")]
+    metrics = [("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")]
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: st.markdown(f"<div class='info-box'><span class='label-text'>{lab}</span><span class='realtime-val' style='color:{col}'>{val}</span></div>", unsafe_allow_html=True)
 
-    # 3. 繪製圖表
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04)
+    st.write(""); s_cols = st.columns(3)
+    for i, (label, p) in enumerate(ai_recs.items()):
+        with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.5px solid #444'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span><br>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
+
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04, subplot_titles=("價格與均線系統 (含 AI 預測)", "成交量分析 (張)", "MACD 能量柱", "KDJ 擺動指標"))
     p_df = df.tail(90)
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K線'), 1, 1)
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線走勢', legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='MA5 均線', line=dict(color='#FFFF00', width=2), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='MA20 均線', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA60'], name='MA60 均線', line=dict(color='#FFAC33', width=2), legendgroup="1"), 1, 1)
     
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測路徑', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
     
-    fig.update_layout(template="plotly_dark", height=800, xaxis_rangeslider_visible=False)
+    v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, name='成交量 (張)', marker_color=v_colors, legendgroup="2"), 2, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD 力道', marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], legendgroup="3"), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值 (藍)', line=dict(color='#00F5FF'), legendgroup="4"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值 (黃)', line=dict(color='#FFFF00'), legendgroup="4"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值 (紫)', line=dict(color='#E066FF'), legendgroup="4"), 4, 1)
+
+    fig.update_layout(template="plotly_dark", height=880, xaxis_rangeslider_visible=False, showlegend=True, margin=dict(r=180, t=50, b=50), legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, tracegroupgap=155, font=dict(size=12)))
     st.plotly_chart(fig, use_container_width=True)
     
-    # 4. 下方 AI 診斷盒 (修正後版本)
-    b_data = insight[6]
-    b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in b_data.items()])
-
     st.markdown(f"""
-        <div style='background-color: #161B22; padding: 20px; border-radius: 12px; border: 1px solid #30363D;'>
-            <span style='font-size: 1.5rem; color: {insight[2]}; font-weight: 900;'>{insight[0]}</span>
-            <p style='margin-top: 10px;'><b>AI Diagnosis:</b> {insight[1]}</p>
-            <p style='font-size: 0.9rem; color: #8B949E;'>Bias Reference: {b_html}</p>
-            <hr style='border: 0.5px solid #30363D;'>
-            <div style='background: #0D1117; padding: 15px; border-radius: 10px;'>
-                <p style='color: #58A6FF; font-weight: bold;'>AI Outlook (1,000 Sims):</p>
-                <p style='font-size: 1.3rem; color: #FFAC33; font-weight: 900;'>Est. Next Close: {insight[3]:.2f}</p>
-                <p style='color: #8B949E;'>Range: {insight[5]:.2f} ~ {insight[4]:.2f}</p>
+        <div class='ai-advice-box'>
+            <div class='confidence-tag'>{stock_accuracy}</div>
+            <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
+            <hr style='border:0.5px solid #444; margin:10px 0;'>
+            <p><b>診斷：</b>{insight[1]} (乖離率: {bias:.2%})</p>
+            <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
+                <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p>
+                <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
+                <p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
+
 # --- 6. 主程式 ---
+# --- 6. 主程式 (完全對齊版) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
@@ -436,21 +466,4 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
