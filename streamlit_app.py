@@ -137,7 +137,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except:
         return "🎯 同步中"
 
-# --- 4. AI 核心：深度微調連動引擎 (已升級：6-MA 綜合判斷 / 5-10-20日短線區間) ---
+# --- 4. AI 核心：深度微調連動引擎 (已升級：6-MA 綜合判斷 / 5-10-20日短線區間 / 隱性籌碼整合) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     v_p = [5, 10, 15, 20, 25, 30]
@@ -148,6 +148,7 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     v_curr = df['Volume'].iloc[-1]
     v_avg5 = df['Volume'].tail(5).mean()
     vol_spike = v_curr / (v_avg5 + 0.1)
+    # 趨勢權重結合量能噴發係數
     f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_spike))))
     
     price_now = float(df['Close'].iloc[-1])
@@ -171,31 +172,35 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     prev = df.iloc[-2]
     sens = (int(precision) / 55)
     curr_p = float(last['Close'])
-    open_p = float(last['Open'])
     prev_c = float(prev['Close'])
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
 
-    # 1. RSI 群體背離分析 (6段共振)
+    # 1. 隱性籌碼力道計算 (Chip Momentum)
+    v_avg5 = df['Volume'].tail(5).mean()
+    vol_ratio = curr_v / (v_avg5 + 0.1)
+    # 量增價揚=籌碼集中, 量增價跌=大戶拋售 (加權影響 15% 漂移率)
+    chip_mom = (change_pct / 100) * (vol_ratio if vol_ratio > 1 else 1)
+
+    # 2. RSI 群體背離分析 (6段共振)
     rsi_p = [5, 10, 15, 20, 25, 30]
     div_scores = []
     for p in rsi_p:
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=p).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=p).mean()
-        rsi_tmp = 100 - (100 / (1 + (gain / (loss + 1e-5))))
-        r_now = rsi_tmp.iloc[-1]
-        r_prev = rsi_tmp.iloc[-2]
-        d = -1 if (curr_p > prev_c and r_now < r_prev) else (1 if (curr_p < prev_c and r_now > r_prev) else 0)
+        rsi_now = 100 - (100 / (1 + (gain / (loss + 1e-5)))).iloc[-1]
+        rsi_prev = 100 - (100 / (1 + (gain / (loss + 1e-5)))).iloc[-2]
+        d = -1 if (curr_p > prev_c and rsi_now < rsi_prev) else (1 if (curr_p < prev_c and rsi_now > rsi_prev) else 0)
         div_scores.append(d)
-    
     rsi_div = sum(div_scores) / len(div_scores)
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
-    # 2. 蒙特卡羅路徑模擬 (1,000次路徑融合)
+    # 3. 蒙特卡羅路徑模擬 (注入籌碼漂移因子)
     np.random.seed(42)
     sim_results = []
-    base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002)
+    # 核心公式：加入 chip_mom * 0.15 修正
+    base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002) + (chip_mom * 0.15)
     
     for _ in range(1000):
         noise = np.random.normal(0, f_vol * v_comp * vol_contract, p_days)
@@ -208,42 +213,33 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     
     pred_prices = np.mean(sim_results, axis=0)
     next_close = pred_prices[0]
-    all_first_day = [p[0] for p in sim_results]
-    std_val = np.std(all_first_day)
+    std_val = np.std([p[0] for p in sim_results])
     
-    # --- 3. 升級版：6-MA 綜合價格位置診斷 (取代原單一MA20判斷) ---
+    # 4. 6-MA 綜合診斷與籌碼評分
     ma_check_list = [5, 10, 15, 20, 25, 30]
     above_ma_count = sum(1 for p in ma_check_list if curr_p > df['Close'].rolling(p).mean().iloc[-1])
 
     score = 0
     reasons = []
+    if above_ma_count >= 5: score += 2; reasons.append(f"均線多頭({above_ma_count}/6)")
+    elif above_ma_count <= 1: score -= 2; reasons.append(f"均線空頭({6-above_ma_count}/6)")
 
-    if above_ma_count >= 5: 
-        score += 2  # 強勢多頭排列
-        reasons.append(f"均線群多頭排列({above_ma_count}/6)")
-    elif above_ma_count >= 3:
-        score += 1  # 位階偏多
-        reasons.append(f"均線位階偏多({above_ma_count}/6)")
-    elif above_ma_count <= 1:
-        score -= 2  # 強勢空頭排列
-        reasons.append(f"均線群空頭排列({6-above_ma_count}/6)")
-    else:
-        score -= 1  # 位階偏空
-        reasons.append(f"均線位階偏低({above_ma_count}/6)")
+    # 籌碼面隱性評分修正
+    if change_pct > 1.2 and vol_ratio > 1.5: score += 1; reasons.append("籌碼放量攻擊")
+    elif change_pct < -1.2 and vol_ratio > 1.5: score -= 1; reasons.append("籌碼放量拋售")
 
-    # 4. 其他輔助指標與映射
     if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
-    if last['K'] < 25: score += 1; reasons.append("KDJ低位反彈")
-    if rsi_div >= 0.3: score += 1; reasons.append("RSI群體底背離")
-    elif rsi_div <= -0.3: score -= 1; reasons.append("RSI群體頂背離")
+    if rsi_div >= 0.3: score += 1; reasons.append("RSI底背離")
     
-    status_map = {
-        3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"),
-        1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), 
-        -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")
-    }
-    score_clamped = max(-2, min(3, score))
-    res = status_map.get(score_clamped, ("⚖️ 觀望中性", "#FFFF00"))
+    status_map = {3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")}
+    res = status_map.get(max(-2, min(3, score)), ("⚖️ 觀望中性", "#FFFF00"))
+    
+    # 5. 5/10/20日建議價格 (受隱性籌碼波動影響)
+    periods = {"5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段建議": (last['MA20'], 1.5)}
+    adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
+    b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
+    
+    return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
     
     # --- 5. 實戰優化：5/10/20日建議參考價格 ---
     periods = {
@@ -435,6 +431,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
