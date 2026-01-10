@@ -276,27 +276,27 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     bias_v = normalized_bias - (prev_c - prev['MA20'])/(prev['ATR']+1e-5)
     bias_accel = 0.0015 if (normalized_bias > 1.2 and bias_v > 0) else 0
 
-    # --- [新增指標 J] 量價慣性趨勢 (PVT) ---
-    # PVT = Σ (((Close - PrevClose) / PrevClose) * Volume)
-    pvt = (((df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1)) * df['Volume']).cumsum()
-    pvt_ma = pvt.rolling(10).mean()
-    pvt_signal = 0.002 if pvt.iloc[-1] > pvt_ma.iloc[-1] else -0.002
-    
-    # --- [新增指標 K] 布林帶寬變速 (BB Width Velocity) ---
-    # 判斷是否處於「擠壓後的啟動點」
-    bb_v = (bb_width.iloc[-1] - bb_width.iloc[-3]) / (bb_width.iloc[-3] + 1e-5)
-    squeeze_launch = 0.003 if (is_squeezing and bb_v > 0.05 and change_pct > 0) else 0
+    # --- [新增指標 J] 蔡金波動衰竭 (Chaikin Volatility Decay) ---
+    # 計算 HL 差值的變動，偵測是否進入「高檔無力」或「低檔止跌」
+    hl_ema = (df['High'] - df['Low']).ewm(span=10).mean()
+    chv = (hl_ema - hl_ema.shift(10)) / (hl_ema.shift(10) + 1e-5)
+    # 高位波動率驟降通常是反轉訊號
+    vol_exhaustion = -0.003 if (chv.iloc[-1] < -0.2 and change_pct > 0.5) else 0.002 if (chv.iloc[-1] < -0.2 and change_pct < -0.5) else 0
+
+    # --- [新增指標 K] RSI 動能斜率 (RSI Momentum) ---
+    rsi_s = df['RSI'].diff(3).iloc[-1]
+    rsi_mom_boost = 0.0025 if (last['RSI'] > 50 and rsi_s > 5) else -0.0025 if (last['RSI'] < 50 and rsi_s < -5) else 0
 
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
     
-    # [核心連動公式最終注入] 納入資金流向、量價慣性與啟動信號
+    # [核心連動公式最終注入] 加入波動衰竭與 RSI 動能
     base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
                   (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + 
                   exhaustion_drag + slope_decay + vol_bias_pull + vp_divergence + 
-                  mfi_drag + bias_accel + pvt_signal + squeeze_launch)
+                  mfi_drag + bias_accel + vol_exhaustion + rsi_mom_boost)
     
     for _ in range(1000):
         # 注入擠壓補償與波動壓縮擴張 (vol_gap_boost)
@@ -342,10 +342,10 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
         score -= 0.2; reasons.append("資金極度過熱")
     if bias_accel > 0:
         score += 0.4; reasons.append("乖離加速度(強勢主升段)")
-    if pvt_signal > 0:
-        reasons.append("量價累積正向(籌碼收集)")
-    if squeeze_launch > 0:
-        score += 0.6; reasons.append("布林擠壓啟動(爆發信號)")
+    if vol_exhaustion < 0:
+        score -= 0.4; reasons.append("波動率力竭(漲勢過激)")
+    if rsi_mom_boost > 0:
+        reasons.append("RSI動能爆發")
     if vol_gap_boost > 1.0:
         reasons.append("波動率極度壓縮(變盤在即)")
 
@@ -567,6 +567,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
