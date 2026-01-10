@@ -252,14 +252,20 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-# --- 5. 圖表與終端渲染 (原版結構：文字置中與加大優化版) ---
+# --- 5. 圖表與終端渲染 (原版結構：變數對齊修正版) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    final_p, final_tw, ai_v, _, bias, f_vol = auto_fine_tune_engine(df, cp, tw_val, v_comp)
-    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol)
+    # --- 關鍵修正：接收 auto_fine_tune_engine 回傳的 7 個變數 ---
+    final_p, final_tw, ai_v, ai_b, bias, f_vol, b_bias = auto_fine_tune_engine(df, cp, tw_val, v_comp)
+    
+    # --- 關鍵修正：將 b_bias 傳入 perform_ai_engine 參與運算 ---
+    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
+        df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_bias
+    )
+    
     stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
     # 1. 交易時段判斷邏輯
@@ -272,17 +278,15 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     elif now.hour < 9: 
         st.info(f"⏳ 市場尚未開盤 (09:00 開盤)。顯示數據更新至：{last_date}")
 
-    # 2. 注入 CSS (優化置中與加大)
+    # 2. 注入 CSS (完全保留您要求的置中與加大樣式)
     st.markdown("""
         <style>
         .stApp { background-color: #000000; }
         .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; font-weight: 900 !important; }
-        /* 行情格置中與加大 */
         .info-box { 
             background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px;
             display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100px;
         }
-        /* 建議格置中與加大 */
         .diag-box { 
             background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; min-height: 120px;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -356,7 +360,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # 6. 下方區塊 (維持原設定)
+    # 6. 下方 AI 診斷區塊
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
     st.markdown(f"""
         <div class='ai-advice-box'>
@@ -372,7 +376,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             </div>
         </div>
     """, unsafe_allow_html=True)
-# --- 6. 主程式 (完全對齊版) ---
+# --- 6. 主程式 (完全對齊版：僅修正變數接收邏輯) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
@@ -458,8 +462,13 @@ def main():
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
-                    ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0)
-                    ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
+                    
+                    # --- 關鍵修正：接收 7 個變數，後三個用 _ 忽略以維持介面簡潔 ---
+                    if temp_df is not None:
+                        ai_p, ai_tw, ai_v, ai_b, _, _, _ = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp)
+                    else:
+                        ai_p, ai_tw, ai_v, ai_b = cp, tw_val, v_comp, ("2330", "2382", "00878")
+                    
                     b1 = st.text_input(f"1. 權值標本 (AI 推薦: {ai_b[0]})", ai_b[0])
                     b2 = st.text_input(f"2. 成長標本 (AI 推薦: {ai_b[1]})", ai_b[1])
                     b3 = st.text_input(f"3. ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
@@ -467,17 +476,16 @@ def main():
                     new_tw = st.number_input(f"AI 趨勢權重 (AI 最優: {ai_tw})", 0.5, 3.0, ai_tw)
                     new_ttl = st.number_input(f"API 快取控管 (建議 1-10 分鐘)", 1, 10, api_ttl)
                     new_v = st.slider(f"波動補償係數 (AI 最優: {ai_v})", 0.5, 3.0, ai_v)
+                    
                     if st.button("💾 同步 AI 最優參數至雲端"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
                         ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
                         ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
                         st.success("✅ 參數同步成功！"); st.rerun()
+                
                 if st.button("🚪 登出系統"): 
                     st.session_state.user = None
                     st.rerun()
+        
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
-
-if __name__ == "__main__": 
-    main()
-
 
