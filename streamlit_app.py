@@ -239,14 +239,30 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     ma60 = df['Close'].rolling(60).mean().iloc[-1]
     ma_perfect_order = 1.25 if (last['MA5'] > last['MA10'] > last['MA20'] > ma60) else 1.0
 
+    # --- [新增指標 D] 均線斜率變動率 (Slope Decay) ---
+    # 計算 MA10 的變動斜率：若斜率從正轉平，代表動能衰減
+    ma10_s = df['MA10'].diff(3) # 觀察 3 天內的 MA10 位移
+    slope_now = ma10_s.iloc[-1]
+    slope_prev = ma10_s.iloc[-3]
+    # 如果還在漲但斜率變小，給予負向阻力
+    slope_decay = -0.0015 if (slope_now > 0 and slope_now < slope_prev) else 0
+
+    # --- [新增指標 E] 波動校正乖離 (ATR-Bias) ---
+    # 利用 ATR 衡量目前的「乖離是否合理」，若超過 2 倍 ATR 乖離，強制拉回
+    atr_val = last['ATR']
+    dist_from_ma20 = curr_p - last['MA20']
+    normalized_bias = dist_from_ma20 / (atr_val + 1e-5)
+    vol_bias_pull = -0.002 if normalized_bias > 2.0 else 0.002 if normalized_bias < -2.0 else 0
+
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
     
-    # [核心連動公式更新] 加入布林擠壓、乖離力竭與全排列權重
+    # [核心連動公式最終注入] 加入斜率衰減與歸一化乖離
     base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
-                  (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + exhaustion_drag)
+                  (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + 
+                  exhaustion_drag + slope_decay + vol_bias_pull)
     
     for _ in range(1000):
         # 注入擠壓補償，讓預測區間對噴發更有防禦性
@@ -262,18 +278,30 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     next_close = pred_prices[0]
     std_val = np.std([p[0] for p in sim_results])
     
-    # 診斷建議邏輯
+    # 診斷建議邏輯 (進階指標強化版)
     ma_check_list = [5, 10, 15, 20, 25, 30]
     above_ma_count = sum(1 for p in ma_check_list if curr_p > df['Close'].rolling(p).mean().iloc[-1])
 
     score = 0
     reasons = []
+    
+    # --- A. 趨勢與排列 ---
     if ma_perfect_order > 1.0: score += 2; reasons.append("多頭完美排列(飆股模式)")
     elif above_ma_count >= 5: score += 1.5; reasons.append(f"均線多頭排列")
     
+    # --- B. 能量與背離 ---
     if is_squeezing: reasons.append("布林極度擠壓(即將噴發)")
     if exhaustion_drag < 0: score -= 0.5; reasons.append("漲勢背離力竭")
+    
+    # --- C. [新增] 慣性與引力監控 ---
+    if slope_decay < 0: 
+        score -= 0.3; reasons.append("均線慣性減速")
+    if normalized_bias > 2.0: 
+        score -= 0.5; reasons.append("波動超漲(引力修正)")
+    elif normalized_bias < -2.0: 
+        score += 0.5; reasons.append("波動超跌(引力支撐)")
 
+    # --- D. 籌碼與共振 ---
     if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
     if b_drift > 0.003: score += 1; reasons.append("標本群體向上共振")
     
@@ -491,6 +519,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
