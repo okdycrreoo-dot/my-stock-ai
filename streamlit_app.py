@@ -277,28 +277,44 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     """, unsafe_allow_html=True)
 
 # --- 6. 主程式 ---
-# --- 6. 主程式 (請直接替換掉原本的整個 main 函數) ---
+# --- 6. 主程式 (完全對齊版) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
     if st.session_state.user and (time.time() - st.session_state.last_active > 600): st.session_state.user = None
     st.session_state.last_active = time.time()
     
-    try:
+    # 建立一個簡單的快取，避免每秒都去刷 Google Sheets
+    @st.cache_resource(ttl=30)
+    def get_gsheets_connection():
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
         creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
         sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-        ws_u, ws_w, ws_s, ws_p = sh.worksheet("users"), sh.worksheet("watchlist"), sh.worksheet("settings"), sh.worksheet("predictions")
+        return {
+            "users": sh.worksheet("users"),
+            "watchlist": sh.worksheet("watchlist"),
+            "settings": sh.worksheet("settings"),
+            "predictions": sh.worksheet("predictions")
+        }
+
+    try:
+        sheets = get_gsheets_connection()
+        ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
+        
+        # 讀取設定值
+        s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
+        cp = int(s_map.get('global_precision', 55))
+        api_ttl = int(s_map.get('api_ttl_min', 1))
+        tw_val = float(s_map.get('trend_weight', 1.0))
+        v_comp = float(s_map.get('vol_comp', 1.5))
+        
     except Exception as e:
-        st.error(f"🚨 資料庫連線失敗: {e}")
+        if "429" in str(e):
+            st.error("🚨 Google API 請求過於頻繁，請等待 60 秒後手動重新整理頁面。")
+        else:
+            st.error(f"🚨 資料庫連線失敗: {e}")
         return
 
-    # 讀取雲端參數
-    s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-    cp = int(s_map.get('global_precision', 55))
-    api_ttl = int(s_map.get('api_ttl_min', 1))
-    tw_val = float(s_map.get('trend_weight', 1.0))
-    v_comp = float(s_map.get('vol_comp', 1.5))
-
+    # --- 登入邏輯 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 終端安全登入")
         tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 申請權限"])
@@ -330,8 +346,8 @@ def main():
                 else:
                     st.warning("⚠️ 請檢查輸入資訊。")
     
+    # --- 登入後的終端介面 ---
     else:
-        # --- 登入成功後的介面 ---
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
             with m1:
@@ -367,9 +383,9 @@ def main():
                     ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0)
                     ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
                     
-                    b1 = st.text_input(f"1. 權值標本 (AI: {ai_b[0]})", ai_b[0])
-                    b2 = st.text_input(f"2. 成長標本 (AI: {ai_b[1]})", ai_b[1])
-                    b3 = st.text_input(f"3. ETF 標本 (AI: {ai_b[2]})", ai_b[2])
+                    b1 = st.text_input(f"1. 權值標本", ai_b[0])
+                    b2 = st.text_input(f"2. 成長標本", ai_b[1])
+                    b3 = st.text_input(f"3. ETF 標本", ai_b[2])
                     new_p = st.slider("系統靈敏度", 0, 100, ai_p)
                     new_tw = st.number_input("AI 趨勢權重", 0.5, 3.0, ai_tw)
                     new_ttl = st.number_input("API 快取控管", 1, 10, api_ttl)
@@ -385,11 +401,12 @@ def main():
                     st.session_state.user = None
                     st.rerun()
         
-        # 渲染主圖表
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
-        
+
+# 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
