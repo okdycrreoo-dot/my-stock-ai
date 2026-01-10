@@ -258,7 +258,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     res = status_map.get(max(-2, min(3, score)), ("⚖️ 觀望中性", "#FFFF00"))
     
     # 5. 實戰建議價格與乖離匯總
-    periods = {"5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段建議": (last['MA20'], 1.5)}
+    periods = {"5日極短線買賣建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線買賣建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段買賣建議": (last['MA20'], 1.5)}
     adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
@@ -307,7 +307,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 3. 標題與 Metrics
     st.title(f"📊 {f_id} 台股AI預測系統")
     st.subheader(stock_accuracy)
-    st.caption(f"✨ AI 大腦：隱性籌碼力道計算 | 六段式 RSI 群體背離分析 | 多維度均線共振 | 加權乖離率回歸 | 動態波動補償 (已同步台灣證交所)")
+    st.caption(f"✨ AI 大腦：市場環境感知 | 法人級籌碼行為 | 群體心理與共振 | 隨機路徑模擬 (已同步台灣證交所)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
@@ -333,8 +333,8 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
                 <div class='diag-box'>
                     <b style='font-size:1.5rem; color:#FFFFFF;'>{label}</b>
                     <hr style='border:0.5px solid #444; width:80%; margin:10px 0;'>
-                    <div style='font-size:1.2rem; color:#CCC;'>買入建議: <span style='color:#FF3131; font-weight:900; font-size:1.6rem;'>{p['buy']:.2f}</span></div>
-                    <div style='font-size:1.2rem; color:#CCC;'>賣出建議: <span style='color:#00FF41; font-weight:900; font-size:1.6rem;'>{p['sell']:.2f}</span></div>
+                    <div style='font-size:1.2rem; color:#CCC;'>買入: <span style='color:#FF3131; font-weight:900; font-size:1.6rem;'>{p['buy']:.2f}</span></div>
+                    <div style='font-size:1.2rem; color:#CCC;'>賣出: <span style='color:#00FF41; font-weight:900; font-size:1.6rem;'>{p['sell']:.2f}</span></div>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -491,6 +491,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
