@@ -258,19 +258,35 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     vp_divergence = -0.0025 if (change_pct > 0.5 and vol_ratio < 0.8) else 0
 
     # --- [新增指標 G] 波動率極度壓縮校正 (Vol Squeeze) ---
-    # 若目前 ATR 低於 60 日均值的 75%，代表即將有大變盤，擴大模擬區間
     atr_long_avg = df['ATR'].tail(60).mean()
     vol_gap_boost = 1.4 if (last['ATR'] < atr_long_avg * 0.75) else 1.0
+
+    # --- [新增指標 H] 資金流向監控 (Simplified MFI) ---
+    tp = (df['High'] + df['Low'] + df['Close']) / 3
+    rmf = tp * df['Volume']
+    # 判斷 14 日資金流入/流出
+    flow_dir = np.where(tp > tp.shift(1), 1, -1)
+    pos_mf = rmf.where(flow_dir > 0, 0).tail(14).sum()
+    neg_mf = rmf.where(flow_dir < 0, 0).tail(14).sum()
+    mfi_val = 100 - (100 / (1 + (pos_mf / (neg_mf + 1e-5))))
+    # 資金背離邏輯
+    mfi_drag = -0.0035 if (change_pct > 0.3 and mfi_val < 45) else 0
+
+    # --- [新增指標 I] 乖離加速度 (Bias Velocity) ---
+    # 偵測乖離率是否正在「加速擴張」
+    bias_v = normalized_bias - (prev_c - prev['MA20'])/(prev['ATR']+1e-5)
+    bias_accel = 0.0015 if (normalized_bias > 1.2 and bias_v > 0) else 0
 
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
     
-    # [核心連動公式最終注入] 加入斜率衰減、歸一化乖離與量價背離
+    # [核心連動公式最終注入] 納入資金流向與乖離加速度
     base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
                   (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + 
-                  exhaustion_drag + slope_decay + vol_bias_pull + vp_divergence)
+                  exhaustion_drag + slope_decay + vol_bias_pull + vp_divergence + 
+                  mfi_drag + bias_accel)
     
     for _ in range(1000):
         # 注入擠壓補償與波動壓縮擴張 (vol_gap_boost)
@@ -309,12 +325,15 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     elif normalized_bias < -2.0: 
         score += 0.5; reasons.append("波動超跌(引力支撐)")
     
-    # --- [新增] 量價與變盤監控 ---
+    # --- [新增] 量價、資金與變盤監控 ---
+    if vp_divergence < 0 or mfi_drag < 0:
+        score -= 0.5; reasons.append("量價資金背離(警惕虛漲)")
+    if mfi_val > 80:
+        score -= 0.2; reasons.append("資金極度過熱")
+    if bias_accel > 0:
+        score += 0.4; reasons.append("乖離加速度(強勢主升段)")
     if vol_gap_boost > 1.0:
-        reasons.append("⚠️ 波動率極度壓縮(變盤在即)") # 加入警示符號
-    if vp_divergence < 0:
-        score -= 0.4
-        reasons.append("📉 量價背離(警惕虛漲)") # 讓文字更具動作感
+        reasons.append("波動率極度壓縮(變盤在即)")
 
     # --- D. 籌碼與共振 ---
     if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
@@ -534,6 +553,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
