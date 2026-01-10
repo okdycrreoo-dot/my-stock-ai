@@ -304,13 +304,13 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 3. 🎯 重點：調整座標，確保標籤與標題水平對齊 (14px)
     # x=0.15 ~ 0.20 是標題文字後的起始點
     # 價格標籤 (置頂)
-    fig.add_annotation(xref="paper", yref="paper", x=0.23, y=1.025, text="<span style='color:#FF4444'>●</span> K線 <span style='color:#FFEE58'>—</span> 5MA <span style='color:#18FFFF'>—</span> 10MA <span style='color:#F06292'>—</span> 20MA <span style='color:#FF1744'>···</span> AI預測", showarrow=False, xanchor="left", font=dict(color="#AAA", size=14))
+    fig.add_annotation(xref="paper", yref="paper", x=0.20, y=1.025, text="<span style='color:#FF4444'>●</span> K線 <span style='color:#FFEE58'>—</span> 5MA <span style='color:#18FFFF'>—</span> 10MA <span style='color:#F06292'>—</span> 20MA <span style='color:#FF1744'>···</span> AI預測", showarrow=False, xanchor="left", font=dict(color="#AAA", size=14))
     
     # MACD 線標：上移至 y=0.335，確保不掉入圖表內
-    fig.add_annotation(xref="paper", yref="paper", x=0.23, y=0.45, text="<span style='color:#FF5252'>■</span> 能量柱 <span style='color:#FFFFFF'>—</span> DIF <span style='color:#FFA726'>—</span> DEA", showarrow=False, xanchor="left", font=dict(color="#AAA", size=14))
+    fig.add_annotation(xref="paper", yref="paper", x=0.20 y=0.42, text="<span style='color:#FF5252'>■</span> 能量柱 <span style='color:#FFFFFF'>—</span> DIF <span style='color:#FFA726'>—</span> DEA", showarrow=False, xanchor="left", font=dict(color="#AAA", size=14))
     
     # KDJ 線標：上移至 y=0.065，確保對齊第四圖標題
-    fig.add_annotation(xref="paper", yref="paper", x=0.23, y=0.19, text="<span style='color:#18FFFF'>—</span> K值 <span style='color:#FFFF00'>—</span> D值 <span style='color:#E066FF'>—</span> J值", showarrow=False, xanchor="left", font=dict(color="#AAA", size=14))
+    fig.add_annotation(xref="paper", yref="paper", x=0.20, y=0.198, text="<span style='color:#18FFFF'>—</span> K值 <span style='color:#FFFF00'>—</span> D值 <span style='color:#E066FF'>—</span> J值", showarrow=False, xanchor="left", font=dict(color="#AAA", size=14))
 
     # 4. 佈局修正
     fig.update_layout(
@@ -450,6 +450,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
