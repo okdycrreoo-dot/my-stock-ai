@@ -267,7 +267,16 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
         30: (curr_p - df['Close'].rolling(30).mean().iloc[-1]) / df['Close'].rolling(30).mean().iloc[-1]
     }
     
-    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), bias_summary)
+    # 計算多段乖離率數據
+    b_sum = {
+        5: (curr_p - df['Close'].rolling(5).mean().iloc[-1]) / (df['Close'].rolling(5).mean().iloc[-1] + 1e-5),
+        10: (curr_p - df['Close'].rolling(10).mean().iloc[-1]) / (df['Close'].rolling(10).mean().iloc[-1] + 1e-5),
+        20: (curr_p - df['MA20'].iloc[-1]) / (df['MA20'].iloc[-1] + 1e-5),
+        30: (curr_p - df['Close'].rolling(30).mean().iloc[-1]) / (df['Close'].rolling(30).mean().iloc[-1] + 1e-5)
+    }
+    
+    # 在元組最後方增加 b_sum 變數 (索引值為 6)
+    return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
     # --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
@@ -337,14 +346,25 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     b_sum = insight[6]
     bias_html = " | ".join([f"{k}日: <span style='color:{'#FF3131' if v > 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in b_sum.items()])
 
+    # 提取多段乖離率字典 (從 insight[6] 取得)
+    b_data = insight[6]
+    # 生成橫向排列的 HTML 標籤
+    b_html = " | ".join([f"{k}日: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in b_data.items()])
+
     st.markdown(f"""
         <div class='ai-advice-box'>
             <div class='confidence-tag'>{stock_accuracy}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
-            <p><b>診斷：</b>{insight[1]}</p>
-            <p style='font-size:0.9rem; color:#8899A6;'>📊 多段乖離率參照：{bias_html}</p>
+            <p><b>診斷:</b> {insight[1]}</p>
+            <p style='font-size:0.9rem; color:#8899A6;'>📊 多段乖離率參照: {b_html}</p>
             <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
+                <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬):</p>
+                <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價: {insight[3]:.2f}</p>
+                <p style='color:#8899A6;'>預估隔日浮動區間: {insight[5]:.2f} ~ {insight[4]:.2f}</p>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
                 <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p>
                 <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
                 <p style='color:#8899A6;'>預估隔日浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
@@ -484,6 +504,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
