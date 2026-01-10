@@ -252,31 +252,38 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-# --- 5. 圖表與終端渲染 (全資訊修復：基本數據 + 建議價 + AI 診斷) ---
+# --- 5. 圖表與終端渲染 (全資訊修復版：整合紅底面板與橫向標籤) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗"); return
+        st.error(f"❌ 讀取 {symbol} 失敗")
+        return
 
+    # 執行 AI 運算
     final_p, final_tw, ai_v, _, bias, f_vol = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol)
     stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 1. 樣式加固 (紅底面板 + 資訊盒)
+    # 1. 注入 CSS：確保設定面板紅底 & 資訊盒正確顯示
     st.markdown("""
         <style>
-        .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; border-radius: 10px !important; }
+        /* 設定面板紅底樣式 */
+        .streamlit-expanderHeader { 
+            background-color: #FF3131 !important; color: white !important; 
+            border-radius: 10px !important; font-weight: 900 !important;
+        }
         .streamlit-expanderHeader svg { fill: white !important; }
+        /* 資訊方塊樣式 */
         .info-box { background: #1A1C21; padding: 12px; border-radius: 10px; border-bottom: 3px solid #444; text-align: center; }
         .diag-box { background: #111; padding: 15px; border-radius: 12px; border: 1px solid #333; min-height: 100px; }
         .ai-advice-box { background: #0E1117; border: 1.5px solid #444; padding: 20px; border-radius: 15px; margin-top: 25px; }
         </style>
     """, unsafe_allow_html=True)
 
+    # 2. 標題與基本數據區 (Metrics)
     st.title(f"📊 {f_id} 台股AI預測系統")
-    st.caption(f"✨ 系統狀態：{stock_accuracy} | 數據週期：{api_ttl} min")
+    st.caption(f"✨ 命中率評估：{stock_accuracy} | 核心：蒙特卡羅路徑模擬 & 隱性籌碼連動")
 
-    # 2. 基本數據區 (Metrics) - 確保重新出現
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     m_cols = st.columns(5)
     metrics = [("昨日收盤", f"{prev_c:.2f}", "#FFF"), ("今日開盤", f"{open_p:.2f}", "#FFF"), 
@@ -285,44 +292,66 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: st.markdown(f"<div class='info-box'><small>{lab}</small><br><b style='color:{col};font-size:1.3rem'>{val}</b></div>", unsafe_allow_html=True)
 
-    # 3. 建議買賣價區
+    # 3. 5/10/20日建議價格區
     st.write(""); s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
-        with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.1px solid #333'>買入: <span style='color:#FF3131'>{p['buy']:.2f}</span><br>賣出: <span style='color:#00FF41'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
+        with s_cols[i]: st.markdown(f"<div class='diag-box'><center><b>{label}</b></center><hr style='border:0.1px solid #333'>買入建議: <span style='color:#FF3131'>{p['buy']:.2f}</span><br>賣出建議: <span style='color:#00FF41'>{p['sell']:.2f}</span></div>", unsafe_allow_html=True)
 
-    # 4. 圖表區 (橫向標籤優化)
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], 
-                        vertical_spacing=0.07, subplot_titles=("■ 價格與均線預測", "■ 成交量 (張)", "■ MACD", "■ KDJ"))
-    p_df = df.tail(90)
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K線'), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='5日線', line=dict(color='#FFD700')), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='20日線', line=dict(color='#FF00FF')), 1, 1)
-    f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
-    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI路徑', line=dict(color='#FF3131', dash='dash')), 1, 1)
+    # 4. 圖表區：將 Legend 橫向移至標題下方
+    fig = make_subplots(
+        rows=4, cols=1, shared_xaxes=True, 
+        row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.07,
+        subplot_titles=("■ 價格與均線預測", "■ 成交量 (張)", "■ MACD 能量柱", "■ KDJ 擺動指標")
+    )
     
+    p_df = df.tail(90)
+    # 主圖
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K線'), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='5日線', line=dict(color='#FFD700', width=2)), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA10'], name='10日線', line=dict(color='#00F5FF', width=1.5)), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='20日線', line=dict(color='#FF00FF', width=2)), 1, 1)
+    
+    # AI 預測路徑
+    f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
+    fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI預測', line=dict(color='#FF3131', width=3, dash='dash')), 1, 1)
+    
+    # 副圖
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, name='成交量', marker_color='#888'), 2, 1)
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], name='MACD', marker_color='#FF3131'), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name='K值', line=dict(color='#00F5FF')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name='D值', line=dict(color='#FFFF00')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name='J值', line=dict(color='#E066FF')), 4, 1)
 
-    fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False,
-                      margin=dict(l=10, r=10, t=50, b=10), showlegend=True,
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    # 橫向佈局設定
+    fig.update_layout(
+        template="plotly_dark", height=850, 
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=10, t=50, b=10), # 釋放右側 180px 空間
+        showlegend=True,
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", y=1.02, 
+            xanchor="right", x=1
+        )
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. AI 診斷區 (重新強制渲染)
+    # 5. AI 診斷展望區 (確保內容完整顯示)
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
+
     st.markdown(f"""
         <div class='ai-advice-box'>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <p style='margin-top:10px;'><b>AI診斷建議:</b> {insight[1]}</p>
-            <p style='font-size:0.85rem; color:#8899A6;'>乖離率參考: {b_html}</p>
+            <p style='font-size:0.85rem; color:#8899A6;'>乖離率參考 (Bias): {b_html}</p>
             <div style='background: #1C2128; padding: 15px; border-radius: 8px; border-left: 5px solid #FFAC33;'>
                 <p style='color:#00F5FF; font-weight:bold; margin:0;'>🔮 AI 隔日展望 (1,000次蒙特卡羅路徑模擬)：</p>
-                <p style='font-size:1.4rem; color:#FFAC33; font-weight:900; margin:5px 0;'>預估收盤價：{insight[3]:.2f}</p>
-                <p style='color:#8899A6; margin:0;'>浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
+                <p style='font-size:1.4rem; color:#FFAC33; font-weight:900; margin:5px 0;'>預估隔日收盤價：{insight[3]:.2f}</p>
+                <p style='color:#8899A6; margin:0;'>預估浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
+
 # --- 6. 主程式 (完全對齊版) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
@@ -430,16 +459,4 @@ def main():
 
 if __name__ == "__main__": 
     main()
-
-
-
-
-
-
-
-
-
-
-
-
 
