@@ -380,16 +380,18 @@ def main():
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("### 🛠️ 管理員戰情室")
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
+                    # 抓取 AI 優化數值
                     ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0)
                     ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
                     
-                    b1 = st.text_input(f"1. 權值標本", ai_b[0])
-                    b2 = st.text_input(f"2. 成長標本", ai_b[1])
-                    b3 = st.text_input(f"3. ETF 標本", ai_b[2])
-                    new_p = st.slider("系統靈敏度", 0, 100, ai_p)
-                    new_tw = st.number_input("AI 趨勢權重", 0.5, 3.0, ai_tw)
-                    new_ttl = st.number_input("API 快取控管", 1, 10, api_ttl)
-                    new_v = st.slider("波動補償係數", 0.5, 3.0, ai_v)
+                    # 重新加入動態建議標籤
+                    b1 = st.text_input(f"1. 權值標本 (AI 推薦: {ai_b[0]})", ai_b[0])
+                    b2 = st.text_input(f"2. 成長標本 (AI 推薦: {ai_b[1]})", ai_b[1])
+                    b3 = st.text_input(f"3. ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
+                    new_p = st.slider(f"系統靈敏度 (AI 最優: {ai_p})", 0, 100, ai_p)
+                    new_tw = st.number_input(f"AI 趨勢權重 (AI 最優: {ai_tw})", 0.5, 3.0, ai_tw)
+                    new_ttl = st.number_input(f"API 快取控管 (建議 1-10 分鐘)", 1, 10, api_ttl)
+                    new_v = st.slider(f"波動補償係數 (AI 最優: {ai_v})", 0.5, 3.0, ai_v)
                     
                     if st.button("💾 同步 AI 最優參數至雲端"):
                         ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
@@ -406,6 +408,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
