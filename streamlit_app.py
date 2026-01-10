@@ -238,9 +238,22 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     final_p, final_tw, ai_v, _, bias, f_vol = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol)
     
-    stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
+stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
+
+    # --- 新增：假日與盤前提示 ---
+    now = datetime.now()
+    is_weekend = now.weekday() >= 5  # 5=週六, 6=週日
+    last_date = df.index[-1].date()
+    
+    if is_weekend:
+        st.warning(f"📅 目前為非交易時段 (週末)。顯示數據更新至：{last_date}")
+    elif now.hour < 9:
+        st.info(f"⏳ 市場尚未開盤。顯示數據更新至：{last_date}")
+    # ------------------------
 
     st.title(f"📊 {f_id} 實戰全能終端")
+    # 將命中率直接顯示在副標題位置，增加專業感
+    st.subheader(stock_accuracy) 
     st.caption(f"✨ AI 三大腦升級：均值回歸控管 | 量價加權權重 | 波動融合引擎 (已根據證交所市價同步)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
@@ -420,6 +433,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
