@@ -325,21 +325,32 @@ def main():
     else:
         with st.expander("⚙️ 終端設定面板", expanded=True):
             m1, m2 = st.columns(2)
-            with m1:
+with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
                 target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 快速新增 (代碼)")
-                if st.button("新增股票"):
-                    if ns:
-                        new_symbol = ns.upper()
-                        # 檢查新輸入的代碼是否已經在目前的清單 (u_stocks) 中
-                        if new_symbol in u_stocks:
-                            st.error(f"⚠️ {new_symbol} 已在自選清單中！")
-                        else:
-                            ws_w.append_row([st.session_state.user, new_symbol])
-                            st.success(f"✅ 已新增 {new_symbol}")
-                            st.rerun()
+                
+                # 改為雙按鈕佈局
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("新增股票"):
+                        if ns:
+                            new_s = ns.upper().strip()
+                            if new_s in u_stocks:
+                                st.error(f"⚠️ {new_s} 已在清單中")
+                            else:
+                                ws_w.append_row([st.session_state.user, new_s])
+                                st.success(f"✅ 已新增 {new_s}"); st.rerun()
+                with c2:
+                    if st.button("🗑️ 刪除目前選定"):
+                        # 執行倒序刪除確保行號正確
+                        all_rows = ws_w.get_all_values()
+                        for idx, row in reversed(list(enumerate(all_rows))):
+                            if row[0] == st.session_state.user and row[1] == target:
+                                ws_w.delete_rows(idx + 1)
+                                break
+                        st.success(f"✅ 已移除 {target}"); st.rerun()
             
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
@@ -367,4 +378,5 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
