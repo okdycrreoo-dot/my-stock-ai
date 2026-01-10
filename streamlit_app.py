@@ -295,7 +295,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 3. 標題與 Metrics
     st.title(f"📊 {f_id} 台股AI預測系統")
     st.subheader(stock_accuracy)
-    st.caption(f"✨ AI 大腦：蒙特卡羅路徑模擬 | 籌碼力道連動 | 動態波動融合引擎 (已同步)")
+    st.caption(f"✨ AI 大腦：隱性籌碼力道計算 | 六段式 RSI 群體背離分析 | 多維度均線共振 | 加權乖離率回歸 | 動態波動補償 (已同步台灣證交所)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
@@ -405,20 +405,20 @@ def main():
 
     if st.session_state.user is None:
         st.title("🚀 StockAI 台股預測系統")
-        tab_login, tab_reg = st.tabs(["🔑 帳號登入", "📝 註冊帳號"])
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         with tab_login:
-            u = st.text_input("管理帳號", key="login_u")
-            p = st.text_input("存取密碼", type="password", key="login_p")
-            if st.button("確認進入終端", use_container_width=True):
+            u = st.text_input("請輸入帳號", key="login_u")
+            p = st.text_input("請輸入密碼", type="password", key="login_p")
+            if st.button("登入帳號", use_container_width=True):
                 udf = pd.DataFrame(ws_u.get_all_records())
                 if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
                     st.session_state.user = u
                     st.rerun()
                 else: st.error("❌ 驗證失敗：帳號或密碼錯誤。")
         with tab_reg:
-            st.markdown("#### 申請新的終端存取權限")
-            new_u = st.text_input("欲設定的帳號", key="reg_u")
-            new_p = st.text_input("欲設定的密碼", type="password", key="reg_p")
+            st.markdown("#### 註冊使用者帳號")
+            new_u = st.text_input("輸入新的帳號", key="reg_u")
+            new_p = st.text_input("設定新的密碼", type="password", key="reg_p")
             confirm_p = st.text_input("再次確認密碼", type="password", key="reg_pc")
             if st.button("提交註冊申請"):
                 if new_u and new_p == confirm_p:
@@ -434,11 +434,11 @@ def main():
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
-                target = st.selectbox("自選清單", u_stocks if u_stocks else ["2330"])
-                ns = st.text_input("➕ 快速新增 (代碼)")
+                target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330"])
+                ns = st.text_input("➕ 輸入股票代號 (代碼+.TW)")
                 c1, c2 = st.columns(2)
                 with c1:
-                    if st.button("新增股票"):
+                    if st.button("新增至自選股"):
                         if ns:
                             new_s = ns.upper().strip()
                             if new_s in u_stocks: st.error(f"⚠️ {new_s} 已在清單中")
@@ -479,5 +479,6 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
