@@ -232,15 +232,18 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
 # --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
-    if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
+    if df is None: 
+        st.error(f"❌ 讀取 {symbol} 失敗")
+        return
 
-    # 渲染時調用升級後的引擎
+    # 1. 執行 AI 引擎運算
     final_p, final_tw, ai_v, _, bias, f_vol = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol)
     
-stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
+    # 2. 呼叫具備「雙重防禦」的命中率函數
+    stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
-    # --- 新增：假日與盤前提示 ---
+    # 3. 假日與盤前提示邏輯
     now = datetime.now()
     is_weekend = now.weekday() >= 5  # 5=週六, 6=週日
     last_date = df.index[-1].date()
@@ -249,10 +252,9 @@ stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
         st.warning(f"📅 目前為非交易時段 (週末)。顯示數據更新至：{last_date}")
     elif now.hour < 9:
         st.info(f"⏳ 市場尚未開盤。顯示數據更新至：{last_date}")
-    # ------------------------
 
+    # 4. 頂部標題與命中率顯示
     st.title(f"📊 {f_id} 實戰全能終端")
-    # 將命中率直接顯示在副標題位置，增加專業感
     st.subheader(stock_accuracy) 
     st.caption(f"✨ AI 三大腦升級：均值回歸控管 | 量價加權權重 | 波動融合引擎 (已根據證交所市價同步)")
 
@@ -433,6 +435,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
