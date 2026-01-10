@@ -252,7 +252,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-# --- 5. 圖表與終端渲染 (視覺強化：置中加大 + 亮色數字) ---
+# --- 5. 圖表與終端渲染 (視覺強化：亮色系 + 全置中加大版) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -262,55 +262,59 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol)
     stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 1. 交易時段判斷
+    # 1. 交易時段提醒
     now = datetime.now()
     is_weekend = now.weekday() >= 5 
     last_date = df.index[-1].date()
     if is_weekend: st.warning(f"📅 目前為非交易時段 (週末)。顯示數據更新至：{last_date}")
     elif now.hour < 9: st.info(f"⏳ 市場尚未開盤 (09:00 開盤)。顯示數據更新至：{last_date}")
 
-    # 2. CSS 強化：置中、加大、亮色
+    # 2. CSS 強製置中與亮色渲染
     st.markdown("""
         <style>
         .stApp { background-color: #000000; }
-        /* 即時行情格 (Metrics) */
+        /* 即時行情格：全置中佈局 */
         .info-box { 
             background: #0A0A0A; padding: 15px; border: 1px solid #333; 
             border-radius: 12px; display: flex; flex-direction: column; 
-            align-items: center; justify-content: center; min-height: 100px;
+            align-items: center; justify-content: center; text-align: center;
+            min-height: 110px;
         }
-        .label-text { color: #AAAAAA; font-size: 1.1rem; margin-bottom: 8px; font-weight: 500; }
-        .realtime-val { font-size: 1.8rem; font-weight: 900; }
+        .label-text { color: #AAAAAA; font-size: 1.2rem; margin-bottom: 5px; font-weight: 500; }
+        .realtime-val { font-size: 2.2rem; font-weight: 900; line-height: 1.1; }
         
-        /* 買賣建議區 (AI Recs) */
+        /* 買賣建議區：置中加大 */
         .diag-box { 
-            background: #050505; padding: 20px; border-radius: 15px; 
-            border: 1px solid #444; text-align: center;
+            background: #050505; padding: 25px; border-radius: 15px; 
+            border: 1px solid #444; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center;
         }
-        .diag-title { font-size: 1.4rem; color: #FFFFFF; font-weight: bold; margin-bottom: 10px; display: block; }
-        .price-row { font-size: 1.3rem; margin: 5px 0; }
-        .price-buy { color: #FF3131; font-weight: 900; font-size: 1.5rem; }
-        .price-sell { color: #00FF41; font-weight: 900; font-size: 1.5rem; }
-
-        /* AI 診斷區 */
-        .ai-advice-box { background: #000000; border: 2px solid #333; padding: 25px; border-radius: 15px; margin-top: 30px; }
+        .diag-title { font-size: 1.6rem; color: #FFFFFF; font-weight: 900; margin-bottom: 12px; }
+        .price-row { font-size: 1.4rem; margin: 8px 0; color: #CCCCCC; }
+        .price-buy { color: #FF0000; font-weight: 900; font-size: 1.8rem; }  /* 螢光紅 */
+        .price-sell { color: #00FF00; font-weight: 900; font-size: 1.8rem; } /* 螢光綠 */
         </style>
     """, unsafe_allow_html=True)
 
     st.title(f"📊 {f_id} 台股AI預測系統")
     st.subheader(stock_accuracy)
 
-    # 3. 即時行情區：動態顏色判斷
-    c_p = "#FF3131" if change_pct >= 0 else "#00FF41" # 漲用亮紅，跌用亮綠
+    # 3. 定義螢光色系邏輯
+    neon_red = "#FF0000"    # 純亮紅
+    neon_green = "#00FF00"  # 純亮綠
+    neon_yellow = "#FFFF00" # 純亮黃
+    
+    # 根據漲跌決定顏色
+    val_color = neon_red if change_pct >= 0 else neon_green
     sign = "+" if change_pct >= 0 else ""
     
     m_cols = st.columns(5)
     metrics = [
         ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
         ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), 
-        ("當前價格", f"{curr_p:.2f}", c_p), 
-        ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
-        ("成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")
+        ("當前價格", f"{curr_p:.2f}", val_color), 
+        ("今日漲跌", f"{sign}{change_pct:.2f}%", val_color), 
+        ("成交 (張)", f"{int(curr_v/1000):,}", neon_yellow)
     ]
     
     for i, (lab, val, col) in enumerate(metrics):
@@ -322,20 +326,20 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
                 </div>
             """, unsafe_allow_html=True)
 
-    # 4. AI 買賣建議區：文字加大與置中
+    # 4. AI 買賣建議區 (全面置中與加大)
     st.write(""); s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]:
             st.markdown(f"""
                 <div class='diag-box'>
                     <span class='diag-title'>{label}</span>
-                    <hr style='border:0.5px solid #333;'>
-                    <div class='price-row'>買入建議: <span class='price-buy'>{p['buy']:.2f}</span></div>
-                    <div class='price-row'>賣出建議: <span class='price-sell'>{p['sell']:.2f}</span></div>
+                    <hr style='border:0.5px solid #444; width:100%;'>
+                    <div class='price-row'>買入建議<br><span class='price-buy'>{p['buy']:.2f}</span></div>
+                    <div class='price-row'>賣出建議<br><span class='price-sell'>{p['sell']:.2f}</span></div>
                 </div>
             """, unsafe_allow_html=True)
 
-    # 5. 圖表區 (線標加粗與對齊邏輯維持)
+    # 5. 圖表區 (維持線標對齊邏輯)
     t_main = "■ 價格與均線 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#FF3131'>●</span> K線 <span style='color:#FFD700'><b>━━</b></span> 5MA <span style='color:#00F5FF'><b>━━</b></span> 10MA <span style='color:#FF00FF'><b>━━</b></span> 20MA <span style='color:#FF3131'><b>···</b></span> AI預測</span>"
     t_vol  = "■ 成交量分析 (張)"
     t_macd = "■ MACD 指標 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#FF3131'>■</span> 能量柱 <span style='color:#FFFFFF'><b>━━</b></span> DIF <span style='color:#FFA726'><b>━━</b></span> DEA</span>"
@@ -344,16 +348,16 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04, subplot_titles=(t_main, t_vol, t_macd, t_kdj))
     p_df = df.tail(90)
     
-    # [繪圖 Traces 部分維持不變...]
+    # [繪圖 Traces...]
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], line=dict(color='#FFD700', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA10'], line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], line=dict(color='#FF00FF', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=[p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)], y=pred_line, line=dict(color='#FF3131', width=3, dash='dash'), showlegend=False), 1, 1)
     
-    v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
+    v_colors = ['#FF0000' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF00' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_colors, showlegend=False), 2, 1)
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], showlegend=False), 3, 1)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], marker_color=['#FF0000' if v >= 0 else '#00FF00' for v in p_df['Hist']], showlegend=False), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MACD'], line=dict(color='#FFFFFF', width=1.2), showlegend=False), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['Signal'], line=dict(color='#FFA726', width=1.2), showlegend=False), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], line=dict(color='#00F5FF'), showlegend=False), 4, 1)
@@ -489,6 +493,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
