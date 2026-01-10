@@ -295,8 +295,8 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             <div class='confidence-tag'>{stock_accuracy}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
-            <p><b>Diagnosis:</b> {insight[1]}</p>
-            <p style='font-size:0.9rem; color:#8899A6;'>Bias Ref (5/10/20/30D): {b_html}</p>
+            <p><b>AI診斷建議:</b> {insight[1]}</p>
+            <p style='font-size:0.9rem; color:#8899A6;'>乖離率 (Bias Ref): {b_html}</p>
             <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
                 <p style='color:#00F5FF; font-weight:bold;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')} | 1,000次模擬)：</p>
                 <p style='font-size:1.3rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
@@ -412,3 +412,4 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
