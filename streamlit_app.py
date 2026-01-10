@@ -150,11 +150,15 @@ def auto_sync_feedback(ws_p, f_id, insight):
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     
-    # [進化一：波動融合 Volatility Fusion]
-    v_5 = rets.tail(5).std()
-    v_20 = rets.tail(20).std()
-    v_60 = rets.tail(60).std()
-    f_vol = (v_5 * 0.5) + (v_20 * 0.3) + (v_60 * 0.2)
+    # [進化一：波動融合 Volatility Fusion - 6段短中期採樣]
+    # 背景計算：5, 10, 15, 20, 25, 30 交易日標準差
+    v_p = [5, 10, 15, 20, 25, 30]
+    # 分配權重：越近期權重越高 (總和為 1.0)
+    v_w = [0.25, 0.20, 0.15, 0.15, 0.15, 0.10]
+    
+    # 執行加權計算
+    v_vals = [rets.tail(p).std() for p in v_p]
+    f_vol = sum(v * w for v, w in zip(v_vals, v_w))
     
     # [進化二：量價加權 Volume Weighting]
     v_curr = df['Volume'].iloc[-1]
@@ -435,6 +439,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
