@@ -391,72 +391,113 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         </div>
     """, unsafe_allow_html=True)
 
-# --- 6. 主程式 (完全保留管理員邏輯與 CSS) ---
+# --- 6. 主程式 (修復登入不見的問題) ---
 def main():
-    if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
-    if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
+    # 初始化 session_state
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+        st.session_state.last_active = time.time()
+    
+    # 自動登出邏輯 (1小時)
+    if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
+        st.session_state.user = None
+        
     st.session_state.last_active = time.time()
     
+    # 建立連線 (確保 secrets 存在)
     @st.cache_resource(ttl=30)
     def get_gsheets_connection():
-        sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
-        creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-        sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-        return {
-            "users": sh.worksheet("users"), "watchlist": sh.worksheet("watchlist"),
-            "settings": sh.worksheet("settings"), "predictions": sh.worksheet("predictions")
-        }
+        try:
+            sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
+            creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+            sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+            return {
+                "users": sh.worksheet("users"), 
+                "watchlist": sh.worksheet("watchlist"),
+                "settings": sh.worksheet("settings"), 
+                "predictions": sh.worksheet("predictions")
+            }
+        except Exception as e:
+            st.error(f"📡 資料庫連線失敗，請檢查 Secrets 設定: {e}")
+            return None
 
+    sheets = get_gsheets_connection()
+    if not sheets: return # 連線失敗就停止執行
+
+    ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
+    
+    # 讀取全域設定
     try:
-        sheets = get_gsheets_connection()
-        ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
         cp = int(s_map.get('global_precision', 55))
         api_ttl = int(s_map.get('api_ttl_min', 1))
         tw_val = float(s_map.get('trend_weight', 1.0))
         v_comp = float(s_map.get('vol_comp', 1.5))
-    except Exception as e:
-        st.error(f"🚨 資料庫連線失敗: {e}"); return
+    except:
+        cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
+    # --- 登入控制流 ---
     if st.session_state.user is None:
-        # 登入邏輯 (略)
         st.title("🚀 StockAI 台股預測系統")
-        # ... 原有登入代碼 ...
+        tab1, tab2 = st.tabs(["👤 帳號登入", "📝 快速註冊"])
+        
+        with tab1:
+            u_in = st.text_input("帳號")
+            p_in = st.text_input("密碼", type="password")
+            if st.button("登入系統"):
+                userData = ws_u.get_all_records()
+                valid_user = next((u for u in userData if str(u['username']) == u_in and str(u['password']) == p_in), None)
+                if valid_user:
+                    st.session_state.user = u_in
+                    st.success(f"歡迎回來 {u_in}！")
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼錯誤")
+                    
+        with tab2:
+            new_u = st.text_input("新帳號")
+            new_p = st.text_input("新密碼", type="password")
+            if st.button("提交註冊"):
+                if new_u and new_p:
+                    ws_u.append_row([new_u, new_p, datetime.now().strftime("%Y-%m-%d")])
+                    st.success("✅ 註冊成功，請切換至登入分頁")
+                else:
+                    st.warning("⚠️ 請填寫完整資訊")
     else:
+        # --- 已登入後的介面 ---
         with st.expander("⚙️ :red[終端設定面板(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
-                u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
+                u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist()
                 target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330.TW"])
-                # ... 新增刪除邏輯 ...
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
+                
+                # 管理員帳號 (okdycrreoo) 專屬連動邏輯
                 if st.session_state.user == "okdycrreoo":
-                    st.markdown("### 🛠️ 管理員戰情室")
+                    st.markdown("---")
+                    st.caption("🛡️ 管理員專用 AI 微調器")
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
-                    # 修正：對齊 7 個變數解包
+                    
                     if temp_df is not None:
+                        # [關鍵對齊] 接收 7 個變數，多出的用 _ 忽略
                         ai_p, ai_tw, ai_v, ai_b, _, _, _ = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp)
+                        
+                        b1 = st.text_input("1. 藍籌標本", ai_b[0])
+                        b2 = st.text_input("2. 成長標本", ai_b[1])
+                        b3 = st.text_input("3. 指數 ETF", ai_b[2])
+                        
+                        if st.button("💾 更新雲端 AI 基準參數"):
+                            # 依序更新 Google Sheets (對應您的 2026-01-08 指示)
+                            ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
+                            st.success("基準參數已更新！")
                     else:
-                        ai_p, ai_tw, ai_v, ai_b = cp, tw_val, v_comp, ("2330.TW", "2382.TW", "00878.TW")
-                    
-                    b1 = st.text_input(f"1. 權值標本 (AI 推薦: {ai_b[0]})", ai_b[0])
-                    b2 = st.text_input(f"2. 成長標本 (AI 推薦: {ai_b[1]})", ai_b[1])
-                    b3 = st.text_input(f"3. ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
-                    new_p = st.slider(f"系統靈敏度", 0, 100, ai_p)
-                    new_tw = st.number_input(f"趨勢權重", 0.5, 3.0, ai_tw)
-                    new_ttl = st.number_input(f"API 快取", 1, 10, api_ttl)
-                    new_v = st.slider(f"波動補償", 0.5, 3.0, ai_v)
-                    
-                    if st.button("💾 同步 AI 最優參數至雲端"):
-                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
-                        ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
-                        st.success("✅ 參數同步成功！"); st.rerun()
+                        st.warning("無法取得預覽數據以生成建議參數")
 
+        # 執行主渲染
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     main()
 
