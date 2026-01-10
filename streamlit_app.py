@@ -74,7 +74,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
-            df = yf.download(s, period="2y", interval="1d", auto_adjust=False, progress=False)
+            df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
             if df is not None and not df.empty:
                 if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
@@ -137,7 +137,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except:
         return "🎯 同步中"
 
-# --- 4. AI 核心：深度微調連動引擎 (已升級：6-MA 綜合判斷 / 5-10-20日短線區間 / 隱性籌碼整合) ---
+# --- 4. AI 核心：深度微調連動引擎 (已升級：集中度偏移算法 / 除權息防禦) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     v_p = [5, 10, 15, 20, 25, 30]
@@ -148,7 +148,7 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     v_curr = df['Volume'].iloc[-1]
     v_avg5 = df['Volume'].tail(5).mean()
     vol_spike = v_curr / (v_avg5 + 0.1)
-    # 趨勢權重結合量能噴發係數
+    
     f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_spike))))
     
     price_now = float(df['Close'].iloc[-1])
@@ -176,13 +176,24 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
 
-    # 1. 隱性籌碼力道計算 (Chip Momentum)
-    v_avg5 = df['Volume'].tail(5).mean()
-    vol_ratio = curr_v / (v_avg5 + 0.1)
-    # 量增價揚=籌碼集中, 量增價跌=大戶拋售 (加權影響 15% 漂移率)
-    chip_mom = (change_pct / 100) * (vol_ratio if vol_ratio > 1 else 1)
+    # --- [關鍵升級] 集中度偏移算法：模擬法人動向 ---
+    v_avg20 = df['Volume'].tail(20).mean() 
+    vol_ratio = curr_v / (v_avg20 + 0.1)
 
-    # 2. RSI 群體背離分析 (6段共振)
+    if change_pct > 0.5 and vol_ratio > 1.2:
+        # 情境 A: 價揚且量能突破 (法人攻擊)
+        chip_mom = (change_pct / 100) * vol_ratio * 1.5 
+    elif change_pct < 0 and vol_ratio < 0.7:
+        # 情境 B: 價跌但極度縮量 (法人惜售/洗盤)
+        chip_mom = abs(change_pct / 100) * 0.2 
+    elif change_pct < -1.5 and vol_ratio > 1.5:
+        # 情境 C: 價跌且放量 (法人棄守)
+        chip_mom = (change_pct / 100) * vol_ratio * 1.2
+    else:
+        # 情境 D: 常態波動
+        chip_mom = (change_pct / 100)
+
+    # 2. RSI 群體背離分析
     rsi_p = [5, 10, 15, 20, 25, 30]
     div_scores = []
     for p in rsi_p:
@@ -196,10 +207,9 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     rsi_div = sum(div_scores) / len(div_scores)
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
-    # 3. 蒙特卡羅路徑模擬 (注入籌碼漂移因子)
+    # 3. 蒙特卡羅路徑模擬
     np.random.seed(42)
     sim_results = []
-    # 核心公式：加入 chip_mom * 0.15 修正
     base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002) + (chip_mom * 0.15)
     
     for _ in range(1000):
@@ -224,9 +234,9 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     if above_ma_count >= 5: score += 2; reasons.append(f"均線多頭({above_ma_count}/6)")
     elif above_ma_count <= 1: score -= 2; reasons.append(f"均線空頭({6-above_ma_count}/6)")
 
-    # 籌碼面隱性評分修正
-    if change_pct > 1.2 and vol_ratio > 1.5: score += 1; reasons.append("籌碼放量攻擊")
-    elif change_pct < -1.2 and vol_ratio > 1.5: score -= 1; reasons.append("籌碼放量拋售")
+    # 籌碼面評分：連動新版 vol_ratio (20日基準)
+    if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
+    elif change_pct < -1.2 and vol_ratio > 1.3: score -= 1; reasons.append("法人級拋售壓力")
 
     if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
     if rsi_div >= 0.3: score += 1; reasons.append("RSI底背離")
@@ -234,13 +244,11 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     status_map = {3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")}
     res = status_map.get(max(-2, min(3, score)), ("⚖️ 觀望中性", "#FFFF00"))
     
-    # 5. 5/10/20日建議價格 (受隱性籌碼波動影響)
     periods = {"5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段建議": (last['MA20'], 1.5)}
     adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-    
     # --- 5. 實戰優化：5/10/20日建議參考價格 ---
     periods = {
         "5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), 
@@ -252,6 +260,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
+
 # --- 5. 圖表與終端渲染 (原版結構：文字置中與加大優化版) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
@@ -479,6 +488,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
