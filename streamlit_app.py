@@ -381,7 +381,7 @@ def main():
                         st.success("✅ 註冊成功！")
                 else: st.warning("⚠️ 請檢查輸入資訊。")
     else:
-        with st.expander("⚙️ 終端設定面板", expanded=True):
+        with st.expander("⚙️ :red[終端設定面板(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
@@ -431,6 +431,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
