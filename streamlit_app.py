@@ -106,15 +106,17 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與命中率反饋 ---
+# --- 3. 背景自動對帳與命中率反饋 (雙重防禦版) ---
 def auto_sync_feedback(ws_p, f_id, insight):
     try:
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         today = datetime.now().strftime("%Y-%m-%d")
-        
+        is_weekend = datetime.now().weekday() >= 5  # 判定是否為週六或週日
+
+        # 1. 【計算防禦】對帳部分：僅在非假日執行 yfinance 抓取
         for i, row in df_p.iterrows():
-            if str(row['actual_close']) == "" and row['date'] != today:
+            if not is_weekend and str(row['actual_close']) == "" and row['date'] != today:
                 h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
                 if not h.empty:
                     act_close = float(h['Close'].iloc[0])
@@ -122,18 +124,18 @@ def auto_sync_feedback(ws_p, f_id, insight):
                     ws_p.update_cell(i + 2, 6, round(act_close, 2))
                     ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
-        if not any((r['date'] == today and r['symbol'] == f_id) for r in recs):
+        # 2. 【寫入防禦】僅在「非假日」且「今日尚未紀錄」時才新增行
+        if not is_weekend and not any((r['date'] == today and r['symbol'] == f_id) for r in recs):
             new_row = [today, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
             ws_p.append_row(new_row)
         
-# --- 命中率計算：過濾假日重複數據 ---
+        # 3. 【計算防禦】命中率計算：強制排除價格連續重複的紀錄
         df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
         
         if not df_stock.empty:
-            # 關鍵修正：如果連續兩天的價格完全一樣(休市)，只保留最新的一筆
+            # 核心防禦：若價格連續相同則視為無效交易日，不計入分母
             df_stock = df_stock.loc[df_stock['actual_close'].shift() != df_stock['actual_close']]
             
-            # 取最近 10 個「真正有價格波動」的交易日
             df_recent = df_stock.tail(10)
             hit = sum((df_recent['actual_close'] >= df_recent['range_low']) & 
                       (df_recent['actual_close'] <= df_recent['range_high']))
@@ -143,7 +145,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
         return "🎯 數據累積中"
     except:
         return "🎯 同步中"
-
+        
 # --- 4. AI 核心：深度微調連動引擎 (升級：均值回歸/量價加權/波動融合) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
@@ -418,6 +420,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
