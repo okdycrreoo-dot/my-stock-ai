@@ -201,6 +201,12 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     v_avg20 = df['Volume'].tail(20).mean() 
     vol_ratio = curr_v / (v_avg20 + 0.1)
 
+    # --- [新增指標 L] 主力力道矩陣 (Whale Force Matrix) ---
+    # 當 漲幅 > 2% 且 量增 > 50% 時，定義為主力表態攻擊
+    whale_force = (change_pct * 0.002) if (change_pct > 2.0 and vol_ratio > 1.5) else 0
+    # 若 跌幅 > 2% 且 量增 > 50% 時，定義為主力棄守逃命
+    whale_dump = (change_pct * 0.0015) if (change_pct < -2.0 and vol_ratio > 1.5) else 0
+
     # 籌碼動能判斷
     if change_pct > 0.5 and vol_ratio > 1.2:
         chip_mom = (change_pct / 100) * vol_ratio * 1.5 
@@ -292,11 +298,12 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     np.random.seed(42)
     sim_results = []
     
-    # [核心連動公式最終注入] 加入波動衰竭與 RSI 動能
+    # [核心連動公式最終注入] 加入主力力道矩陣 (whale_force / whale_dump)
     base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
                   (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + 
                   exhaustion_drag + slope_decay + vol_bias_pull + vp_divergence + 
-                  mfi_drag + bias_accel + vol_exhaustion + rsi_mom_boost)
+                  mfi_drag + bias_accel + vol_exhaustion + rsi_mom_boost + 
+                  whale_force + whale_dump)
     
     for _ in range(1000):
         # 注入擠壓補償與波動壓縮擴張 (vol_gap_boost)
@@ -350,6 +357,8 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
         reasons.append("波動率極度壓縮(變盤在即)")
 
     # --- D. 籌碼與共振 ---
+    if whale_force > 0: score += 1.2; reasons.append("偵測大戶敲單進場")
+    if whale_dump < 0: score -= 1.2; reasons.append("大戶棄守逃命跡象")
     if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
     if b_drift > 0.003: score += 1; reasons.append("標本群體向上共振")
     
@@ -567,6 +576,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
