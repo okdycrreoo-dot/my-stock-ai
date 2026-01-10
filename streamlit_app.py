@@ -293,9 +293,9 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04, subplot_titles=("價格與均線系統 (含 AI 預測)", "成交量分析 (張)", "MACD 能量柱", "KDJ 擺動指標"))
     p_df = df.tail(90)
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name='K線走勢', legendgroup="1"), 1, 1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], name='5日線', line=dict(color='#FFD700', width=1.2), opacity=0.8))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA10'], name='10日線', line=dict(color='#00F5FF', width=1.2), opacity=0.8))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name='20日線', line=dict(color='#FF00FF', width=1.5), opacity=0.9))
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], name='5日線', line=dict(color='#FFD700', width=2), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA10'], name='10日線', line=dict(color='#00F5FF', width=1.5), legendgroup="1"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], name='20日線', line=dict(color='#FF00FF', width=2), legendgroup="1"), 1, 1)
     
     f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)]
     fig.add_trace(go.Scatter(x=f_dates, y=pred_line, name='AI 預測路徑', line=dict(color='#FF3131', width=3, dash='dash'), legendgroup="1"), 1, 1)
@@ -435,6 +435,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
