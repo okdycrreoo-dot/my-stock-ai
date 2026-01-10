@@ -137,9 +137,8 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except:
         return "🎯 同步中"
 
-# --- 4. AI 核心：深度微調連動引擎 (精確對齊：回傳 7 個項目，新增標本共振) ---
+# --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
-    # [新增] AI 自動感知大盤環境因子
     try:
         mkt_df = yf.download("^TWII", period="1mo", interval="1d", auto_adjust=True, progress=False)
         mkt_rets = mkt_df['Close'].pct_change().dropna()
@@ -158,10 +157,9 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     v_curr = df['Volume'].iloc[-1]
     v_avg5 = df['Volume'].tail(5).mean()
     vol_ratio = v_curr / (v_avg5 + 0.1)
-    vol_spike = vol_ratio
     
     tw_adj = 0.8 if env_panic > 1.0 else 1.0
-    f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_spike)) * tw_adj))
+    f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_ratio)) * tw_adj))
     
     price_now = float(df['Close'].iloc[-1])
     b_periods = [5, 10, 15, 20, 25, 30]
@@ -178,21 +176,19 @@ def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
     f_v = 1.3 if high_low_range > 0.035 else 2.1 if high_low_range < 0.015 else 1.7
     
-    # [核心修改] 決定標本代碼並實時抓取漲跌數據進行「共振分析」
     benchmarks = ("2330", "2382", "00878") if f_vol > 0.02 else ("2317", "2454", "0050")
     b_drift = 0.0
     try:
-        # 實時抓取這三檔標本的最新漲跌幅
         b_data = yf.download([f"{c}.TW" for c in benchmarks], period="5d", interval="1d", progress=False)['Close']
         if isinstance(b_data, pd.DataFrame):
             b_rets = b_data.pct_change().iloc[-1]
-            b_drift = b_rets.mean() # 計算標本集體平均漲跌
+            b_drift = b_rets.mean()
     except:
         b_drift = 0.0
     
-    # 嚴格回傳 7 個項目，對齊強化後的邏輯
     return int(f_p), round(f_tw, 2), f_v, benchmarks, bias_val, f_vol, b_drift
 
+# --- 5. 預測運算引擎 (核心公式注入層) ---
 def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, b_drift):
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -205,6 +201,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     v_avg20 = df['Volume'].tail(20).mean() 
     vol_ratio = curr_v / (v_avg20 + 0.1)
 
+    # 籌碼動能判斷
     if change_pct > 0.5 and vol_ratio > 1.2:
         chip_mom = (change_pct / 100) * vol_ratio * 1.5 
     elif change_pct < 0 and vol_ratio < 0.7:
@@ -214,6 +211,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     else:
         chip_mom = (change_pct / 100)
 
+    # RSI 背離偵測
     rsi_p = [5, 10, 15, 20, 25, 30]
     div_scores = []
     for p in rsi_p:
@@ -225,16 +223,34 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
         d = -1 if (curr_p > prev_c and rsi_now < rsi_prev) else (1 if (curr_p < prev_c and rsi_now > rsi_prev) else 0)
         div_scores.append(d)
     rsi_div = sum(div_scores) / len(div_scores)
+
+    # --- [核心指標增強 A] 布林通道擠壓偵測 ---
+    std_20 = df['Close'].rolling(20).std()
+    bb_width = (std_20 * 4) / (df['MA20'] + 1e-5) # 移除 .iloc[-1]
+    is_squeezing = bb_width.iloc[-1] < bb_width.tail(20).mean() * 0.92
+    squeeze_boost = 1.35 if is_squeezing else 1.0
+
+    # --- [核心指標增強 B] 乖離力竭偵測 ---
+    curr_bias = (curr_p - last['MA20']) / (last['MA20'] + 1e-5)
+    prev_bias = (prev_c - prev['MA20']) / (prev['MA20'] + 1e-5)
+    exhaustion_drag = -0.0018 if (curr_p > prev_c and curr_bias < prev_bias) else 0
+
+    # --- [核心指標增強 C] 多空全排列強度 ---
+    ma60 = df['Close'].rolling(60).mean().iloc[-1]
+    ma_perfect_order = 1.25 if (last['MA5'] > last['MA10'] > last['MA20'] > ma60) else 1.0
+
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     np.random.seed(42)
     sim_results = []
     
-    # [核心連動公式注入] 基礎趨勢 + RSI修正 + 籌碼動能 + 標本集體共振(b_drift)
-    base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002) + (chip_mom * 0.15) + (b_drift * 0.2)
+    # [核心連動公式更新] 加入布林擠壓、乖離力竭與全排列權重
+    base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
+                  (rsi_div * 0.0025) + (chip_mom * 0.15) + (b_drift * 0.22) + exhaustion_drag)
     
     for _ in range(1000):
-        noise = np.random.normal(0, f_vol * v_comp * vol_contract, p_days)
+        # 注入擠壓補償，讓預測區間對噴發更有防禦性
+        noise = np.random.normal(0, f_vol * v_comp * vol_contract * squeeze_boost, p_days)
         path = [curr_p]
         for i in range(p_days):
             reversion_pull = bias * 0.08
@@ -246,30 +262,28 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     next_close = pred_prices[0]
     std_val = np.std([p[0] for p in sim_results])
     
+    # 診斷建議邏輯
     ma_check_list = [5, 10, 15, 20, 25, 30]
     above_ma_count = sum(1 for p in ma_check_list if curr_p > df['Close'].rolling(p).mean().iloc[-1])
 
     score = 0
     reasons = []
-    if above_ma_count >= 5: score += 2; reasons.append(f"均線多頭({above_ma_count}/6)")
-    elif above_ma_count <= 1: score -= 2; reasons.append(f"均線空頭({6-above_ma_count}/6)")
+    if ma_perfect_order > 1.0: score += 2; reasons.append("多頭完美排列(飆股模式)")
+    elif above_ma_count >= 5: score += 1.5; reasons.append(f"均線多頭排列")
+    
+    if is_squeezing: reasons.append("布林極度擠壓(即將噴發)")
+    if exhaustion_drag < 0: score -= 0.5; reasons.append("漲勢背離力竭")
 
     if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
     if b_drift > 0.003: score += 1; reasons.append("標本群體向上共振")
-    elif b_drift < -0.003: score -= 1; reasons.append("標本群體向下牽引")
-
-    if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
-    if rsi_div >= 0.3: score += 1; reasons.append("RSI底背離")
     
     status_map = {3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")}
-    res = status_map.get(max(-2, min(3, score)), ("⚖️ 觀望中性", "#FFFF00"))
+    res = status_map.get(max(-2, min(3, int(score))), ("⚖️ 觀望中性", "#FFFF00"))
     
-    periods = {"5日極短線買賣建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線買賣建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段買賣建議": (last['MA20'], 1.5)}
-    adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
+    adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in {"5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段建議": (last['MA20'], 1.5)}.items()}
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -477,5 +491,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
