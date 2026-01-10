@@ -137,7 +137,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except:
         return "🎯 同步中"
 
-# --- 4. AI 核心：深度微調連動引擎 (升級：多段共振/均值回歸/量價加權/波動融合) ---
+# --- 4. AI 核心：深度微調連動引擎 (已升級：6-MA 綜合判斷 / 5-10-20日短線區間) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     rets = df['Close'].pct_change().dropna()
     v_p = [5, 10, 15, 20, 25, 30]
@@ -176,7 +176,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
 
-    # 1. RSI 群體背離分析 (保留)
+    # 1. RSI 群體背離分析 (6段共振)
     rsi_p = [5, 10, 15, 20, 25, 30]
     div_scores = []
     for p in rsi_p:
@@ -192,7 +192,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     rsi_div = sum(div_scores) / len(div_scores)
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
-    # 2. 蒙特卡羅路徑模擬 (保留)
+    # 2. 蒙特卡羅路徑模擬 (1,000次路徑融合)
     np.random.seed(42)
     sim_results = []
     base_drift = ((int(precision) - 55) / 1000) * float(trend_weight) + (rsi_div * 0.002)
@@ -211,61 +211,51 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     all_first_day = [p[0] for p in sim_results]
     std_val = np.std(all_first_day)
     
-    # --- 3. 升級版：6-MA 綜合價格位置診斷 ---
+    # --- 3. 升級版：6-MA 綜合價格位置診斷 (取代原單一MA20判斷) ---
     ma_check_list = [5, 10, 15, 20, 25, 30]
-    # 計算當前股價高於哪些均線
-    above_ma_count = 0
-    for p in ma_check_list:
-        ma_val = df['Close'].rolling(p).mean().iloc[-1]
-        if curr_p > ma_val:
-            above_ma_count += 1
+    above_ma_count = sum(1 for p in ma_check_list if curr_p > df['Close'].rolling(p).mean().iloc[-1])
 
     score = 0
     reasons = []
 
-    # 判定均線集體狀態
     if above_ma_count >= 5: 
-        score += 2  # 強勢多頭排列，權重加大
+        score += 2  # 強勢多頭排列
         reasons.append(f"均線群多頭排列({above_ma_count}/6)")
     elif above_ma_count >= 3:
-        score += 1  # 中性偏多
-        reasons.append(f"均線位階偏高({above_ma_count}/6)")
+        score += 1  # 位階偏多
+        reasons.append(f"均線位階偏多({above_ma_count}/6)")
     elif above_ma_count <= 1:
         score -= 2  # 強勢空頭排列
         reasons.append(f"均線群空頭排列({6-above_ma_count}/6)")
     else:
-        score -= 1  # 中性偏空
+        score -= 1  # 位階偏空
         reasons.append(f"均線位階偏低({above_ma_count}/6)")
 
-    # 4. 其他輔助指標 (加權評分)
+    # 4. 其他輔助指標與映射
     if last['Hist'] > 0: score += 1; reasons.append("MACD多頭")
     if last['K'] < 25: score += 1; reasons.append("KDJ低位反彈")
     if rsi_div >= 0.3: score += 1; reasons.append("RSI群體底背離")
     elif rsi_div <= -0.3: score -= 1; reasons.append("RSI群體頂背離")
     
-    # 5. 狀態映射 (調增分數區間以對應 6-MA 的高權重)
     status_map = {
-        3: ("🚀 強力買入", "#FF3131"), 
-        2: ("🚀 強力買入", "#FF3131"),
-        1: ("📈 偏多操作", "#FF7A7A"), 
-        0: ("⚖️ 觀望中性", "#FFFF00"), 
-        -1: ("📉 偏空警戒", "#00FF41"),
-        -2: ("📉 偏空警戒", "#00FF41")
+        3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"),
+        1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), 
+        -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")
     }
-    # 確保 score 不會超出 map 範圍
     score_clamped = max(-2, min(3, score))
     res = status_map.get(score_clamped, ("⚖️ 觀望中性", "#FFFF00"))
     
-    # 建議參考
-    periods = {"5日短期": (df['Close'].rolling(5).mean().iloc[-1], 0.8), 
-               "20日中期": (last['MA20'], 1.5), 
-               "60日長期": (last['MA60'], 2.2)}
+    # --- 5. 實戰優化：5/10/20日建議參考價格 ---
+    periods = {
+        "5日極短": (df['Close'].rolling(5).mean().iloc[-1], 0.8), 
+        "10日短線": (df['Close'].rolling(10).mean().iloc[-1], 1.1), 
+        "20日波段": (last['MA20'], 1.5)
+    }
     adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
 
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, open_p, prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-
 # --- 5. 圖表與終端渲染 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
@@ -445,5 +435,6 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
