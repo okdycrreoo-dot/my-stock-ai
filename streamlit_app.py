@@ -271,7 +271,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     if is_weekend: st.warning(f"📅 目前為非交易時段 (週末)。顯示數據更新至：{last_date}")
     elif now.hour < 9: st.info(f"⏳ 市場尚未開盤。顯示數據更新至：{last_date}")
 
-    st.title(f"📊 {f_id} 台股AI預測系統 作者：KD")
+    st.title(f"📊 {f_id} 台股AI預測系統                   作者：KD")
     st.subheader(stock_accuracy) 
     st.caption(f"✨ AI 大腦升級：蒙特卡羅路徑模擬 | 隱性籌碼力道連動 | 多週期均線集群診斷 | 實戰命中率反饋系統 | 動態波動融合引擎 (已根據證交所市價同步)")
 
@@ -431,6 +431,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
