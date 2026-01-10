@@ -247,9 +247,9 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol):
     
     # --- 5. 實戰優化：5/10/20日建議參考價格 ---
     periods = {
-        "5日極短": (df['Close'].rolling(5).mean().iloc[-1], 0.8), 
-        "10日短線": (df['Close'].rolling(10).mean().iloc[-1], 1.1), 
-        "20日波段": (last['MA20'], 1.5)
+        "5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), 
+        "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), 
+        "20日波段建議": (last['MA20'], 1.5)
     }
     adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in periods.items()}
 
@@ -435,6 +435,7 @@ def main():
 
 if __name__ == "__main__": 
     main()
+
 
 
 
