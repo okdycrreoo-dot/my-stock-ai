@@ -280,7 +280,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 # --- 6. 主程式 (完全對齊版) ---
 def main():
     if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
-    if st.session_state.user and (time.time() - st.session_state.last_active > 600): st.session_state.user = None
+    if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
     st.session_state.last_active = time.time()
     
     # 建立一個簡單的快取，避免每秒都去刷 Google Sheets
@@ -408,6 +408,7 @@ def main():
 # 檔案最底部確保無縮排
 if __name__ == "__main__": 
     main()
+
 
 
 
