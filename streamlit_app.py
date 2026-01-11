@@ -46,13 +46,20 @@ st.markdown("""
         height: 3.5rem !important; 
         width: 100% !important;
     }
+    /* 強化摺疊按鈕標題：改為螢光青背景、深色字、字體放大 */
     .streamlit-expanderHeader { 
-        background-color: #1C2128 !important; 
-        color: #00F5FF !important; 
-        border: 2px solid #00F5FF !important; 
+        background-color: #00F5FF !important; 
+        color: #0E1117 !important; 
+        border: none !important; 
         border-radius: 12px !important;
-        font-size: 1.2rem !important; 
+        font-size: 1.6rem !important; /* 顯著放大字體 */
         font-weight: 900 !important;
+        padding: 15px !important;
+    }
+    /* 增加滑鼠懸停效果，讓操作更直覺 */
+    .streamlit-expanderHeader:hover {
+        background-color: #FFAC33 !important; /* 懸停變橘色 */
+        transition: 0.3s;
     }
     .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #30363D; }
     .info-box { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; padding: 10px; text-align: center; min-height: 80px; }
@@ -519,7 +526,7 @@ def main():
                 ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
     else:
         # --- 使用者儀表板 ---
-        with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
+        with st.expander("🛠️ 管理面板：自選清單與 AI 參數設定 (點擊展開)", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
@@ -576,4 +583,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
