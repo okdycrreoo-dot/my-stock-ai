@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # --- 1. 配置與 UI 視覺 (完整保留 290 行版本的所有 CSS，絕不精簡) ---
-st.set_page_config(page_title="StockAI 台股預測系統", layout="wide")
+st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
 
 st.markdown("""
     <style>
@@ -46,20 +46,20 @@ st.markdown("""
         height: 3.5rem !important; 
         width: 100% !important;
     }
-    /* 強化摺疊按鈕標題：改為螢光青背景、深色字、字體放大 */
-    .streamlit-expanderHeader { 
-        background-color: #00F5FF !important; 
-        color: #0E1117 !important; 
-        border: none !important; 
-        border-radius: 12px !important;
-        font-size: 1.6rem !important; /* 顯著放大字體 */
+    /* 針對標題文字進行絕對強化 */
+    .streamlit-expanderHeader p {
+        font-size: 2.2rem !important; /* 顯著放大字體 */
+        color: #00F5FF !important;   /* 亮青色 */
         font-weight: 900 !important;
-        padding: 15px !important;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5); /* 增加立體感 */
     }
-    /* 增加滑鼠懸停效果，讓操作更直覺 */
-    .streamlit-expanderHeader:hover {
-        background-color: #FFAC33 !important; /* 懸停變橘色 */
-        transition: 0.3s;
+
+    /* 針對容器進行強化 */
+    .streamlit-expanderHeader { 
+        background-color: #1C2128 !important; 
+        border: 3px solid #00F5FF !important; /* 邊框加粗 */
+        border-radius: 15px !important;
+        padding: 10px 20px !important;
     }
     .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #30363D; }
     .info-box { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; padding: 10px; text-align: center; min-height: 80px; }
@@ -405,7 +405,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 4. 頂部標題與核心指標
     st.title(f"📊 {f_id} 台股AI預測系統")
     st.subheader(stock_accuracy)
-    st.caption(f"✨ AI 大腦：主力行為偵測 | 萬有引力與動能校正 | 環境共振與AI自動進化 | 自我學習與反饋 (命中率校正)")
+    st.caption(f"✨ AI 大腦：籌碼與動能分析 (法人級行為偵測) | 環境共振分析 (大盤與三大標本) | 技術面與乖離率評估 (萬有引力機制) | 自我學習與反饋 (命中率校正)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
@@ -526,7 +526,7 @@ def main():
                 ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
     else:
         # --- 使用者儀表板 ---
-        with st.expander("🛠️ 管理面板：自選清單與 AI 參數設定 (點擊展開)", expanded=False):
+        with st.expander("🛠️ 管理自選股清單(點擊開啟)", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
