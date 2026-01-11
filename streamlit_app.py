@@ -524,9 +524,9 @@ def main():
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
-                target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330"])
-                ns = st.text_input("➕ 新增股票代號 (例: 2454.TW)")
-                if st.button("確認新增標的"):
+                target = st.selectbox("自選股清單(選擇想要看的股票)", u_stocks if u_stocks else ["2330"])
+                ns = st.text_input("➕ 輸入股票代號 (例: 2454.TW)")
+                if st.button("加入到自選股清單"):
                     if ns: ws_w.append_row([st.session_state.user, ns.upper().strip()]); st.success("✅ 已新增"); st.rerun()
                 
                 if u_stocks:
@@ -576,6 +576,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
