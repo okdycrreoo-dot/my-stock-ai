@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # --- 1. 配置與 UI 視覺 (完整保留 290 行版本的所有 CSS，絕不精簡) ---
-st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
+st.set_page_config(page_title="StockAI 台股預測系統", layout="wide")
 
 st.markdown("""
     <style>
@@ -398,7 +398,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 4. 頂部標題與核心指標
     st.title(f"📊 {f_id} 台股AI預測系統")
     st.subheader(stock_accuracy)
-    st.caption(f"✨ AI 大腦：籌碼與動能分析 (法人級行為偵測) | 環境共振分析 (大盤與三大標本) | 技術面與乖離率評估 (萬有引力機制) | 自我學習與反饋 (命中率校正)")
+    st.caption(f"✨ AI 大腦：主力行為偵測 | 萬有引力與動能校正 | 環境共振與AI自動進化 | 自我學習與反饋 (命中率校正)")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
@@ -576,3 +576,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
