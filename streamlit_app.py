@@ -519,7 +519,7 @@ def main():
                 ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
     else:
         # --- 使用者儀表板 ---
-        with st.expander("⚙️ :red[終端設定面板(點擊開啟)]", expanded=False):
+        with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
@@ -576,6 +576,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
