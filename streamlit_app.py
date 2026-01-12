@@ -74,7 +74,12 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
-            df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
+            df = yf.download(s, period="2y", interval="1d", progress=False, ignore_tz=True)
+            # 額外補丁：如果最後一筆不是今天，強制多抓一筆即時快照
+            ticker = yf.Ticker(s)
+            current_df = ticker.history(period="1d")
+            if not current_df.empty and current_df.index[-1].date() > df.index[-1].date():
+                df = pd.concat([df, current_df])
             if df is not None and not df.empty:
                 if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
@@ -583,4 +588,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
