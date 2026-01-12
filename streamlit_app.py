@@ -74,38 +74,10 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
-            # 1. 抓取數據 (不強制 auto_adjust，避免台股回溯錯誤)
-            df = yf.download(s, period="2y", interval="1d", progress=False)
-            
+            df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
             if df is not None and not df.empty:
-                # 2. 處理 MultiIndex (解決 3017.TW 讀取失敗的關鍵)
-                if isinstance(df.columns, pd.MultiIndex):
-                    # 如果有欄位層級，只取第一層 (例如 'Close', 'Open')
+                if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
-                
-                # 3. 檢查是否有 'Close' 欄位，若沒抓到則嘗試抓 'Adj Close'
-                if 'Close' not in df.columns and 'Adj Close' in df.columns:
-                    df['Close'] = df['Adj Close']
-                
-                # 4. 強制轉換數值型態，避免讀到空值或錯誤格式
-                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-                
-                # 5. 清除重複的日期索引 (這也是常見失敗原因)
-                df = df[~df.index.duplicated(keep='last')]
-                
-                # 以下保留您原本的指標計算 (MA, MACD, KDJ, RSI, ATR)
-                df['MA5'] = df['Close'].rolling(5).mean()
-                df['MA10'] = df['Close'].rolling(10).mean()
-                df['MA20'] = df['Close'].rolling(20).mean()
-                # ... (後續代碼維持原樣)
-                
-                # 如果今天的數據不在 df 裡，就手動把剛剛抓到的 todays_data 塞進去
-                if not todays_data.empty:
-                    last_date = df.index[-1].strftime('%Y-%m-%d')
-                    today_date = todays_data.index[-1].strftime('%Y-%m-%d')
-                    if today_date > last_date:
-                        df = pd.concat([df, todays_data])
                 df['MA5'] = df['Close'].rolling(5).mean()
                 df['MA10'] = df['Close'].rolling(10).mean()
                 df['MA20'] = df['Close'].rolling(20).mean()
@@ -611,9 +583,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
 
