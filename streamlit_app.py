@@ -74,10 +74,23 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
+            # 1. 先抓取日線歷史數據
             df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
+            
+            # 2. 盤中補丁：嘗試抓取當前最新報價 (解決 1d 沒更新問題)
+            ticker = yf.Ticker(s)
+            todays_data = ticker.history(period="1d")
+            
             if df is not None and not df.empty:
                 if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
+                
+                # 如果今天的數據不在 df 裡，就手動把剛剛抓到的 todays_data 塞進去
+                if not todays_data.empty:
+                    last_date = df.index[-1].strftime('%Y-%m-%d')
+                    today_date = todays_data.index[-1].strftime('%Y-%m-%d')
+                    if today_date > last_date:
+                        df = pd.concat([df, todays_data])
                 df['MA5'] = df['Close'].rolling(5).mean()
                 df['MA10'] = df['Close'].rolling(10).mean()
                 df['MA20'] = df['Close'].rolling(20).mean()
@@ -583,6 +596,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
