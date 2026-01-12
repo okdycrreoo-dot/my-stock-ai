@@ -74,16 +74,21 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
-            # 1. 先抓取日線歷史數據
-            df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
-            
-            # 2. 盤中補丁：嘗試抓取當前最新報價 (解決 1d 沒更新問題)
-            ticker = yf.Ticker(s)
-            todays_data = ticker.history(period="1d")
+            # 關閉 auto_adjust，改用原始價格
+            df = yf.download(s, period="2y", interval="1d", auto_adjust=False, progress=False)
             
             if df is not None and not df.empty:
-                if isinstance(df.columns, pd.MultiIndex): 
-                    df.columns = df.columns.get_level_values(0)
+                # 如果是多重索引，精確抓取 'Close' 這一列
+                if isinstance(df.columns, pd.MultiIndex):
+                    # 確保我們只拿收盤價，不要拿成其他欄位
+                    df = df['Close'] 
+                else:
+                    # 如果不是多重索引，就確保我們使用的是 Close
+                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+
+                # 如果 df 變成了 Series (只有收盤價)，把它轉回 DataFrame 方便後續計算
+                if isinstance(df, pd.Series):
+                    df = df.to_frame()
                 
                 # 如果今天的數據不在 df 裡，就手動把剛剛抓到的 todays_data 塞進去
                 if not todays_data.empty:
@@ -596,6 +601,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
