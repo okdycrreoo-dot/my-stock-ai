@@ -74,21 +74,31 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
-            # 關閉 auto_adjust，改用原始價格
-            df = yf.download(s, period="2y", interval="1d", auto_adjust=False, progress=False)
+            # 1. 抓取數據 (不強制 auto_adjust，避免台股回溯錯誤)
+            df = yf.download(s, period="2y", interval="1d", progress=False)
             
             if df is not None and not df.empty:
-                # 如果是多重索引，精確抓取 'Close' 這一列
+                # 2. 處理 MultiIndex (解決 3017.TW 讀取失敗的關鍵)
                 if isinstance(df.columns, pd.MultiIndex):
-                    # 確保我們只拿收盤價，不要拿成其他欄位
-                    df = df['Close'] 
-                else:
-                    # 如果不是多重索引，就確保我們使用的是 Close
-                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
-
-                # 如果 df 變成了 Series (只有收盤價)，把它轉回 DataFrame 方便後續計算
-                if isinstance(df, pd.Series):
-                    df = df.to_frame()
+                    # 如果有欄位層級，只取第一層 (例如 'Close', 'Open')
+                    df.columns = df.columns.get_level_values(0)
+                
+                # 3. 檢查是否有 'Close' 欄位，若沒抓到則嘗試抓 'Adj Close'
+                if 'Close' not in df.columns and 'Adj Close' in df.columns:
+                    df['Close'] = df['Adj Close']
+                
+                # 4. 強制轉換數值型態，避免讀到空值或錯誤格式
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # 5. 清除重複的日期索引 (這也是常見失敗原因)
+                df = df[~df.index.duplicated(keep='last')]
+                
+                # 以下保留您原本的指標計算 (MA, MACD, KDJ, RSI, ATR)
+                df['MA5'] = df['Close'].rolling(5).mean()
+                df['MA10'] = df['Close'].rolling(10).mean()
+                df['MA20'] = df['Close'].rolling(20).mean()
+                # ... (後續代碼維持原樣)
                 
                 # 如果今天的數據不在 df 裡，就手動把剛剛抓到的 todays_data 塞進去
                 if not todays_data.empty:
@@ -601,6 +611,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
