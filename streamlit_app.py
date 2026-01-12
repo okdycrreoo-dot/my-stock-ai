@@ -527,7 +527,14 @@ def main():
                 target = st.selectbox("自選股清單(選擇想要看的股票)", u_stocks if u_stocks else ["2330"])
                 ns = st.text_input("➕ 輸入股票代號 (例: 2454.TW)")
                 if st.button("加入到自選股清單"):
-                    if ns: ws_w.append_row([st.session_state.user, ns.upper().strip()]); st.success("✅ 已新增"); st.rerun()
+                    if ns:
+                        new_stock = ns.upper().strip()
+                        # 檢查該使用者的清單中是否已經有這支股票
+                        if new_stock in u_stocks:
+                            st.warning(f"⚠️ {new_stock} 已經在您的自選清單中囉！")
+                        else:
+                            ws_w.append_row([st.session_state.user, new_stock])
+                            st.success(f"✅ {new_stock} 已成功加入"); st.rerun()
                 
                 if u_stocks:
                     st.write("")
@@ -576,5 +583,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
