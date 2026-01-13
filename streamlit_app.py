@@ -134,10 +134,21 @@ def auto_sync_feedback(ws_p, f_id, insight):
         
         df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
         if not df_stock.empty:
-            df_stock = df_stock.loc[df_stock['actual_close'].shift() != df_stock['actual_close']]
+            # 1. 強制轉換為數字型別，避免試算表中文標題 row2 導致計算報錯
+            df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
+            df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
+            df_stock = df_stock.dropna(subset=['actual_close', 'pred_close']) # 剔除無法轉換的列
+            
             df_recent = df_stock.tail(10)
-            hit = sum((df_recent['actual_close'] >= df_recent['range_low']) & (df_recent['actual_close'] <= df_recent['range_high']))
-            return f"🎯 此股實戰命中率: {(hit/len(df_recent))*100:.1f}%"
+            
+            # 2. ✅ 新邏輯：計算每一筆的偏離百分比 (無容錯)
+            # 偏離度 = |實際 - 預估| / 實際
+            deviation = (df_recent['actual_close'] - df_recent['pred_close']).abs() / df_recent['actual_close']
+            
+            # 3. 計算平均精準度 (100% - 平均偏離度)
+            avg_accuracy = 1 - deviation.mean()
+            
+            return f"🎯 此股實戰精準度 (無容錯): {max(0, avg_accuracy)*100:.1f}%"
         return "🎯 數據累積中"
     except:
         return "🎯 同步中"
@@ -588,5 +599,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
