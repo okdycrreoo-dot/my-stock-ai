@@ -519,11 +519,14 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         </div>
     """, unsafe_allow_html=True)
 def main():
+    # --- 修正後的狀態保持邏輯 ---
     if 'user' not in st.session_state: 
-    st.session_state.user = None
-
-# 移除原本的 3600 秒判斷，改為只有當使用者手動點擊「登出」時才清除狀態
-# 這樣在切換下拉選單 (selectbox) 時，狀態會鎖定在 st.session_state 中
+        st.session_state.user = None  # 這一行必須縮排
+    
+    # 移除原本會導致閃退的時間鎖邏輯，改為手動登出才清除
+    # --- 狀態保持結束 ---
+    
+    st.session_state.last_active = time.time()
     
     @st.cache_resource(ttl=30)
     def get_gsheets_connection():
@@ -622,6 +625,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
