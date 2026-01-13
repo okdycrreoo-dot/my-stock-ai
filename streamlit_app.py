@@ -74,12 +74,33 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
         s = f"{s}.TW"
     for _ in range(3):
         try:
+            # 1. 下載歷史序列
             df = yf.download(s, period="2y", interval="1d", progress=False, ignore_tz=True)
-            # 額外補丁：如果最後一筆不是今天，強制多抓一筆即時快照
-            ticker = yf.Ticker(s)
-            current_df = ticker.history(period="1d")
-            if not current_df.empty and current_df.index[-1].date() > df.index[-1].date():
-                df = pd.concat([df, current_df])
+            
+            # 2. 強制獲取即時快照 (解決 13:30 結算後歷史數據未更新的問題)
+            tk = yf.Ticker(s)
+            try:
+                # 獲取最新成交資訊 (fast_info 通常比 history 快)
+                info = tk.fast_info
+                last_price = info['last_price']
+                last_time = info['last_evaluation'].date()
+                
+                # 檢查：如果歷史數據的最後一天早於即時數據的日期
+                if df.index[-1].date() < last_time:
+                    # 建立今日的補丁 DataFrame
+                    patch_row = pd.DataFrame({
+                        'Open': [info['open']],
+                        'High': [info['day_high']],
+                        'Low': [info['day_low']],
+                        'Close': [last_price],
+                        'Volume': [info['last_volume']]
+                    }, index=[pd.to_datetime(last_time)])
+                    
+                    df = pd.concat([df, patch_row])
+                    df = df[~df.index.duplicated(keep='last')] # 確保不重複
+            except:
+                pass # 若快照獲取失敗，維持原歷史序列
+            
             if df is not None and not df.empty:
                 if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
@@ -599,6 +620,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
