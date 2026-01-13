@@ -519,9 +519,11 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         </div>
     """, unsafe_allow_html=True)
 def main():
-    if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
-    if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
-    st.session_state.last_active = time.time()
+    if 'user' not in st.session_state: 
+    st.session_state.user = None
+
+# 移除原本的 3600 秒判斷，改為只有當使用者手動點擊「登出」時才清除狀態
+# 這樣在切換下拉選單 (selectbox) 時，狀態會鎖定在 st.session_state 中
     
     @st.cache_resource(ttl=30)
     def get_gsheets_connection():
@@ -620,6 +622,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
