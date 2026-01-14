@@ -132,7 +132,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與命中率反饋 (雙重防禦版) ---
+# --- 3. 背景自動對帳與命中率反饋 (10日滑動窗口數據版) ---
 def auto_sync_feedback(ws_p, f_id, insight):
     try:
         recs = ws_p.get_all_records()
@@ -140,39 +140,51 @@ def auto_sync_feedback(ws_p, f_id, insight):
         today = datetime.now().strftime("%Y-%m-%d")
         is_weekend = datetime.now().weekday() >= 5
 
+        # A. 自動對帳邏輯 (填補過去未填的實際收盤價)
         for i, row in df_p.iterrows():
+            # 如果實際收盤價為空，且日期不是今天，則進行補查
             if not is_weekend and str(row['actual_close']) == "" and row['date'] != today:
                 h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
                 if not h.empty:
                     act_close = float(h['Close'].iloc[0])
+                    # 計算誤差百分比
                     err_val = (act_close - float(row['pred_close'])) / float(row['pred_close'])
+                    # 更新試算表：第 6 欄為實際價，第 7 欄為誤差%
                     ws_p.update_cell(i + 2, 6, round(act_close, 2))
                     ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
+        # B. 寫入今日預測紀錄 (若今天尚未記錄則新增)
         if not is_weekend and not any((r['date'] == today and r['symbol'] == f_id) for r in recs):
+            # 欄位順序：日期, 代碼, 預測價, 壓力, 支撐, 實際價, 誤差%
             new_row = [today, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
             ws_p.append_row(new_row)
         
+        # C. 提取與計算 10 日精準度數據
+        # 重新讀取更新後的資料
         df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
+        
         if not df_stock.empty:
-            # 1. 強制轉換為數字型別，避免試算表中文標題 row2 導致計算報錯
+            # 1. 強制轉換型別並剔除無效列
             df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
             df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
-            df_stock = df_stock.dropna(subset=['actual_close', 'pred_close']) # 剔除無法轉換的列
+            df_stock = df_stock.dropna(subset=['actual_close', 'pred_close'])
             
-            df_recent = df_stock.tail(10)
+            # 2. 取最後 10 筆紀錄
+            df_recent = df_stock.tail(10).copy()
             
-            # 2. ✅ 新邏輯：計算每一筆的偏離百分比 (無容錯)
-            # 偏離度 = |實際 - 預估| / 實際
-            deviation = (df_recent['actual_close'] - df_recent['pred_close']).abs() / df_recent['actual_close']
+            # 3. 計算精準度 (100% - |實際-預測|/實際)
+            df_recent['accuracy_pct'] = (1 - (df_recent['actual_close'] - df_recent['pred_close']).abs() / df_recent['actual_close']) * 100
             
-            # 3. 計算平均精準度 (100% - 平均偏離度)
-            avg_accuracy = 1 - deviation.mean()
+            # 4. 格式化日期為 MM/DD 供 UI 表格使用
+            df_recent['short_date'] = pd.to_datetime(df_recent['date']).dt.strftime('%m/%d')
             
-            return f"🎯 此股實戰精準度 (無容錯): {max(0, avg_accuracy)*100:.1f}%"
-        return "🎯 數據累積中"
-    except:
-        return "🎯 同步中"
+            # 回傳 DataFrame 給 UI 渲染橫向表格
+            return df_recent[['short_date', 'accuracy_pct']]
+            
+        return None # 代表數據不足，尚無已對帳資料
+    except Exception as e:
+        print(f"Sync Error: {e}")
+        return None
 
 # --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
@@ -432,10 +444,31 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         </style>
     """, unsafe_allow_html=True)
 
-    # 4. 頂部標題與核心指標
-    st.title(f"📊 {f_id} 台股AI預測系統")
-    st.subheader(stock_accuracy)
-    st.caption(f"✨ AI 大腦：籌碼與動能分析 (法人級行為偵測) | 環境共振分析 (大盤與三大標本) | 技術面與乖離率評估 (萬有引力機制) | 自我學習與反饋 (命中率校正)")
+   # 4. 頂部標題與核心指標
+    st.title(f"📊 {f_id} 台股AI預測系統") # 這裡改用 f_id (fetch函式回傳的代碼)
+
+    # 5. 渲染 10 日橫向表格 (直接使用 stock_accuracy 變數，它是 Section 3 回傳的 DataFrame)
+    if stock_accuracy is not None and isinstance(stock_accuracy, pd.DataFrame):
+        # 建立橫向表格數據
+        display_df = stock_accuracy.tail(10)
+        cols = st.columns(len(display_df) + 1)
+        
+        with cols[0]:
+            st.markdown("**日期**")
+            st.markdown("**精準度**")
+    
+        for i, (_, row) in enumerate(display_df.iterrows()):
+            with cols[i+1]:
+                st.write(f"{row['short_date']}")
+                # 數值顏色強化
+                acc_val = row['accuracy_pct']
+                color = "#FF3131" if acc_val >= 95 else "#FFAC33"
+                st.markdown(f"<span style='color:{color}'>{acc_val:.1f}%</span>", unsafe_allow_html=True)
+    else:
+        st.info("💡 尚無歷史精準度數據，系統開始累積中...")
+
+    # 6. AI 大腦說明接在表格下方
+    st.caption(f"✨ AI 大腦：籌碼與動能分析 | 環境共振分析 | 技術面與乖離率評估 | 自我學習與反饋")
 
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
@@ -502,11 +535,19 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # 9. AI 底部診斷建議 Box
+    # 9. AI 底部診斷建議 Box (微調版)
+    
+    # 計算近 10 日平均精準度文字
+    if stock_accuracy is not None and isinstance(stock_accuracy, pd.DataFrame):
+        avg_acc_text = f"🎯 10日平均精準度: {stock_accuracy['accuracy_pct'].mean():.1f}%"
+    else:
+        avg_acc_text = "🎯 實戰數據累積中"
+
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
+    
     st.markdown(f"""
         <div class='ai-advice-box'>
-            <div class='confidence-tag'>{stock_accuracy}</div>
+            <div class='confidence-tag'>{avg_acc_text}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
             <p><b>AI診斷建議:</b> {insight[1]}</p>
@@ -623,39 +664,36 @@ def main():
                     if temp_df is not None:
                         ai_p, ai_tw, ai_v, ai_b, _, _, _ = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp)
                     else:
-                        ai_p, ai_tw, ai_v, ai_b = cp, tw_val, 1.5, ("2330", "2382", "00878")
+                        ai_p, ai_tw, ai_v, ai_b = cp, tw_val, 1.5, ["2330", "2382", "00878"]
                     
-                    # 恢復完整標題與 AI 建議顯示
+                    # 確保 ai_b 至少有三個元素，避免閃退
+                    ai_b = list(ai_b) + ["2330", "2382", "00878"][:3-len(ai_b)]
+
+                    # 1. 標本手動輸入
                     b1 = st.text_input(f"1. 基準藍籌股 (AI 推薦: {ai_b[0]})", ai_b[0])
                     b2 = st.text_input(f"2. 高波動成長股 (AI 推薦: {ai_b[1]})", ai_b[1])
                     b3 = st.text_input(f"3. 指數 ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
                     
                     st.write("")
-                    new_p = st.slider(f"系統靈敏度 (AI 推薦: {ai_p})", 0, 100, ai_p)
-                    new_tw = st.number_input(f"趨勢權重參數 (AI 推薦: {ai_tw})", 0.5, 3.0, ai_tw)
-                    new_v = st.slider(f"波動補償係數 (AI 推薦: {ai_v})", 0.5, 3.0, ai_v)
-                    new_ttl = st.number_input(f"Google API 連線時間 (1-10分)", 1, 10, api_ttl)
+                    # 2. 參數手動輸入 (這裡將變數直接對接，確保 render_terminal 能抓到新值)
+                    cp = st.slider(f"系統靈敏度 (AI 推薦: {ai_p})", 0, 100, int(cp))
+                    tw_val = st.number_input(f"趨勢權重參數 (AI 推薦: {ai_tw})", 0.5, 3.0, float(tw_val))
+                    v_comp = st.slider(f"波動補償係數 (AI 推薦: {ai_v})", 0.5, 3.0, float(v_comp))
+                    api_ttl = st.number_input(f"Google API 連線時間 (1-10分)", 1, 10, int(api_ttl))
                     
                     if st.button("💾 同步 AI 推薦參數至雲端"):
-                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(2, 2, str(cp))
+                        ws_s.update_cell(3, 2, str(api_ttl))
                         ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
+                        ws_s.update_cell(7, 2, str(tw_val)); ws_s.update_cell(8, 2, str(v_comp))
                         st.success("✅ 雲端配置已更新"); st.rerun()
                 
                 st.write("")
-                if st.button("🚪 登出 StockAI 系統", use_container_width=True): st.session_state.user = None; st.rerun()
+                if st.button("🚪 登出 StockAI 系統", use_container_width=True): 
+                    st.session_state.user = None; st.rerun()
 
-        # 呼叫渲染引擎
+        # 呼叫渲染引擎：此時 cp, tw_val, v_comp 已經是管理員調整後的新值
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
-
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
