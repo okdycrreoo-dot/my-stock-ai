@@ -10,61 +10,38 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
-# --- 1. 配置與 UI 視覺 (完整保留 290 行版本的所有 CSS，絕不精簡) ---
+# --- 1. 配置與 UI 視覺 (強化啟動保護) ---
 st.set_page_config(page_title="StockAI 台股全能終端", layout="wide")
+
+# 加入啟動狀態檢查，避免主程序在連線完成前跳轉
+if 'init_check' not in st.session_state:
+    st.session_state.init_check = False
 
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #FFFFFF !important; }
     label, p, span, .stMarkdown, .stCaption { color: #FFFFFF !important; font-weight: 800 !important; }
-    
-    input { 
-        color: #000000 !important; 
-        -webkit-text-fill-color: #000000 !important; 
-        font-weight: 600 !important; 
-    }
-    div[data-baseweb="input"] { 
-        background-color: #FFFFFF !important; 
-        border-radius: 8px; 
-    }
-    
-    div[data-baseweb="select"] > div { 
-        background-color: #FFFFFF !important; 
-        color: #000000 !important; 
-        border: 2px solid #00F5FF !important; 
-    }
-    div[role="listbox"] div { 
-        color: #000000 !important; 
-    }
-
-    .stButton>button { 
-        background-color: #00F5FF !important; 
-        color: #0E1117 !important; 
-        border: none !important; 
-        border-radius: 12px; 
-        font-weight: 900 !important;
-        height: 3.5rem !important; 
-        width: 100% !important;
-    }
-    .streamlit-expanderHeader { 
-        background-color: #1C2128 !important; 
-        color: #00F5FF !important; 
-        border: 2px solid #00F5FF !important; 
-        border-radius: 12px !important;
-        font-size: 1.2rem !important; 
-        font-weight: 900 !important;
-    }
+    input { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 600 !important; }
+    div[data-baseweb="input"] { background-color: #FFFFFF !important; border-radius: 8px; }
+    .stButton>button { background-color: #00F5FF !important; color: #0E1117 !important; border-radius: 12px; font-weight: 900 !important; height: 3.5rem !important; }
     .diag-box { background-color: #161B22; border-left: 6px solid #00F5FF; border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #30363D; }
-    .info-box { background-color: #1C2128; border: 1px solid #30363D; border-radius: 8px; padding: 10px; text-align: center; min-height: 80px; }
-    .ai-advice-box { background-color: #161B22; border: 1px solid #FFAC33; border-radius: 12px; padding: 20px; margin-top: 15px; border-left: 10px solid #FFAC33; position: relative; }
-    .price-buy { color: #FF3131; font-weight: 900; font-size: 1.3rem; }
-    .price-sell { color: #00FF41; font-weight: 900; font-size: 1.3rem; }
-    .realtime-val { font-size: 1.4rem; font-weight: 900; display: block; margin-top: 5px; }
-    .label-text { color: #8899A6 !important; font-size: 0.8rem; letter-spacing: 1px; }
-    .confidence-tag { position: absolute; top: 15px; right: 20px; color: #00F5FF; font-weight: 900; font-size: 0.9rem; border: 1px solid #00F5FF; padding: 2px 8px; border-radius: 15px; }
-    button[data-testid="sidebar-button"] { display: none !important; }
+    .ai-advice-box { background-color: #161B22; border: 1px solid #FFAC33; border-radius: 12px; padding: 20px; margin-top: 15px; border-left: 10px solid #FFAC33; }
     </style>
     """, unsafe_allow_html=True)
+
+# 憑證連線保護函式
+def get_gsheets_connection(secrets_key="gsheets"):
+    try:
+        # 假設您的憑證存在 st.secrets 中
+        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds_info = st.secrets[secrets_key]
+        creds = Credentials.from_service_account_info(creds_info, scopes=scope)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.error(f"🚨 Google API 連線初始化失敗: {e}")
+        st.info("請檢查 Streamlit Secrets 中的 JSON 格式是否正確。")
+        return None
 
 # --- 2. 數據引擎 (優化版：解決黑屏與索引衝突) ---
 @st.cache_data(show_spinner=False)
@@ -420,4 +397,5 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w):
         # 這是終極防線：如果上面任何地方錯了，直接在網頁顯示錯誤文字
         st.error(f"🚨 系統渲染崩潰！錯誤原因：{final_e}")
         st.write("建議檢查：1. Google Sheets 欄位名稱 2. yfinance 資料完整性")
+
 
