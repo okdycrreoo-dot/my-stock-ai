@@ -584,12 +584,22 @@ def main():
                 if st.button("加入到自選股清單"):
                     if ns:
                         new_stock = ns.upper().strip()
-                        # 檢查該使用者的清單中是否已經有這支股票
-                        if new_stock in u_stocks:
+        
+                        # 第一層攔截：數量限制
+                        if len(u_stocks) >= 20:
+                            st.warning("⚠️ 您的自選股清單已達上限 (20 支)，請刪除舊標的後再添加。")
+        
+                        # 第二層檢查：重複性
+                        elif new_stock in u_stocks:
                             st.warning(f"⚠️ {new_stock} 已經在您的自選清單中囉！")
+        
+                        # 第三層：通過檢查，執行寫入
                         else:
-                            ws_w.append_row([st.session_state.user, new_stock])
-                            st.success(f"✅ {new_stock} 已成功加入"); st.rerun()
+                            try:
+                                ws_w.append_row([st.session_state.user, new_stock])
+                                st.success(f"✅ {new_stock} 已成功加入"); st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ 寫入失敗: {e}")
                 
                 if u_stocks:
                     st.write("")
@@ -640,6 +650,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
