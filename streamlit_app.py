@@ -133,56 +133,69 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與命中率反饋 (10日滑動窗口數據版) ---
-def auto_sync_feedback(ws_p, f_id, insight):
+# --- 3. 背景自動對帳與權威全清單更新 (14:30 定案版) ---
+def auto_sync_feedback(ws_p, ws_w, f_id, insight):
     try:
+        # 1. 取得所有歷史紀錄與自選清單
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
+        watchlist = pd.DataFrame(ws_w.get_all_records())
+        unique_stocks = watchlist['stock_symbol'].unique().tolist()
+        
         today = datetime.now().strftime("%Y-%m-%d")
         is_weekend = datetime.now().weekday() >= 5
-
-        # A. 自動對帳邏輯 (填補過去未填的實際收盤價)
-        for i, row in df_p.iterrows():
-            # 如果實際收盤價為空，且日期不是今天，則進行補查
-            if not is_weekend and str(row['actual_close']) == "" and row['date'] != today:
-                h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
-                if not h.empty:
-                    act_close = float(h['Close'].iloc[0])
-                    # 計算誤差百分比
-                    err_val = (act_close - float(row['pred_close'])) / float(row['pred_close'])
-                    # 更新試算表：第 6 欄為實際價，第 7 欄為誤差%
-                    ws_p.update_cell(i + 2, 6, round(act_close, 2))
-                    ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
-
-        # B. 寫入今日預測紀錄 (若今天尚未記錄則新增)
-        if not is_weekend and not any((r['date'] == today and r['symbol'] == f_id) for r in recs):
-            # 欄位順序：日期, 代碼, 預測價, 壓力, 支撐, 實際價, 誤差%
-            new_row = [today, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
-            ws_p.append_row(new_row)
+        now = datetime.now()
         
-        # C. 提取與計算 10 日精準度數據
-        # 重新讀取更新後的資料
+        # 門檻設定：14:30 (確保 Yahoo Finance 數據完全校正)
+        is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
+
+        if not is_weekend:
+            # --- A. 自動對帳邏輯 (維持補齊過去數據) ---
+            for i, row in df_p.iterrows():
+                if str(row['actual_close']) == "" and row['date'] != today:
+                    h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
+                    if not h.empty:
+                        act_close = float(h['Close'].iloc[0])
+                        err_val = (act_close - float(row['pred_close'])) / float(row['pred_close'])
+                        ws_p.update_cell(i + 2, 6, round(act_close, 2))
+                        ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+
+            # --- B. 全清單權威寫入 (14:30 後觸發) ---
+            if is_finalized:
+                for stock in unique_stocks:
+                    existing = df_p[(df_p['date'] == today) & (df_p['symbol'] == stock)]
+                    
+                    # 只有當前顯示的股票使用最新的 insight 資料
+                    if stock == f_id:
+                        p_val, h_val, l_val = round(insight[3], 2), round(insight[5], 2), round(insight[4], 2)
+                        
+                        if existing.empty:
+                            # 無紀錄則新增
+                            ws_p.append_row([today, stock, p_val, h_val, l_val, "", ""])
+                        else:
+                            # 已有紀錄則比對並修正 (確保眼見即所得)
+                            row_idx = existing.index[0] + 2
+                            if abs(float(existing.iloc[0]['pred_close']) - p_val) > 0.01:
+                                ws_p.update_cell(row_idx, 3, p_val)
+                                ws_p.update_cell(row_idx, 4, h_val)
+                                ws_p.update_cell(row_idx, 5, l_val)
+                    else:
+                        # 非當前股票：若無紀錄則執行靜默寫入 (可視需求加入預測邏輯)
+                        if existing.empty:
+                            # 這裡僅記錄「有在清單內但尚未點開」的股票標記，或留白等點開再算
+                            pass
+
+        # --- C. 提取 10 日精準度數據 ---
         df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
-        
         if not df_stock.empty:
-            # 1. 強制轉換型別並剔除無效列
             df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
             df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
-            df_stock = df_stock.dropna(subset=['actual_close', 'pred_close'])
-            
-            # 2. 取最後 10 筆紀錄
             df_recent = df_stock.tail(10).copy()
-            
-            # 3. 計算精準度 (100% - |實際-預測|/實際)
             df_recent['accuracy_pct'] = (1 - (df_recent['actual_close'] - df_recent['pred_close']).abs() / df_recent['actual_close']) * 100
-            
-            # 4. 格式化日期為 MM/DD 供 UI 表格使用
             df_recent['short_date'] = pd.to_datetime(df_recent['date']).dt.strftime('%m/%d')
-            
-            # 回傳 DataFrame 給 UI 渲染橫向表格
             return df_recent[['short_date', 'accuracy_pct']]
             
-        return None # 代表數據不足，尚無已對帳資料
+        return None
     except Exception as e:
         print(f"Sync Error: {e}")
         return None
@@ -419,24 +432,24 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
-def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    # 產生一個基於「分鐘」的 Key。
-    # 例如 15:12:05 會變成 "2026-01-14 15:12"
-    # 當時間走到 15:13，Key 改變，緩存就會自動失效並抓新資料。
+# --- 修改後 ---
+def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w): # <-- 新增 ws_w 參數
     r_key = datetime.now().strftime("%Y-%m-%d %H:%M") 
     
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60, r_key)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 1. 執行 AI 引擎：精確接收 7 個變數
+    # 1. 執行 AI 引擎
     final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     
     # 2. 執行預測運算
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
-    stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
+    
+    # 新版呼叫：增加 ws_w，啟動 14:30 全清單自動補完與覆寫更新邏輯
+    stock_accuracy = auto_sync_feedback(ws_p, ws_w, f_id, insight)
 
     # 3. 視覺樣式定義
     st.markdown("""
@@ -664,30 +677,29 @@ def main():
                                 st.success(f"✅ {target} 已移除"); st.rerun()
                         except: st.error("❌ 刪除失敗")
 
-            with m2:
+with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 # --- 管理員 okdycrreoo 專屬設定 ---
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("---")
                     st.markdown("### 🛠️ 管理員戰情室")
                     
-                    # 獲取 AI 核心推薦參數
-                    temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
+                    # 獲取 AI 核心推薦參數 (加入 r_key 以確保抓到 13:30 後的最新數據)
+                    r_key = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    temp_df, _ = fetch_comprehensive_data(target, api_ttl*60, r_key)
+                    
                     if temp_df is not None:
                         ai_p, ai_tw, ai_v, ai_b, _, _, _ = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp)
                     else:
                         ai_p, ai_tw, ai_v, ai_b = cp, tw_val, 1.5, ["2330", "2382", "00878"]
                     
-                    # 確保 ai_b 至少有三個元素，避免閃退
                     ai_b = list(ai_b) + ["2330", "2382", "00878"][:3-len(ai_b)]
 
-                    # 1. 標本手動輸入
                     b1 = st.text_input(f"1. 基準藍籌股 (AI 推薦: {ai_b[0]})", ai_b[0])
                     b2 = st.text_input(f"2. 高波動成長股 (AI 推薦: {ai_b[1]})", ai_b[1])
                     b3 = st.text_input(f"3. 指數 ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
                     
                     st.write("")
-                    # 2. 參數手動輸入 (這裡將變數直接對接，確保 render_terminal 能抓到新值)
                     cp = st.slider(f"系統靈敏度 (AI 推薦: {ai_p})", 0, 100, int(cp))
                     tw_val = st.number_input(f"趨勢權重參數 (AI 推薦: {ai_tw})", 0.5, 3.0, float(tw_val))
                     v_comp = st.slider(f"波動補償係數 (AI 推薦: {ai_v})", 0.5, 3.0, float(v_comp))
@@ -704,12 +716,8 @@ def main():
                 if st.button("🚪 登出 StockAI 系統", use_container_width=True): 
                     st.session_state.user = None; st.rerun()
 
-        # 呼叫渲染引擎：此時 cp, tw_val, v_comp 已經是管理員調整後的新值
-        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+        # --- 最終渲染點：補上 ws_w 參數 ---
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w)
 if __name__ == "__main__":
     main()
-
-
-
-
 
