@@ -133,10 +133,10 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與全清單權威更新 (格式暴力相容版) ---
+# --- 3. 背景自動對帳與全清單權威更新 (終極物理寫入版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
-        # 1. 取得資料並強制初步轉換
+        # 1. 取得資料並強制將所有內容轉為字串處理，避免格式衝突
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         watchlist = pd.DataFrame(ws_w.get_all_records())
@@ -144,70 +144,74 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
         
         today = datetime.now().strftime("%Y-%m-%d")
         now = datetime.now()
+        # 定案門檻：14:30
         is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
 
-        # 核心修正：不管 A 欄是什麼格式，一律轉成字串比對日期
+        # 強制將日期欄位轉為字串，確保與 today 變數比對一致
         if not df_p.empty:
-            df_p['date'] = df_p['date'].astype(str)
+            df_p['date'] = df_p['date'].astype(str).str.strip()
 
         if now.weekday() < 5: 
-            # --- A. 自動補齊實際價 (處理文字格式的 F 欄) ---
+            # --- A. 補齊 1/14 實際價 (解決文字格式計算問題) ---
             for i, row in df_p.iterrows():
-                # 只要 F 欄(actual_close)是空的或空格
+                # 如果 F 欄（actual_close）是空的
                 if str(row['actual_close']).strip() == "":
                     row_date = str(row['date'])
+                    # 只要是過去的日期，或者今天是 1/14 且已過 14:30
                     if row_date < today or (row_date == today and is_finalized):
                         try:
                             h = yf.download(row['symbol'], period="1d", progress=False)
                             if not h.empty:
                                 act_close = float(h['Close'].iloc[-1])
-                                # 強制轉換預測值為數字，避免文字格式導致計算錯誤
-                                pred_val = pd.to_numeric(row['pred_close'], errors='coerce')
-                                
-                                if pd.notnull(pred_val):
-                                    err_val = (act_close - pred_val) / pred_val
-                                    # 寫入試算表
+                                # 強制轉換預測值為數字以進行運算
+                                p_val = pd.to_numeric(row['pred_close'], errors='coerce')
+                                if pd.notnull(p_val):
+                                    err_val = (act_close - p_val) / p_val
+                                    # 寫入試算表 F 與 G 欄
                                     ws_p.update_cell(i + 2, 6, round(act_close, 2))
                                     ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
-                                    st.toast(f"✅ 已補齊 {row['symbol']} 實際價")
                         except: continue
 
-            # --- B. 強制產生 1/15 預測列 ---
+            # --- B. 強制產生明日 (1/15) 預測列 ---
             if is_finalized:
                 next_dt = now + timedelta(days=1)
-                if next_dt.weekday() >= 5: next_dt += timedelta(days=2 if next_dt.weekday()==5 else 1)
+                if next_dt.weekday() >= 5: 
+                    next_dt += timedelta(days=2 if next_dt.weekday() == 5 else 1)
                 next_day_str = next_dt.strftime("%Y-%m-%d")
 
-                # 強制使用字串包含比對，解決日期格式不一問題
+                # 使用 contains 進行強健比對
                 exists = df_p[(df_p['date'].str.contains(next_day_str)) & (df_p['symbol'] == f_id)]
                 
                 if exists.empty:
-                    st.toast(f"⏳ 正在同步 {next_day_str} 預測...", icon="📝")
+                    st.toast(f"⏳ 正在物理寫入 {next_day_str} 預測列...", icon="📝")
+                    # 寫入您的預測值 (如 1421.86)
                     new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
                     ws_p.append_row(new_row)
-                    st.toast(f"🚀 {f_id} 1/15 預測已成功寫入！", icon="✅")
+                    st.toast(f"🚀 {f_id} 數據已寫入試算表第 {len(recs)+2} 行！", icon="✅")
                 else:
-                    st.toast(f"ℹ️ {next_day_str} 預測已存在。", icon="☁️")
+                    st.toast(f"ℹ️ {next_day_str} 雲端數據已存在，無需重複寫入。")
 
-        # --- C. 回傳數據給 UI (解決文字格式無法繪圖問題) ---
+        # --- C. 安全回傳數據給 UI (解決 KeyError) ---
         df_updated = pd.DataFrame(ws_p.get_all_records())
         df_stock = df_updated[df_updated['symbol'] == f_id].copy()
         
         if not df_stock.empty:
-            # 強制將要計算的欄位轉為數字，解決「文字格式」無法計算的問題
+            # 強制轉換型別以確保繪圖不崩潰
             df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
             df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
             
+            # 只取有收盤價的來算精準度，避免產生空的 accuracy_pct
             df_acc = df_stock.dropna(subset=['actual_close']).copy()
             if not df_acc.empty:
                 df_acc['accuracy_pct'] = (1 - (df_acc['actual_close'] - df_acc['pred_close']).abs() / df_acc['actual_close']) * 100
                 df_acc['short_date'] = pd.to_datetime(df_acc['date']).dt.strftime('%m/%d')
                 return df_acc.tail(10)
         
-        return pd.DataFrame(columns=['short_date', 'accuracy_pct'])
+        # 萬一真的沒資料，回傳帶有欄位的空表，避免 render_terminal 噴紅字
+        return pd.DataFrame(columns=['short_date', 'accuracy_pct', 'actual_close', 'pred_close'])
 
     except Exception as e:
-        st.error(f"❌ 背景同步發生錯誤: {e}")
+        st.error(f"❌ 背景同步模組故障: {e}")
         return pd.DataFrame(columns=['short_date', 'accuracy_pct'])
         
 # --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
@@ -702,6 +706,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
