@@ -66,29 +66,32 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 數據引擎 ---
+# --- 2. 數據引擎 (優化版：解決黑屏與索引衝突) ---
 @st.cache_data(show_spinner=False)
 def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
-    # refresh_key 只是用來打破緩存，函數內不需要用到它
+    # refresh_key 確保每次手動刷新都能觸發
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
-    for _ in range(3):
+    
+    for _ in range(3): # 三次重試機制
         try:
             # 1. 下載歷史序列
             df = yf.download(s, period="2y", interval="1d", progress=False, ignore_tz=True)
             
-            # 2. 強制獲取即時快照 (解決 13:30 結算後歷史數據未更新的問題)
+            # 2. 處理 yfinance 可能回傳的多級索引 (導致黑屏的主因)
+            if isinstance(df.columns, pd.MultiIndex): 
+                df.columns = df.columns.get_level_values(0)
+
+            # 3. 強制獲取即時快照 (解決 13:30 結算後歷史數據未更新)
             tk = yf.Ticker(s)
             try:
-                # 獲取最新成交資訊 (fast_info 通常比 history 快)
                 info = tk.fast_info
                 last_price = info['last_price']
                 last_time = info['last_evaluation'].date()
                 
-                # 檢查：如果歷史數據的最後一天早於即時數據的日期
+                # 如果歷史數據沒跟上今天，手動補丁
                 if df.index[-1].date() < last_time:
-                    # 建立今日的補丁 DataFrame
                     patch_row = pd.DataFrame({
                         'Open': [info['open']],
                         'High': [info['day_high']],
@@ -96,15 +99,13 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
                         'Close': [last_price],
                         'Volume': [info['last_volume']]
                     }, index=[pd.to_datetime(last_time)])
-                    
                     df = pd.concat([df, patch_row])
-                    df = df[~df.index.duplicated(keep='last')] # 確保不重複
+                    df = df[~df.index.duplicated(keep='last')]
             except:
-                pass # 若快照獲取失敗，維持原歷史序列
+                pass 
             
             if df is not None and not df.empty:
-                if isinstance(df.columns, pd.MultiIndex): 
-                    df.columns = df.columns.get_level_values(0)
+                # 指標運算
                 df['MA5'] = df['Close'].rolling(5).mean()
                 df['MA10'] = df['Close'].rolling(10).mean()
                 df['MA20'] = df['Close'].rolling(20).mean()
@@ -113,26 +114,24 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
                 df['MACD'] = e12 - e26
                 df['Signal'] = df['MACD'].ewm(span=9).mean()
                 df['Hist'] = df['MACD'] - df['Signal']
+                
                 l9 = df['Low'].rolling(9).min()
                 h9 = df['High'].rolling(9).max()
-                rsv = (df['Close'] - l9) / (h9 - l9 + 0.001) * 100
+                rsv = (df['Close'] - l9) / (h9 - l9 + 1e-5) * 100
                 df['K'] = rsv.ewm(com=2).mean()
                 df['D'] = df['K'].ewm(com=2).mean()
                 df['J'] = 3 * df['K'] - 2 * df['D']
-                delta = df['Close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                df['RSI'] = 100 - (100 / (1 + (gain / (loss + 0.00001))))
                 
                 tr = pd.concat([df['High']-df['Low'], abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
                 df['ATR'] = tr.rolling(14).mean()
+                
                 return df.dropna(), s
             time.sleep(1.5)
-        except: 
+        except Exception as e:
             time.sleep(1.5)
             continue
     return None, s
-
+    
 # --- 3. 背景自動對帳與全清單權威更新 (物理寫入強化版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
@@ -352,59 +351,59 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
     
-    # --- 6. 終端渲染與視覺化 (UI 佈局層) ---
+# --- 6. 終端渲染與視覺化 (優化版：解決預測線對齊) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w):
     r_key = datetime.now().strftime("%Y-%m-%d %H:%M") 
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60, r_key)
-    if df is None: st.error(f"❌ 讀取 {symbol} 失敗"); return
+    
+    if df is None: 
+        st.error(f"❌ 讀取 {symbol} 失敗，請檢查代碼或網路。")
+        return
 
-    # 1. 執行運算層 (呼叫 Section 4 & 5)
+    # 1. 執行運算層
     final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
     
-    # 2. 自動對帳與寫入 (呼叫 Section 3)
+    # 2. 自動對帳與寫入
     stock_accuracy = auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl)
 
-    # 3. CSS 樣式注入
-    st.markdown("""<style>.stApp { background-color: #000000; } ...</style>""", unsafe_allow_html=True)
+    # 3. 渲染頂部精準度表格 (解決水平排列問題)
+    st.title(f"📊 {f_id} 台股 AI 預測系統")
+    if stock_accuracy is not None and not stock_accuracy.empty:
+        display_df = stock_accuracy.tail(10)
+        acc_cols = st.columns(len(display_df) + 1)
+        with acc_cols[0]:
+            st.markdown("<p style='color:#8899A6; font-size:0.9rem;'>預測日期<br>AI 精準度</p>", unsafe_allow_html=True)
+        for i, (_, row) in enumerate(display_df.iterrows()):
+            with acc_cols[i+1]:
+                st.markdown(f"<span style='font-size:0.8rem;'>{row['short_date']}</span><br><b style='color:#00F5FF;'>{row['accuracy_pct']:.1f}%</b>", unsafe_allow_html=True)
 
-    # 4. 渲染頂部精準度表格
-    st.title(f"📊 {f_id} 台股AI預測系統")
-    if stock_accuracy is not None and isinstance(stock_accuracy, pd.DataFrame):
-        t_limit_col, _ = st.columns([0.5, 0.5])
-        with t_limit_col:
-            display_df = stock_accuracy.tail(10)
-            cols = st.columns([1.5] + [1] * len(display_df))
-            with cols[0]:
-                st.markdown("<p style='color:#888;'>日期</p><p style='color:#888;'>精準度</p>", unsafe_allow_html=True)
-            for i, (_, row) in enumerate(display_df.iterrows()):
-                with cols[i+1]:
-                    st.markdown(f"<span>{row['short_date']}</span><br><b style='color:#FF3131'>{row['accuracy_pct']:.1f}%</b>", unsafe_allow_html=True)
+    # 4. 繪製 Plotly 四層子圖
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+    
+    # 主圖：K線與均線
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="K線"), row=1, col=1)
+    
+    # 連接預測線 (從歷史最後一筆開始接)
+    last_date = df.index[-1]
+    future_dates = [last_date + timedelta(days=i+1) for i in range(len(pred_line))]
+    fig.add_trace(go.Scatter(x=future_dates, y=pred_line, line=dict(color='#FFAC33', width=3, dash='dot'), name="AI 預測路徑"), row=1, col=1)
 
-    # 5. 渲染核心指標卡片 (Metrics)
-    m_cols = st.columns(5)
-    # ... (使用 st.markdown 渲染您代碼中的 info-box) ...
-
-    # 6. 渲染診斷建議區 (Diag-box)
-    s_cols = st.columns(3)
-    # ... (使用 st.markdown 渲染買入/賣出建議) ...
-
-    # 7. 繪製 Plotly 四層子圖
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04)
-    # ... (fig.add_trace 包含 K線、均線、預測線、MACD、KDJ) ...
+    fig.update_layout(height=600, template="plotly_dark", showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    # 8. 渲染底部 AI 診斷 Box
+    # 5. 渲染底部 AI 診斷 Box
     st.markdown(f"""
         <div class='ai-advice-box'>
+            <div class='confidence-tag'>靈敏度: {final_p} | 趨勢加權: {final_tw}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
-            <p><b>AI診斷建議:</b> {insight[1]}</p>
-            <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
-                <p style='font-size:1.8rem; color:#FFAC33; font-weight:900;'>預估隔日收盤價：{insight[3]:.2f}</p>
+            <p><b>AI 診斷建議:</b> {insight[1]}</p>
+            <div style='background: #1C2128; padding: 15px; border-radius: 8px; border: 1px solid #30363D;'>
+                <p style='font-size:1.8rem; color:#FFAC33; font-weight:900; margin:0;'>預估隔日收盤價：{insight[3]:.2f}</p>
+                <small style='color:#8899A6;'>波動區間預測：{insight[5]:.2f} ~ {insight[4]:.2f}</small>
             </div>
         </div>
     """, unsafe_allow_html=True)
-
 
