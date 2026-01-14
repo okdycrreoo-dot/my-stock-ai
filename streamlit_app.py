@@ -133,9 +133,10 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與全清單權威更新 (盤後即時定案版) ---
+# --- 3. 背景自動對帳與全清單權威更新 (終極強制寫入版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
+        # 1. 讀取現有紀錄
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         watchlist = pd.DataFrame(ws_w.get_all_records())
@@ -143,49 +144,62 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
         
         today = datetime.now().strftime("%Y-%m-%d")
         now = datetime.now()
-        # 14:30 定案門檻
+        # 強制判定：只要過 14:30，今日即為可對帳狀態
         is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
 
-        if now.weekday() < 5: 
-            # --- A. 補完 1/14 準確率 (14:30 後強制執行) ---
-            for i, row in df_p.iterrows():
-                # 如果沒收盤價，且 (不是今天 OR 已經過 14:30)
-                if str(row['actual_close']) == "" and (row['date'] != today or is_finalized):
+        # A. 強制補齊 1/14 (及以前) 的所有空缺數據
+        for i, row in df_p.iterrows():
+            # 關鍵修改：只要 F 欄是空的，且日期不是未來，就去抓資料
+            if str(row['actual_close']).strip() == "":
+                # 如果是今天，則必須過 14:30 才抓；如果是過去的日期，則直接抓
+                if row['date'] < today or (row['date'] == today and is_finalized):
                     try:
                         h = yf.download(row['symbol'], period="1d", progress=False)
                         if not h.empty:
                             act_close = float(h['Close'].iloc[-1])
                             pred_val = float(row['pred_close'])
                             err_val = (act_close - pred_val) / pred_val
+                            # 直接對試算表儲存格進行物理寫入
                             ws_p.update_cell(i + 2, 6, round(act_close, 2))
                             ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
                     except: continue
 
-            # --- B. 寫入 1/15 預測 (14:30 後觸發) ---
-            if is_finalized:
-                next_day = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-                if now.weekday() == 4: next_day = (now + timedelta(days=3)).strftime("%Y-%m-%d")
-                
-                for stock in unique_stocks:
-                    existing_next = df_p[(df_p['date'] == next_day) & (df_p['symbol'] == stock)]
-                    # 如果今天還沒寫過明天的預測，且我們正在看這支股票
-                    if stock == f_id and existing_next.empty:
-                        p_val, h_val, l_val = round(insight[3], 2), round(insight[5], 2), round(insight[4], 2)
-                        ws_p.append_row([next_day, stock, p_val, h_val, l_val, "", ""])
+        # B. 強制產生 1/15 的預測列 (僅在 14:30 後觸發)
+        if is_finalized:
+            # 計算下一個目標日期 (考慮週末)
+            next_dt = now + timedelta(days=1)
+            if next_dt.weekday() >= 5: next_dt += timedelta(days=2 if next_dt.weekday()==5 else 1)
+            next_day_str = next_dt.strftime("%Y-%m-%d")
 
-        # --- C. 回傳數據給介面 (防止 KeyError) ---
-        df_updated = pd.DataFrame(ws_p.get_all_records())
-        df_stock = df_updated[(df_updated['symbol'] == f_id) & (df_updated['actual_close'] != "")].copy()
+            for stock in unique_stocks:
+                # 檢查試算表中是否已存在該標的之「下一日」預測
+                exists = df_p[(df_p['date'] == next_day_str) & (df_p['symbol'] == stock)]
+                if exists.empty:
+                    if stock == f_id:
+                        # 寫入 1/15 的數據 (您計算出的 1421.86 等數值)
+                        ws_p.append_row([next_day_str, stock, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""])
+                    else:
+                        # 其他股票的背景預測寫入 (靜默執行)
+                        try:
+                            r_key = now.strftime("%Y%m%d%H%M")
+                            tmp_df, _ = fetch_comprehensive_data(stock, api_ttl * 60, r_key)
+                            if tmp_df is not None:
+                                f_p, f_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(tmp_df, cp, tw_val, v_comp)
+                                _, _, _, _, _, _, _, t_i = perform_ai_engine(tmp_df, p_days, f_p, f_tw, ai_v, bias, f_vol, b_drift)
+                                ws_p.append_row([next_day_str, stock, round(t_i[3], 2), round(t_i[5], 2), round(t_i[4], 2), "", ""])
+                        except: continue
+
+        # C. 回傳數據給 UI 繪圖
+        df_final = pd.DataFrame(ws_p.get_all_records())
+        df_stock = df_final[(df_final['symbol'] == f_id) & (df_final['actual_close'] != "")].copy()
         if not df_stock.empty:
             df_stock['short_date'] = pd.to_datetime(df_stock['date']).dt.strftime('%m/%d')
-            df_stock['accuracy_pct'] = (1 - (pd.to_numeric(df_stock['actual_close']) - pd.to_numeric(df_stock['pred_close'])).abs() / pd.to_numeric(df_stock['actual_close'])) * 100
             return df_stock.tail(10)
-        
-        return pd.DataFrame(columns=['short_date', 'accuracy_pct'])
+        return pd.DataFrame(columns=['short_date', 'actual_close', 'pred_close'])
 
     except Exception as e:
-        print(f"Sync Error: {e}")
-        return pd.DataFrame(columns=['short_date', 'accuracy_pct'])
+        print(f"CRITICAL SYNC ERROR: {e}")
+        return pd.DataFrame(columns=['short_date', 'actual_close', 'pred_close'])
         
 # --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
@@ -679,6 +693,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
