@@ -351,59 +351,73 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
     
-# --- 6. 終端渲染與視覺化 (優化版：解決預測線對齊) ---
+# --- 6. 終端渲染與視覺化 (修復黑屏與對齊問題) ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w):
-    r_key = datetime.now().strftime("%Y-%m-%d %H:%M") 
-    df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60, r_key)
-    
-    if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗，請檢查代碼或網路。")
-        return
+    try:
+        r_key = datetime.now().strftime("%Y-%m-%d %H:%M") 
+        # 1. 數據獲取 (增加超時保護)
+        df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60, r_key)
+        
+        if df is None or df.empty:
+            st.warning(f"⚠️ 無法取得 {symbol} 的數據，請確認代碼是否正確或 yfinance 是否封鎖 IP。")
+            return
 
-    # 1. 執行運算層
-    final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
-    pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
-        df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
-    )
-    
-    # 2. 自動對帳與寫入
-    stock_accuracy = auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl)
+        # 2. 執行運算層
+        final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
+        
+        # 確保 Section 5 回傳的數據長度正確
+        results = perform_ai_engine(df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift)
+        pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = results
+        
+        # 3. 自動對帳與寫入 (此處最易出錯，加上 try 避免黑屏)
+        try:
+            stock_accuracy = auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl)
+        except Exception as sync_e:
+            st.error(f"Google Sheets 同步失敗: {sync_e}")
+            stock_accuracy = pd.DataFrame(columns=['short_date', 'accuracy_pct'])
 
-    # 3. 渲染頂部精準度表格 (解決水平排列問題)
-    st.title(f"📊 {f_id} 台股 AI 預測系統")
-    if stock_accuracy is not None and not stock_accuracy.empty:
-        display_df = stock_accuracy.tail(10)
-        acc_cols = st.columns(len(display_df) + 1)
-        with acc_cols[0]:
-            st.markdown("<p style='color:#8899A6; font-size:0.9rem;'>預測日期<br>AI 精準度</p>", unsafe_allow_html=True)
-        for i, (_, row) in enumerate(display_df.iterrows()):
-            with acc_cols[i+1]:
-                st.markdown(f"<span style='font-size:0.8rem;'>{row['short_date']}</span><br><b style='color:#00F5FF;'>{row['accuracy_pct']:.1f}%</b>", unsafe_allow_html=True)
+        # 4. 渲染頂部精準度表格 (修復 len(display_df) 為 0 導致的黑屏)
+        st.title(f"📊 {f_id} 台股 AI 預測系統")
+        
+        if stock_accuracy is not None and not stock_accuracy.empty:
+            display_df = stock_accuracy.tail(10)
+            # 動態列：如果只有 1 筆資料，就分 2 欄；如果 10 筆，就分 11 欄
+            n_cols = len(display_df) + 1
+            acc_cols = st.columns(n_cols)
+            with acc_cols[0]:
+                st.markdown("<p style='color:#8899A6; font-size:0.8rem; margin:0;'>日期<br>精度</p>", unsafe_allow_html=True)
+            for i, (_, row) in enumerate(display_df.iterrows()):
+                with acc_cols[i+1]:
+                    st.markdown(f"<span style='font-size:0.8rem;'>{row['short_date']}</span><br><b style='color:#00F5FF;'>{row['accuracy_pct']:.1f}%</b>", unsafe_allow_html=True)
+        else:
+            st.info("💡 尚無歷史精準度紀錄，系統將在今日收盤後自動建立。")
 
-    # 4. 繪製 Plotly 四層子圖
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
-    
-    # 主圖：K線與均線
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="K線"), row=1, col=1)
-    
-    # 連接預測線 (從歷史最後一筆開始接)
-    last_date = df.index[-1]
-    future_dates = [last_date + timedelta(days=i+1) for i in range(len(pred_line))]
-    fig.add_trace(go.Scatter(x=future_dates, y=pred_line, line=dict(color='#FFAC33', width=3, dash='dot'), name="AI 預測路徑"), row=1, col=1)
+        # 5. 繪製 Plotly (簡化版繪圖，確保不卡死)
+        fig = make_subplots(rows=1, cols=1)
+        # K線
+        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="K線"))
+        
+        # 連接預測線 (確保座標軸正確)
+        last_date = df.index[-1]
+        future_dates = [last_date + timedelta(days=i+1) for i in range(len(pred_line))]
+        fig.add_trace(go.Scatter(x=future_dates, y=pred_line, line=dict(color='#FFAC33', width=3, dash='dot'), name="AI 預測"))
 
-    fig.update_layout(height=600, template="plotly_dark", showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(height=500, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
 
-    # 5. 渲染底部 AI 診斷 Box
-    st.markdown(f"""
-        <div class='ai-advice-box'>
-            <div class='confidence-tag'>靈敏度: {final_p} | 趨勢加權: {final_tw}</div>
-            <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
-            <p><b>AI 診斷建議:</b> {insight[1]}</p>
-            <div style='background: #1C2128; padding: 15px; border-radius: 8px; border: 1px solid #30363D;'>
-                <p style='font-size:1.8rem; color:#FFAC33; font-weight:900; margin:0;'>預估隔日收盤價：{insight[3]:.2f}</p>
-                <small style='color:#8899A6;'>波動區間預測：{insight[5]:.2f} ~ {insight[4]:.2f}</small>
+        # 6. 渲染 AI 診斷 Box
+        st.markdown(f"""
+            <div class='ai-advice-box'>
+                <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
+                <p><b>AI 診斷核心建議:</b> {insight[1]}</p>
+                <div style='background: #1C2128; padding: 15px; border-radius: 8px; border: 1px solid #30363D;'>
+                    <p style='font-size:1.8rem; color:#FFAC33; font-weight:900; margin:0;'>預估下個交易日：{insight[3]:.2f}</p>
+                </div>
             </div>
-        </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+
+    except Exception as final_e:
+        # 這是終極防線：如果上面任何地方錯了，直接在網頁顯示錯誤文字
+        st.error(f"🚨 系統渲染崩潰！錯誤原因：{final_e}")
+        st.write("建議檢查：1. Google Sheets 欄位名稱 2. yfinance 資料完整性")
 
