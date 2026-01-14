@@ -452,8 +452,8 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     if stock_accuracy is not None and isinstance(stock_accuracy, pd.DataFrame):
         display_df = stock_accuracy.tail(10)
         
-        # 限制整體表格寬度：只佔左邊 60%，右邊 40% 留空
-        t_limit_col, _ = st.columns([0.6, 0.4])
+        # 限制整體表格寬度：只佔左邊 40%，右邊 60% 留空
+        t_limit_col, _ = st.columns([0.4, 0.6])
         
         with t_limit_col:
             # 動態分配欄位權重：第一欄(標題)稍寬，其餘均分
@@ -702,5 +702,6 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 if __name__ == "__main__":
     main()
+
 
 
