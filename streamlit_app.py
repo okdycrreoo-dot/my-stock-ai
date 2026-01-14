@@ -620,10 +620,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w): # 
 def main():
     # --- 修正後的狀態保持邏輯 ---
     if 'user' not in st.session_state: 
-        st.session_state.user = None  # 這一行必須縮排
-    
-    # 移除原本會導致閃退的時間鎖邏輯，改為手動登出才清除
-    # --- 狀態保持結束 ---
+        st.session_state.user = None  
     
     st.session_state.last_active = time.time()
     
@@ -640,7 +637,6 @@ def main():
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
         cp, api_ttl = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1))
         tw_val = float(s_map.get('trend_weight', 1.0))
-        # 將 vol_comp 改為 whale_sensitivity 以匹配試算表 A8 儲存格內容
         v_comp = float(s_map.get('whale_sensitivity', 1.5))
     except Exception as e:
         st.error(f"🚨 資料庫連線失敗: {e}"); return
@@ -660,13 +656,10 @@ def main():
             new_u = st.text_input("新帳號", key="reg_u"); new_p = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("提交註冊申請"):
                 if new_u and new_p:
-                    # 1. 抓取現有用戶名冊
                     existing_users = pd.DataFrame(ws_u.get_all_records())
-                    # 2. 檢查帳號是否已存在
                     if not existing_users.empty and str(new_u) in existing_users['username'].astype(str).values:
                         st.error(f"❌ 帳號 '{new_u}' 已被註冊，請換一個名稱。")
                     else:
-                        # 3. 確定沒有重複才寫入
                         ws_u.append_row([str(new_u), str(new_p)])
                         st.success("✅ 註冊成功，請切換至登入頁面。")
                 else:
@@ -678,21 +671,15 @@ def main():
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
-                target = st.selectbox("自選股清單(選擇想要看的股票)", u_stocks if u_stocks else ["2330"])
+                target = st.selectbox("自選股清單(選擇想要看的股票)", u_stocks if u_stocks else ["2330.TW"])
                 ns = st.text_input("➕ 輸入股票代號 (例: 2454.TW)")
                 if st.button("加入到自選股清單"):
                     if ns:
                         new_stock = ns.upper().strip()
-        
-                        # 第一層攔截：數量限制
                         if len(u_stocks) >= 20:
-                            st.warning("⚠️ 您的自選股清單已達上限 (20 支)，請刪除舊標的後再添加。")
-        
-                        # 第二層檢查：重複性
+                            st.warning("⚠️ 您的自選股清單已達上限 (20 支)。")
                         elif new_stock in u_stocks:
                             st.warning(f"⚠️ {new_stock} 已經在您的自選清單中囉！")
-        
-                        # 第三層：通過檢查，執行寫入
                         else:
                             try:
                                 ws_w.append_row([st.session_state.user, new_stock])
@@ -704,21 +691,21 @@ def main():
                     st.write("")
                     if st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
                         try:
+                            # 修正：確保只刪除目前用戶的該支股票
                             cell = ws_w.find(target)
                             if cell:
                                 ws_w.delete_rows(cell.row)
                                 st.success(f"✅ {target} 已移除"); st.rerun()
                         except: st.error("❌ 刪除失敗")
 
-with m2:
+            # ✅ 關鍵修正：將 m2 移入 expander 內與 m1 並列
+            with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 
-                # --- 管理員 okdycrreoo 專屬設定 ---
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("---")
                     st.markdown("### 🛠️ 管理員戰情室")
                     
-                    # 獲取 AI 核心推薦參數 (加入 r_key 以打破快取，確保抓到 14:30 權威價)
                     r_key = datetime.now().strftime("%Y-%m-%d %H:%M")
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60, r_key)
                     
@@ -727,16 +714,13 @@ with m2:
                     else:
                         ai_p, ai_tw, ai_v, ai_b = cp, tw_val, 1.5, ["2330", "2382", "00878"]
                     
-                    # 確保推薦標本顯示
                     ai_b = list(ai_b) + ["2330", "2382", "00878"][:3-len(ai_b)]
 
-                    # 1. 標本手動輸入
                     b1 = st.text_input(f"1. 基準藍籌股 (AI 推薦: {ai_b[0]})", ai_b[0])
                     b2 = st.text_input(f"2. 高波動成長股 (AI 推薦: {ai_b[1]})", ai_b[1])
                     b3 = st.text_input(f"3. 指數 ETF 標本 (AI 推薦: {ai_b[2]})", ai_b[2])
                     
                     st.write("")
-                    # 2. 參數手動輸入 (即時連動渲染引擎)
                     cp = st.slider(f"系統靈敏度 (AI 推薦: {ai_p})", 0, 100, int(cp))
                     tw_val = st.number_input(f"趨勢權重參數 (AI 推薦: {ai_tw})", 0.5, 3.0, float(tw_val))
                     v_comp = st.slider(f"波動補償係數 (AI 推薦: {ai_v})", 0.5, 3.0, float(v_comp))
@@ -753,10 +737,8 @@ with m2:
                 if st.button("🚪 登出 StockAI 系統", use_container_width=True): 
                     st.session_state.user = None; st.rerun()
 
-        # --- 最終渲染點：補上 ws_w 以執行「全清單自動交作業」 ---
-        # ⚠️ 注意：此行必須與上面的 "with st.expander" 對齊，代表不管有沒有打開設定，都會執行運算
+        # ✅ 關鍵修正：render_terminal 與 expander 對齊，確保在 else 邏輯內
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p, ws_w)
 
-# --- 程式啟動點 ---
 if __name__ == "__main__":
     main()
