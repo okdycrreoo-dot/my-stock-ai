@@ -133,33 +133,6 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與權威全清單更新 (14:30 定案版) ---
-def auto_sync_feedback(ws_p, ws_w, f_id, insight):
-    try:
-        # 1. 取得所有歷史紀錄與自選清單
-        recs = ws_p.get_all_records()
-        df_p = pd.DataFrame(recs)
-        watchlist = pd.DataFrame(ws_w.get_all_records())
-        unique_stocks = watchlist['stock_symbol'].unique().tolist()
-        
-        today = datetime.now().strftime("%Y-%m-%d")
-        is_weekend = datetime.now().weekday() >= 5
-        now = datetime.now()
-        
-        # 門檻設定：14:30 (確保 Yahoo Finance 數據完全校正)
-        is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
-
-        if not is_weekend:
-            # --- A. 自動對帳邏輯 (維持補齊過去數據) ---
-            for i, row in df_p.iterrows():
-                if str(row['actual_close']) == "" and row['date'] != today:
-                    h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
-                    if not h.empty:
-                        act_close = float(h['Close'].iloc[0])
-                        err_val = (act_close - float(row['pred_close'])) / float(row['pred_close'])
-                        ws_p.update_cell(i + 2, 6, round(act_close, 2))
-                        ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
-
 # --- 3. 背景自動對帳與全清單權威更新 (全自動補完版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
@@ -170,7 +143,7 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
         unique_stocks = watchlist['stock_symbol'].unique().tolist()
         
         today = datetime.now().strftime("%Y-%m-%d")
-        r_key = datetime.now().strftime("%Y-%m-%d %H:%M") # 打破快取用的 Key
+        r_key = datetime.now().strftime("%Y-%m-%d %H:%M") # 打破快取
         is_weekend = datetime.now().weekday() >= 5
         now = datetime.now()
         
@@ -200,13 +173,11 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
                     existing = df_p[(df_p['date'] == today) & (df_p['symbol'] == stock)]
                     
                     if stock == f_id:
-                        # 情況 1：當前顯示的股票 -> 執行覆寫修正
+                        # 情況 1：當前股票 -> 執行覆寫修正 (解決 1421.86 不同步問題)
                         p_val, h_val, l_val = round(insight[3], 2), round(insight[5], 2), round(insight[4], 2)
-                        
                         if existing.empty:
                             ws_p.append_row([today, stock, p_val, h_val, l_val, "", ""])
                         else:
-                            # 核心修正：若表內舊值與最新 AI 定案值不同則更新
                             row_idx = existing.index[0] + 2
                             if abs(float(existing.iloc[0]['pred_close']) - p_val) > 0.01:
                                 ws_p.update_cell(row_idx, 3, p_val)
@@ -214,7 +185,7 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
                                 ws_p.update_cell(row_idx, 5, l_val)
                     
                     elif existing.empty:
-                        # 情況 2：其他股票且今日無紀錄 -> 執行靜默補完
+                        # 情況 2：其他清單股票 -> 執行背景靜默補完
                         try:
                             tmp_df, _ = fetch_comprehensive_data(stock, api_ttl * 60, r_key)
                             if tmp_df is not None:
@@ -223,8 +194,7 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
                                     tmp_df, p_days, f_p, f_tw, ai_v, bias, f_vol, b_drift
                                 )
                                 ws_p.append_row([today, stock, round(tmp_insight[3], 2), round(tmp_insight[5], 2), round(tmp_insight[4], 2), "", ""])
-                        except Exception as silent_e:
-                            print(f"Silent Sync Error for {stock}: {silent_e}")
+                        except:
                             continue
 
         # --- C. 提取 10 日精準度數據 ---
@@ -240,10 +210,8 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
         return None
 
     except Exception as e:
-        # ✅ 這裡就是修正 SyntaxError 的關鍵，確保 try 永遠有對應的 except
         print(f"Sync Error: {e}")
         return None
-
 # --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     try:
@@ -736,4 +704,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
