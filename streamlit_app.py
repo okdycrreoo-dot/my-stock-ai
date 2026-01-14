@@ -133,10 +133,10 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與全清單權威更新 (2026-01-14 終極修復版) ---
+# --- 3. 背景自動對帳與全清單權威更新 (全面修復與強制寫入版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
-        # 1. 取得資料並強制轉換格式
+        # 1. 取得資料並強制轉換日期為字串，解決 A 欄文字格式問題
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         watchlist = pd.DataFrame(ws_w.get_all_records())
@@ -144,14 +144,13 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
         
         today = datetime.now().strftime("%Y-%m-%d")
         now = datetime.now()
-        # 強制定案門檻：14:30 (且考量伺服器可能的時差)
+        # 台灣時間 14:30 定案門檻
         is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
 
-        # 關鍵：強制將所有日期轉為去空格的字串，解決比對不到的問題
         if not df_p.empty:
             df_p['date'] = df_p['date'].astype(str).str.strip()
 
-        # A. 補齊 1/14 以前的實際收盤價 (包含今日 14:30 後的對帳)
+        # A. 補齊 1/14 的實際價 (必須在 14:30 後)
         for i, row in df_p.iterrows():
             if str(row['actual_close']).strip() == "":
                 row_date = str(row['date'])
@@ -160,50 +159,52 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
                         h = yf.download(row['symbol'], period="1d", progress=False)
                         if not h.empty:
                             act_close = float(h['Close'].iloc[-1])
-                            pred_val = pd.to_numeric(row['pred_close'], errors='coerce')
-                            if pd.notnull(pred_val):
-                                err_val = (act_close - pred_val) / pred_val
+                            p_val = pd.to_numeric(row['pred_close'], errors='coerce')
+                            if pd.notnull(p_val):
+                                err_val = (act_close - p_val) / p_val
                                 ws_p.update_cell(i + 2, 6, round(act_close, 2))
                                 ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
                     except: continue
 
-        # B. 強制產生 1/15 預測列
+        # B. 強制寫入 1/15 預測列 (解決不寫入的核心問題)
         if is_finalized:
-            # 計算下一個交易日 (跳過週末)
             next_dt = now + timedelta(days=1)
             if next_dt.weekday() >= 5: 
                 next_dt += timedelta(days=2 if next_dt.weekday() == 5 else 1)
             next_day_str = next_dt.strftime("%Y-%m-%d")
 
-            # 物理比對：確保 1/15 這支股票還沒寫入
+            # 檢查 1/15 的資料是否已存在於試算表
             exists = df_p[(df_p['date'] == next_day_str) & (df_p['symbol'] == f_id)]
             
             if exists.empty:
-                st.toast(f"⏳ 偵測到盤後定案，正在寫入 {next_day_str} 預測...", icon="📝")
+                # 提示使用者正在寫入
+                st.toast(f"⏳ 正在物理寫入 {next_day_str} 預測資料...", icon="📝")
                 new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
                 ws_p.append_row(new_row)
-                st.toast(f"✅ {f_id} 預測資料已成功同步至雲端！", icon="🚀")
-            else:
-                st.toast(f"ℹ️ {next_day_str} 雲端數據已是最新狀態。", icon="☁️")
+                st.toast(f"✅ {f_id} 數據已成功寫入試算表！", icon="🚀")
 
-        # C. 回傳數據繪製精準度圖表 (確保 A 欄文字格式不影響繪圖)
+        # C. 回傳數據給 UI (解決 KeyError: 'accuracy_pct')
         df_updated = pd.DataFrame(ws_p.get_all_records())
         df_stock = df_updated[df_updated['symbol'] == f_id].copy()
+        
         if not df_stock.empty:
             df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
             df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
+            
+            # 過濾掉沒有收盤價的列，避免產生空欄位導致 KeyError
             df_acc = df_stock.dropna(subset=['actual_close']).copy()
             if not df_acc.empty:
                 df_acc['accuracy_pct'] = (1 - (df_acc['actual_close'] - df_acc['pred_close']).abs() / df_acc['actual_close']) * 100
                 df_acc['short_date'] = pd.to_datetime(df_acc['date']).dt.strftime('%m/%d')
                 return df_acc.tail(10)
         
+        # 回傳備用空表格防止 UI 崩潰
         return pd.DataFrame(columns=['short_date', 'accuracy_pct'])
 
     except Exception as e:
-        st.error(f"❌ 背景同步發生物理錯誤: {e}")
+        st.error(f"❌ 背景同步模組發生錯誤: {e}")
         return pd.DataFrame(columns=['short_date', 'accuracy_pct'])
-
+        
 # --- 這裡假設您的 Section 4 (AI 引擎) 與 Section 5 (Main) 呼叫點如下 ---
 # 請確保在 main() 的最後呼叫方式如下：
 # acc_data = auto_sync_feedback(ws_p, ws_w, stock_id, insight, cp, tw, vc, pdays, ttl)
@@ -700,6 +701,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
