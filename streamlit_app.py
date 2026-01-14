@@ -133,9 +133,10 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與全清單權威更新 (數據強制抓取版) ---
+# --- 3. 背景自動對帳與權威全清單更新 (終極穩定版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
+        # 1. 讀取基礎資料
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         watchlist = pd.DataFrame(ws_w.get_all_records())
@@ -145,13 +146,14 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
         now = datetime.now()
         is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
 
+        # 僅在交易日執行 (週一至週五)
         if now.weekday() < 5: 
-            # --- A. 強制補帳邏輯 ---
+            # --- A. 強制補帳：處理 1/14 的收盤價 ---
             for i, row in df_p.iterrows():
                 if str(row['actual_close']) == "" and (row['date'] != today or is_finalized):
                     try:
-                        # 增加 period="1d" 確保抓到最新的一筆數據
-                        h = yf.download(row['symbol'], period="1d", interval="1m", progress=False)
+                        # 使用 1d 確保即便 Yahoo 尚未轉換歷史存檔也能抓到最後收盤價
+                        h = yf.download(row['symbol'], period="1d", progress=False)
                         if not h.empty:
                             act_close = float(h['Close'].iloc[-1])
                             pred_val = float(row['pred_close'])
@@ -160,33 +162,37 @@ def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, ap
                             ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
                     except: continue
 
-            # --- B. 強制寫入隔日預測 (這是 1/15 產生的關鍵) ---
+            # --- B. 強制寫入：產生 1/15 的預測列 ---
             if is_finalized:
+                # 計算下一交易日
                 next_day = (now + timedelta(days=1)).strftime("%Y-%m-%d")
                 if now.weekday() == 4: next_day = (now + timedelta(days=3)).strftime("%Y-%m-%d")
                 
                 for stock in unique_stocks:
                     existing_next = df_p[(df_p['date'] == next_day) & (df_p['symbol'] == stock)]
                     if stock == f_id and existing_next.empty:
+                        # 寫入隔日預測 (這就是您預期的 1/15 資料列)
                         p_val, h_val, l_val = round(insight[3], 2), round(insight[5], 2), round(insight[4], 2)
                         ws_p.append_row([next_day, stock, p_val, h_val, l_val, "", ""])
 
-        # --- C. 修正 KeyError 的防禦性回傳 ---
-        # 重新讀取，確保拿到剛剛 update 的新數據
-        recs_updated = ws_p.get_all_records()
-        df_updated = pd.DataFrame(recs_updated)
+        # --- C. 修正 KeyError：防禦性回傳邏輯 ---
+        # 重新讀取一次確保拿到剛才 update 的 F 欄位數據
+        df_updated = pd.DataFrame(ws_p.get_all_records())
         df_stock = df_updated[(df_updated['symbol'] == f_id) & (df_updated['actual_close'] != "")].copy()
         
         if not df_stock.empty:
+            df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
+            df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
+            df_stock['accuracy_pct'] = (1 - (df_stock['actual_close'] - df_stock['pred_close']).abs() / df_stock['actual_close']) * 100
             df_stock['short_date'] = pd.to_datetime(df_stock['date']).dt.strftime('%m/%d')
             return df_stock.tail(10)
         
-        # 如果還是空的，回傳一個帶有欄位的空 DataFrame 避免 KeyError
-        return pd.DataFrame(columns=['short_date', 'actual_close', 'pred_close'])
+        # 如果真的沒數據，回傳帶有欄位的空表，避免 render_terminal 出現 KeyError
+        return pd.DataFrame(columns=['short_date', 'accuracy_pct', 'actual_close', 'pred_close'])
 
     except Exception as e:
         print(f"Sync Error: {e}")
-        return pd.DataFrame(columns=['short_date', 'actual_close', 'pred_close'])
+        return pd.DataFrame(columns=['short_date', 'accuracy_pct', 'actual_close', 'pred_close'])
         
 # --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
@@ -680,6 +686,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
