@@ -448,22 +448,28 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     st.title(f"📊 {f_id} 台股AI預測系統") # 這裡改用 f_id (fetch函式回傳的代碼)
 
     # 5. 渲染 10 日橫向表格 (直接使用 stock_accuracy 變數，它是 Section 3 回傳的 DataFrame)
+    # --- 修改後的寫法：限制寬度並緊縮間距 ---
     if stock_accuracy is not None and isinstance(stock_accuracy, pd.DataFrame):
-        # 建立橫向表格數據
         display_df = stock_accuracy.tail(10)
-        cols = st.columns(len(display_df) + 1)
         
-        with cols[0]:
-            st.markdown("**日期**")
-            st.markdown("**精準度**")
-    
-        for i, (_, row) in enumerate(display_df.iterrows()):
-            with cols[i+1]:
-                st.write(f"{row['short_date']}")
-                # 數值顏色強化
-                acc_val = row['accuracy_pct']
-                color = "#FF3131" if acc_val >= 95 else "#FFAC33"
-                st.markdown(f"<span style='color:{color}'>{acc_val:.1f}%</span>", unsafe_allow_html=True)
+        # 限制整體表格寬度：只佔左邊 60%，右邊 40% 留空
+        t_limit_col, _ = st.columns([0.6, 0.4])
+        
+        with t_limit_col:
+            # 動態分配欄位權重：第一欄(標題)稍寬，其餘均分
+            num_data = len(display_df)
+            cols = st.columns([1.5] + [1] * num_data)
+            
+            with cols[0]:
+                st.markdown("<p style='margin-bottom:8px; color:#888;'>日期</p>", unsafe_allow_html=True)
+                st.markdown("<p style='color:#888;'>精準度</p>", unsafe_allow_html=True)
+        
+            for i, (_, row) in enumerate(display_df.iterrows()):
+                with cols[i+1]:
+                    st.markdown(f"<p style='margin-bottom:8px;'>{row['short_date']}</p>", unsafe_allow_html=True)
+                    acc_val = row['accuracy_pct']
+                    color = "#FF3131" if acc_val >= 95 else "#FFAC33"
+                    st.markdown(f"<b style='color:{color}'>{acc_val:.1f}%</b>", unsafe_allow_html=True)
     else:
         st.info("💡 尚無歷史精準度數據，系統開始累積中...")
 
@@ -696,4 +702,5 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 if __name__ == "__main__":
     main()
+
 
