@@ -68,7 +68,8 @@ st.markdown("""
 
 # --- 2. 數據引擎 ---
 @st.cache_data(show_spinner=False)
-def fetch_comprehensive_data(symbol, ttl_seconds):
+def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
+    # refresh_key 只是用來打破緩存，函數內不需要用到它
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
@@ -419,7 +420,12 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
+    # 產生一個基於「分鐘」的 Key。
+    # 例如 15:12:05 會變成 "2026-01-14 15:12"
+    # 當時間走到 15:13，Key 改變，緩存就會自動失效並抓新資料。
+    r_key = datetime.now().strftime("%Y-%m-%d %H:%M") 
+    
+    df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60, r_key)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
@@ -702,6 +708,7 @@ def main():
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 if __name__ == "__main__":
     main()
+
 
 
 
