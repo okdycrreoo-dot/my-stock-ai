@@ -558,7 +558,18 @@ def main():
         with tab_reg:
             new_u = st.text_input("新帳號", key="reg_u"); new_p = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("提交註冊申請"):
-                ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
+                if new_u and new_p:
+                    # 1. 抓取現有用戶名冊
+                    existing_users = pd.DataFrame(ws_u.get_all_records())
+                    # 2. 檢查帳號是否已存在
+                    if not existing_users.empty and str(new_u) in existing_users['username'].astype(str).values:
+                        st.error(f"❌ 帳號 '{new_u}' 已被註冊，請換一個名稱。")
+                    else:
+                        # 3. 確定沒有重複才寫入
+                        ws_u.append_row([str(new_u), str(new_p)])
+                        st.success("✅ 註冊成功，請切換至登入頁面。")
+                else:
+                    st.warning("⚠️ 請輸入完整的帳號與密碼。")
     else:
         # --- 使用者儀表板 ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
@@ -625,6 +636,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
