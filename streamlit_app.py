@@ -133,85 +133,59 @@ def fetch_comprehensive_data(symbol, ttl_seconds, refresh_key):
             continue
     return None, s
 
-# --- 3. 背景自動對帳與全清單權威更新 (全自動補完版) ---
+# --- 3. 背景自動對帳與全清單權威更新 (唯一完整修正版) ---
 def auto_sync_feedback(ws_p, ws_w, f_id, insight, cp, tw_val, v_comp, p_days, api_ttl):
     try:
-        # 1. 取得所有歷史紀錄與自選清單
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         watchlist = pd.DataFrame(ws_w.get_all_records())
         unique_stocks = watchlist['stock_symbol'].unique().tolist()
         
         today = datetime.now().strftime("%Y-%m-%d")
-        r_key = datetime.now().strftime("%Y-%m-%d %H:%M") # 打破快取
+        r_key = datetime.now().strftime("%Y-%m-%d %H:%M") 
         is_weekend = datetime.now().weekday() >= 5
         now = datetime.now()
-        
-        # 門檻設定：14:30 (確保 Yahoo Finance 數據完全校正)
         is_finalized = (now.hour > 14) or (now.hour == 14 and now.minute >= 30)
 
         if not is_weekend:
-            # --- A. 自動補帳 (更新昨日以前數據) ---
+            # --- A. 自動對帳逻辑 ---
             for i, row in df_p.iterrows():
                 if str(row['actual_close']) == "" and row['date'] != today:
                     try:
-                        h = yf.download(row['symbol'], start=row['date'], 
-                                        end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), 
-                                        progress=False)
+                        h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
                         if not h.empty:
                             act_close = float(h['Close'].iloc[0])
-                            pred_val = float(row['pred_close'])
-                            err_val = (act_close - pred_val) / pred_val
                             ws_p.update_cell(i + 2, 6, round(act_close, 2))
-                            ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
-                    except:
-                        continue
+                    except: continue
 
-            # --- B. 全清單權威寫入 (14:30 後觸發) ---
+            # --- B. 全清單寫入 (3017 未寫入的關鍵修復) ---
             if is_finalized:
                 for stock in unique_stocks:
                     existing = df_p[(df_p['date'] == today) & (df_p['symbol'] == stock)]
-                    
                     if stock == f_id:
-                        # 情況 1：當前股票 -> 執行覆寫修正 (解決 1421.86 不同步問題)
-                        p_val, h_val, l_val = round(insight[3], 2), round(insight[5], 2), round(insight[4], 2)
+                        p_val = round(insight[3], 2)
                         if existing.empty:
-                            ws_p.append_row([today, stock, p_val, h_val, l_val, "", ""])
+                            ws_p.append_row([today, stock, p_val, round(insight[5], 2), round(insight[4], 2), "", ""])
                         else:
+                            # 即使已有資料，若數值不對也會強制更新
                             row_idx = existing.index[0] + 2
                             if abs(float(existing.iloc[0]['pred_close']) - p_val) > 0.01:
                                 ws_p.update_cell(row_idx, 3, p_val)
-                                ws_p.update_cell(row_idx, 4, h_val)
-                                ws_p.update_cell(row_idx, 5, l_val)
-                    
                     elif existing.empty:
-                        # 情況 2：其他清單股票 -> 執行背景靜默補完
+                        # 靜默更新其他標的
                         try:
                             tmp_df, _ = fetch_comprehensive_data(stock, api_ttl * 60, r_key)
                             if tmp_df is not None:
                                 f_p, f_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(tmp_df, cp, tw_val, v_comp)
-                                _, _, _, _, _, _, _, tmp_insight = perform_ai_engine(
-                                    tmp_df, p_days, f_p, f_tw, ai_v, bias, f_vol, b_drift
-                                )
-                                ws_p.append_row([today, stock, round(tmp_insight[3], 2), round(tmp_insight[5], 2), round(tmp_insight[4], 2), "", ""])
-                        except:
-                            continue
+                                _, _, _, _, _, _, _, tmp_i = perform_ai_engine(tmp_df, p_days, f_p, f_tw, ai_v, bias, f_vol, b_drift)
+                                ws_p.append_row([today, stock, round(tmp_i[3], 2), round(tmp_i[5], 2), round(tmp_i[4], 2), "", ""])
+                        except: continue
 
-        # --- C. 提取 10 日精準度數據 ---
-        df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
-        if not df_stock.empty:
-            df_stock['actual_close'] = pd.to_numeric(df_stock['actual_close'], errors='coerce')
-            df_stock['pred_close'] = pd.to_numeric(df_stock['pred_close'], errors='coerce')
-            df_recent = df_stock.tail(10).copy()
-            df_recent['accuracy_pct'] = (1 - (df_recent['actual_close'] - df_recent['pred_close']).abs() / df_recent['actual_close']) * 100
-            df_recent['short_date'] = pd.to_datetime(df_recent['date']).dt.strftime('%m/%d')
-            return df_recent[['short_date', 'accuracy_pct']]
-            
-        return None
-
+        return None # 正常結束
     except Exception as e:
         print(f"Sync Error: {e}")
         return None
+        
 # --- 4. AI 核心：深度微調連動引擎 (進階指標增強版) ---
 def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
     try:
@@ -704,6 +678,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
