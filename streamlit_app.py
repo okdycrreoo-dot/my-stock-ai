@@ -540,7 +540,9 @@ def main():
         ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
         cp, api_ttl = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1))
-        tw_val, v_comp = float(s_map.get('trend_weight', 1.0)), float(s_map.get('vol_comp', 1.5))
+        tw_val = float(s_map.get('trend_weight', 1.0))
+        # 將 vol_comp 改為 whale_sensitivity 以匹配試算表 A8 儲存格內容
+        v_comp = float(s_map.get('whale_sensitivity', 1.5))
     except Exception as e:
         st.error(f"🚨 資料庫連線失敗: {e}"); return
 
@@ -608,8 +610,10 @@ def main():
                     
                     # 獲取 AI 核心推薦參數
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
-                    ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0, 0)
-                    ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
+                    if temp_df is not None:
+                        ai_p, ai_tw, ai_v, ai_b, _, _, _ = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp)
+                    else:
+                        ai_p, ai_tw, ai_v, ai_b = cp, tw_val, 1.5, ("2330", "2382", "00878")
                     
                     # 恢復完整標題與 AI 建議顯示
                     b1 = st.text_input(f"1. 基準藍籌股 (AI 推薦: {ai_b[0]})", ai_b[0])
@@ -636,6 +640,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
