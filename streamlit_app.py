@@ -514,9 +514,22 @@ def main():
                     st.session_state.user = u; st.rerun()
                 else: st.error("❌ 驗證失敗")
         with tab_reg:
-            new_u = st.text_input("新帳號", key="reg_u"); new_p = st.text_input("新密碼", type="password", key="reg_p")
+            new_u = st.text_input("新帳號", key="reg_u")
+            new_p = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("提交註冊申請"):
-                ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
+                if not new_u or not new_p:
+                    st.error("❌ 帳號或密碼不能為空白")
+                else:
+                    # 1. 抓取目前所有用戶資料
+                    udf = pd.DataFrame(ws_u.get_all_records())
+            
+                    # 2. 檢查新帳號是否已在 'username' 欄位中
+                    if not udf.empty and str(new_u) in udf['username'].astype(str).values:
+                        st.error(f"⚠️ 帳號 '{new_u}' 已被註冊，請嘗試其他名稱")
+                    else:
+                        # 3. 確認無重複才寫入
+                        ws_u.append_row([str(new_u), str(new_p)])
+                        st.success("✅ 註冊成功！現在可以切換至登入分頁。")
     else:
         # --- 使用者儀表板 ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
@@ -576,5 +589,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
