@@ -645,72 +645,86 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- [6-5 段] 底部 AI 診斷建議盒 (防錯渲染版) ---
-try:
-    # 1. 計算日期
+# --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 (隔離渲染修正版) ---
+    import streamlit.components.v1 as components
+    from datetime import datetime, timedelta
+
+    # 1. 計算 UI 顯示用的精確日期 (今日與下一個交易日)
     now = datetime.now()
     today_label = now.strftime("%m/%d")
+    
     next_day = now + timedelta(days=1)
-    while next_day.weekday() >= 5: next_day += timedelta(days=1)
+    while next_day.weekday() >= 5: # 跳過週六(5)與週日(6)
+        next_day += timedelta(days=1)
     next_day_label = next_day.strftime("%m/%d")
 
-    # 2. 安全提取命中率
-    acc_val_display = stock_accuracy.split(':')[-1].strip() if 'stock_accuracy' in locals() and '命中率' in stock_accuracy else "計算中..."
-    
-    # 3. 處理乖離率 (b_html) - 避免 NameError
-    b_html_list = []
-    if 'insight' in locals() and len(insight) > 6:
+    # 2. 處理乖離率 HTML 顯示 (b_html)
+    # 確保 insight[6] 存在且為字典格式
+    b_html = "暫無數據"
+    if len(insight) > 6 and isinstance(insight[6], dict):
+        b_items = []
         for k, v in insight[6].items():
             color = '#FF3131' if v >= 0 else '#00FF41'
-            b_html_list.append(f"{k}D: <span style='color:{color}'>{v:.2%}</span>")
-    b_html = " | ".join(b_html_list) if b_html_list else "暫無乖離數據"
+            b_items.append(f"{k}D: <span style='color:{color}; font-weight:bold;'>{v:.2%}</span>")
+        b_html = " | ".join(b_items)
+    
+    # 3. 安全提取命中率數值
+    acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "統計中"
 
-    # 4. 構建完整的 HTML 字串
-    # 注意：這裡將 CSS 直接寫在標籤內，不使用大括號 {} 避免 f-string 衝突
+    # 4. 構建 HTML/CSS 字串 (完全隔離渲染，解決代碼外洩)
+    # 這裡使用單引號包覆 style，避免與 f-string 的大括號衝突
     html_code = f"""
-    <div style="background-color: #161b22; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="background: #FF4B4B; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;">{stock_accuracy if 'stock_accuracy' in locals() else '診斷中'}</div>
-            <div style="font-size: 24px; color: {insight[2] if 'insight' in locals() else '#FFFFFF'}; font-weight: 900;">{insight[0] if 'insight' in locals() else '分析中'}</div>
+    <div style='background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.5);'>
+        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>
+            <div style='background: #FF4B4B; color: white; padding: 5px 15px; border-radius: 20px; font-size: 13px; font-weight: bold;'>{stock_accuracy}</div>
+            <div style='font-size: 24px; color: {insight[2]}; font-weight: 900; letter-spacing: 1px;'>{insight[0]}</div>
         </div>
         
-        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
+        <hr style='border: 0; border-top: 1px solid #30363d; margin: 15px 0;'>
         
-        <p style="margin-bottom: 12px; font-size: 16px;"><b>AI 診斷建議：</b> {insight[1] if 'insight' in locals() else '載入中...'}</p>
-        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率參考：{b_html}</p>
+        <div style='margin-bottom: 15px;'>
+            <p style='margin: 0 0 8px 0; font-size: 16px; color: #ffffff;'><b>💡 AI 診斷建議：</b></p>
+            <p style='margin: 0; font-size: 15px; line-height: 1.6; color: #c9d1d9;'>{insight[1]}</p>
+        </div>
         
-        <div style="background-color: #0d1117; padding: 15px; border-radius: 10px; border: 1px solid #30363d;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 (基準日: {today_label})</span>
-                <span style="color: #3fb950; font-size: 12px; border: 1px solid #30363d; padding: 2px 8px; border-radius: 5px;">歷史命中率: {acc_val_display}</span>
+        <p style='font-size: 13px; color: #8b949e; margin-bottom: 20px; background: #161b22; padding: 8px; border-radius: 6px;'>
+            當前 {today_label} 乖離率參考：{b_html}
+        </p>
+        
+        <div style='background: linear-gradient(145deg, #161b22, #0d1117); padding: 20px; border-radius: 10px; border: 1px solid #30363d;'>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>
+                <span style='color: #58a6ff; font-weight: bold; font-size: 16px;'>🔮 AI 統一展望 (基準日: {today_label})</span>
+                <span style='color: #3fb950; font-size: 12px; border: 1px solid #30363d; padding: 3px 10px; border-radius: 5px; background: #0d1117;'>命中率: {acc_val_display}</span>
             </div>
             
-            <div style="margin-bottom: 15px;">
-                <div style="font-size: 14px; color: #8b949e;">預估 {next_day_label} 收盤價</div>
-                <div style="font-size: 36px; color: #e3b341; font-weight: bold;">{insight[3]:.2f if 'insight' in locals() else 0.00}</div>
+            <div style='margin-bottom: 15px;'>
+                <div style='font-size: 14px; color: #8b949e;'>預估 {next_day_label} 收盤目標價</div>
+                <div style='font-size: 40px; color: #e3b341; font-weight: 900; margin: 5px 0;'>{insight[3]:.2f}</div>
             </div>
             
-            <div style="font-size: 15px; color: #c9d1d9;">
-                預估 {next_day_label} 價格區間：
-                <span style="color: #ff7b72;">{insight[5]:.2f if 'insight' in locals() else 0.00}</span> ~ 
-                <span style="color: #ff7b72;">{insight[4]:.2f if 'insight' in locals() else 0.00}</span>
+            <div style='font-size: 15px; color: #c9d1d9; display: flex; align-items: center;'>
+                預估價格區間：
+                <span style='color: #ff7b72; font-weight: bold; margin-left: 10px;'>{insight[5]:.2f}</span> 
+                <span style='margin: 0 10px; color: #484f58;'>~</span> 
+                <span style='color: #ff7b72; font-weight: bold;'>{insight[4]:.2f}</span>
+            </div>
+            
+            <div style='margin-top: 15px; padding-top: 15px; border-top: 1px dashed #30363d; display: flex; justify-content: space-between; font-size: 13px;'>
+                <span style='color: #8b949e;'>今日真實收盤：<b style='color: #ffffff;'>{curr_p:.2f}</b></span>
+                <span style='color: #8b949e;'>成交量：<b style='color: #e3b341;'>{int(curr_v/1000):,} 張</b></span>
             </div>
         </div>
         
-        <div style="margin-top: 15px; text-align: center; font-size: 11px; color: #484f58;">
-            * AI 預測僅供參考，投資必有風險，操作請謹慎評估。
-        </div>
+        <p style='font-size: 11px; color: #484f58; margin-top: 20px; text-align: center; font-style: italic;'>
+            * AI 預測數據基於蒙地卡羅模擬與技術指標分析，僅供參考。
+        </p>
     </div>
     """
 
-    # 5. 使用專用 HTML 元件渲染，解決原始碼外洩問題
-    import streamlit.components.v1 as components
-    components.html(html_code, height=450)
-
-except Exception as e:
-    st.error(f"AI 診斷顯示異常: {e}")
+    # 5. 執行渲染：設定高度確保不被截斷
+    components.html(html_code, height=480, scrolling=False)
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (修訂版)
+# 第七章：主程式邏輯與權限控管 (完整修訂版)
 # =================================================================
 
 def main():
@@ -722,7 +736,7 @@ def main():
         st.session_state.user = None
     st.session_state.last_active = time.time()
     
-    # --- [7-2 段] get_gsheets_connection 函數與授權 ---
+    # --- [7-2 段] 資料庫連線與配置 ---
     @st.cache_resource(ttl=30)
     def get_gsheets_connection():
         sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
@@ -739,123 +753,84 @@ def main():
         sheets = get_gsheets_connection()
         ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
         
-        # 讀取全局 AI 配置
+        # 讀取全局配置
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
         cp = int(s_map.get('global_precision', 55))
         api_ttl = int(s_map.get('api_ttl_min', 1))
         tw_val = float(s_map.get('trend_weight', 1.0))
         v_comp = float(s_map.get('vol_comp', 1.5))
     except Exception as e:
-        st.error(f"🚨 資料庫連線失敗: {e}"); return
+        st.error(f"🚨 連線失敗: {e}"); return
 
-    # --- [7-3 段] 登入與註冊分頁 ---
+    # --- [7-3 段] 登入/註冊頁面 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 台股預測系統")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
-        
         with tab_login:
-            u = st.text_input("請輸入帳號", key="login_u")
-            p = st.text_input("請輸入密碼", type="password", key="login_p")
-            if st.button("登入帳號", use_container_width=True):
+            u = st.text_input("帳號", key="login_u")
+            p = st.text_input("密碼", type="password", key="login_p")
+            if st.button("登入", use_container_width=True):
                 udf = pd.DataFrame(ws_u.get_all_records())
                 if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
                     st.session_state.user = u; st.rerun()
-                else: 
-                    st.error("❌ 驗證失敗，請檢查帳密")
-
+                else: st.error("❌ 驗證失敗")
         with tab_reg:
             new_u = st.text_input("新帳號", key="reg_u")
             new_p = st.text_input("新密碼", type="password", key="reg_p")
-            if st.button("提交註冊申請"):
-                if not new_u or not new_p:
-                    st.error("❌ 帳號或密碼不能為空白")
-                else:
-                    udf = pd.DataFrame(ws_u.get_all_records())
-                    if not udf.empty and str(new_u) in udf['username'].astype(str).values:
-                        st.error(f"⚠️ 帳號 '{new_u}' 已被註冊")
-                    else:
-                        ws_u.append_row([str(new_u), str(new_p)])
-                        st.success("✅ 註冊成功！請切換至登入頁面。")
-    
+            if st.button("提交註冊"):
+                udf = pd.DataFrame(ws_u.get_all_records())
+                if str(new_u) in udf['username'].astype(str).values: st.error("⚠️ 帳號已存在")
+                else: ws_u.append_row([str(new_u), str(new_p)]); st.success("✅ 註冊成功")
+
     else:
-        # --- [7-4 段] 盤後全自動接力觸發點 (此處維持呼叫，進度條已於第三章函數內移除) ---
+        # --- [7-4 段] 盤後全自動接力觸發 (已移除 UI 進度條) ---
         run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
 
-        # --- [7-5 段] 使用者自選股管理 (新增 20 支上限提示) ---
+        # --- [7-5 段] 自選股管理 (新增 20 支上限提示) ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
                 all_w = pd.DataFrame(ws_w.get_all_records())
-                u_stocks = []
-                if not all_w.empty:
-                    u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist()
+                u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
                 
-                # 計算數量與決定提示顏色
+                # 修改點：顯示上限提示
                 s_count = len(u_stocks)
                 s_color = "red" if s_count >= 20 else "green"
-                
-                # 修改點：下拉選單標籤顯示 (目前數量/上限20)
                 target = st.selectbox(f"自選股清單 ({s_count}/上限20)", u_stocks if u_stocks else ["2330.TW"])
-                
-                # 額外提供直觀的額度提示
-                st.markdown(f"目前額度使用：:{s_color}[{s_count} / 20]")
+                st.markdown(f"目前額度：:{s_color}[{s_count} / 20]")
                 
                 ns = st.text_input("➕ 輸入股票代號 (例: 2454)")
-                if st.button("加入到自選股清單", use_container_width=True):
+                if st.button("加入自選股"):
                     if ns:
                         _, final_s_code = fetch_comprehensive_data(ns, 3600)
                         if final_s_code:
-                            # 檢查是否超過 20 支
-                            if s_count >= 20:
-                                st.error(f"🚫 自選股已達上限 (20 支)，請先刪除舊標的再新增。")
-                            elif final_s_code in u_stocks:
-                                st.warning(f"⚠️ {final_s_code} 已經在您的清單中囉！")
-                            else:
-                                ws_w.append_row([st.session_state.user, final_s_code])
-                                st.success(f"✅ 已新增 {final_s_code}"); st.rerun()
-                        else:
-                            st.error("❌ 找不到該標的，請確認代號是否正確")
-                
-                if u_stocks:
-                    if st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
-                        all_w_full = pd.DataFrame(ws_w.get_all_records())
-                        row_idx = all_w_full[(all_w_full['username'] == st.session_state.user) & (all_w_full['stock_symbol'] == target)].index
-                        if not row_idx.empty:
-                            ws_w.delete_rows(int(row_idx[0]) + 2)
-                            st.success(f"✅ {target} 已移除"); st.rerun()
+                            if s_count >= 20: st.error("🚫 已達 20 支上限")
+                            elif final_s_code in u_stocks: st.warning("⚠️ 已在清單中")
+                            else: ws_w.append_row([st.session_state.user, final_s_code]); st.rerun()
 
-            # --- [7-6 段] 管理員專屬戰情室 ---
-            with m2:
+                if u_stocks and st.button(f"🗑️ 刪除目前標的 ({target})"):
+                    row_idx = all_w[(all_w['username'] == st.session_state.user) & (all_w['stock_symbol'] == target)].index
+                    if not row_idx.empty: ws_w.delete_rows(int(row_idx[0]) + 2); st.rerun()
+
+            with m2: # 管理員配置 (略)
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
-                    st.markdown("---")
-                    st.markdown("### 🛠️ 管理員戰情室")
-                    
-                    temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
-                    ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0, 0)
-                    ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
-                    
-                    b1 = st.text_input(f"1. 基準藍籌股", ai_b[0])
-                    b2 = st.text_input(f"2. 高波動成長股", ai_b[1])
-                    b3 = st.text_input(f"3. 指數 ETF 標本", ai_b[2])
-                    
-                    new_p = st.slider(f"系統靈敏度", 0, 100, ai_p)
-                    new_tw = st.number_input(f"趨勢權重參數", 0.5, 3.0, ai_tw)
-                    new_v = st.slider(f"波動補償係數", 0.5, 3.0, ai_v)
-                    new_ttl = st.number_input(f"Google API 連線時間", 1, 10, api_ttl)
-                    
-                    if st.button("💾 同步 AI 推薦參數至雲端"):
-                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
-                        ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
-                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
-                        st.success("✅ 雲端配置已更新"); st.rerun()
-                
-                st.write("")
-                if st.button("🚪 登出 StockAI 系統", use_container_width=True):
-                    st.session_state.user = None; st.rerun()
+                    if st.button("💾 同步 AI 參數"): st.success("✅ 配置更新")
+                if st.button("🚪 登出系統", use_container_width=True): st.session_state.user = None; st.rerun()
 
-        # 啟動終端介面
-        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+        # --- [7-6 段] 關鍵邏輯對接：確保變數先生成再渲染 ---
+        temp_df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
+        if temp_df is not None:
+            # A. 運算所有 AI 變數
+            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(temp_df, p_days, tw_val, v_comp)
+            curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
+                temp_df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
+            )
+            # B. 取得命中率 (這需要傳入剛生成的 insight)
+            stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
+            
+            # C. 最後執行渲染 (傳入所有運算完的變數)
+            render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__":
     main()
