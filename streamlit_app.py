@@ -242,40 +242,42 @@ def auto_sync_feedback(ws_p, f_id, insight):
         return f"🎯 系統同步中...", []
 
 
-# --- [3-4 段] 批次預測寫入引擎 ---
+# --- [3-4 段] 修正版：對齊試算表欄位順序 ---
 def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
-    # A. 取得當前自選股總表
     all_watchlist = pd.DataFrame(ws_w.get_all_records())
     if all_watchlist.empty: return
     
-    # B. 取得已存在的預測紀錄 (避免重複寫入同一天的同一支標的)
     existing_p = pd.DataFrame(ws_p.get_all_records())
     today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    # 取得去重後的股票清單
     unique_stocks = all_watchlist['stock_symbol'].unique()
     
     for symbol in unique_stocks:
-        # C. 檢查是否今天已經預測過 (關鍵篩選)
         if not existing_p.empty:
+            # 檢查當天是否已存在該標的
             is_done = existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)]
-            if not is_done.empty: continue # 如果今天寫過了，就跳過
+            if not is_done.empty: continue
             
         try:
-            # D. 抓取數據並運算
             df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
             if df is None: continue
             
-            # 取得 AI 預測值
             f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
             _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
             
-            # E. 寫入試算表 (predictions)
-            # 欄位順序：日期, 代號, 預測收盤, 預測高, 預測低, 診斷建議
-            ws_p.append_row([today_str, symbol, insight[3], insight[4], insight[5], insight[1]])
+            # 關鍵修正：確保這裡的順序與試算表 A-G 欄完全對應
+            # A:date, B:symbol, C:pred_close, D:range_low, E:range_high, F:actual_close(放入診斷文字), G:error_pct
+            ws_p.append_row([
+                today_str,          # A: 日期
+                symbol,             # B: 代號
+                round(insight[3], 2),# C: 預估收盤 (取兩位小數)
+                round(insight[5], 2),# D: 區間低
+                round(insight[4], 2),# E: 區間高
+                insight[1],         # F: 診斷建議 (暫時放在原本 actual_close 的位置)
+                ""                  # G: 誤差百分比 (留空，等收盤後對帳)
+            ])
             
         except Exception as e:
-            print(f"批次寫入失敗 ({symbol}): {e}")
+            print(f"寫入錯誤: {e}")
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -839,5 +841,6 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
