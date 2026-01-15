@@ -212,19 +212,20 @@ def auto_sync_feedback(ws_p, f_id, insight):
 # =================================================================
 def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
     """
-    [4-1 ~ 4-3 整合邏輯] 負責計算 AI 核心參數
+    [4-1 ~ 4-3 核心運算邏輯]
+    負責吸收顯性籌碼、計算波動權重與生成推薦參數。
     """
     try:
         latest = df.iloc[-1]
         price_now = float(latest['Close'])
         
-        # --- [4-1] 籌碼力道吸收 ---
+        # --- [4-1] 顯性籌碼力道提取 ---
         inst_force = latest.get('Inst_Force', 0)
         v_curr = latest['Volume']
         v_avg5 = df['Volume'].tail(5).mean()
         vol_ratio = v_curr / (v_avg5 + 1e-5)
         
-        # --- [4-2] 波動與趨勢計算 ---
+        # --- [4-2] 多維度波動與趨勢權重 ---
         rets = df['Close'].pct_change().dropna()
         v_p = [5, 10, 15, 20, 25, 30]
         v_w = [0.25, 0.2, 0.15, 0.15, 0.15, 0.1]
@@ -232,10 +233,10 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
         f_vol = sum(v * w for v, w in zip(v_vals, v_w)) * env_panic
         
         tw_adj = 0.8 if env_panic > 1.0 else 1.0
-        # 融入籌碼力道修正趨勢權重
+        # 將籌碼力道融入趨勢權重
         final_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 + inst_force * 0.5) * min(1.5, vol_ratio) * tw_adj))
         
-        # --- [4-3] 乖離與標桿偏移 ---
+        # --- [4-3] 乖離偏好與漂移參數生成 ---
         b_periods = [5, 10, 15, 20, 25, 30]
         b_weights = [0.35, 0.2, 0.15, 0.1, 0.1, 0.1]
         bias_list = [((price_now - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5)) for p in b_periods]
@@ -247,8 +248,7 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
         high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
         ai_v = 1.3 if (high_low_range > 0.035 or abs(inst_force) > 0.8) else 2.1 if high_low_range < 0.015 else 1.7
         
-        benchmarks = ("2330", "2382", "00878") if f_vol > 0.02 else ("2317", "2454", "0050")
-        b_drift = 0.0 # 標桿漂移預設
+        b_drift = 0.0 # 預設標桿漂移
         
         # 回傳 7 個參數以對接主程式 (final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift)
         return int(final_p), round(final_tw, 2), ai_v, bias_val, bias_val, f_vol, b_drift
@@ -258,35 +258,35 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
 
 def perform_ai_engine(df, cp, tw_val, v_comp):
     """
-    [修復 KeyError: 'MA20'] 封裝函數，對接 render_terminal
+    [修復 KeyError: 'MA20' 與主程式對接]
     """
     try:
-        # 強制修復缺失指標
+        # 1. 數據安全性檢查：自動補足缺失的技術指標欄位
         if 'MA20' not in df.columns:
             df['MA20'] = df['Close'].rolling(window=20).mean()
         if 'std_20' not in df:
             df['std_20'] = df['Close'].rolling(window=20).std()
-
-        # 呼叫核心引擎獲取參數
+            
+        # 2. 呼叫核心運算獲取 AI 參數
         f_p, f_tw, f_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
         
-        # 根據顯性籌碼生成診斷文字
+        # 3. 根據顯性籌碼生成診斷文本
         inst_force = df.iloc[-1].get('Inst_Force', 0)
-        if inst_force > 0.5:
-            insight = "🔍 籌碼面偵測到法人大戶積極介入，預測精度已校準。"
-        elif inst_force < -0.5:
-            insight = "⚠️ 籌碼呈現流出跡象，預測區間已自動放寬以應對波動。"
+        if inst_force > 0.6:
+            insight = "🔍 偵測到法人大戶積極介入，支撐力道轉強，精度已校準。"
+        elif inst_force < -0.6:
+            insight = "⚠️ 籌碼呈現調節流出，建議放寬區間以因對潛在波動。"
         else:
-            insight = "📊 目前籌碼動向平穩，股價遵循技術慣性走勢。"
+            insight = "📊 目前籌碼動向平穩，股價遵循技術慣性軌道運行。"
 
-        # 計算預測價格 (提供給 render_terminal 顯示)
+        # 4. 計算預測價格
         pred_price = df.iloc[-1]['Close'] * (1 + bias * 0.2 + inst_force * 0.01)
         
-        # 回傳主程式期待的 8 個值 (根據圖3/圖4 第 494/503 行)
-        # pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight
+        # 5. 準備主程式需要的 8 個回傳值 (對接截圖 3/4/5 的第 494/503/501 行)
         l = df.iloc[-1]
         change_pct = (l['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
         
+        # 回傳格式: [預測點列表], [AI參數列表], 現價, 開盤, 昨收, 成交量, 漲跌幅, 診斷語句
         return [pred_price], [f_p, f_tw, f_v], l['Close'], l['Open'], df.iloc[-2]['Close'], l['Volume'], change_pct, insight
 
     except Exception as e:
@@ -758,6 +758,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
