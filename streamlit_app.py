@@ -656,39 +656,40 @@ Python
 
     # --- [6-5 段] 底部 AI 診斷建議盒 (隔離渲染修正版) ---
     import streamlit.components.v1 as components
-    
-    # 1. 準備日期
+    from datetime import datetime, timedelta
+
+    # 1. 計算 UI 日期標籤
     now = datetime.now()
     today_label = now.strftime("%m/%d")
     next_day = now + timedelta(days=1)
     while next_day.weekday() >= 5: next_day += timedelta(days=1)
     next_day_label = next_day.strftime("%m/%d")
 
-    # 2. 格式化數據 (防範 insight 變數缺失)
+    # 2. 安全處理乖離率 HTML 文字
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
-    acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中"
+    acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "統計中"
 
-    # 3. HTML 佈局 (完全解決代碼外洩問題)
+    # 3. 構建完全隔離的 HTML (這會徹底解決標籤直接顯示在螢幕上的問題)
     html_content = f"""
     <div style="background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <div style="background: #FF4B4B; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;">{stock_accuracy}</div>
             <div style="font-size: 24px; color: {insight[2]}; font-weight: 900;">{insight[0]}</div>
         </div>
         <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
         <p style="margin-bottom: 12px; font-size: 16px;"><b>AI 診斷建議：</b> {insight[1]}</p>
-        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率：{b_html}</p>
+        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率參考：{b_html}</p>
         <div style="background-color: #161b22; padding: 18px; border-radius: 10px; border: 1px solid #30363d;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 ({today_label})</span>
+                <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 (基準日: {today_label})</span>
                 <span style="color: #3fb950; font-size: 12px; border: 1px solid #30363d; padding: 2px 8px; border-radius: 5px;">命中率: {acc_val_display}</span>
             </div>
-            <div style="margin-bottom: 10px;">
+            <div style="margin-bottom: 15px;">
                 <div style="font-size: 14px; color: #8b949e;">預估 {next_day_label} 收盤價</div>
-                <div style="font-size: 36px; color: #e3b341; font-weight: bold;">{insight[3]:.2f}</div>
+                <div style="font-size: 38px; color: #e3b341; font-weight: 900;">{insight[3]:.2f}</div>
             </div>
-            <div style="font-size: 14px; color: #c9d1d9;">
-                區間：<span style="color: #ff7b72;">{insight[5]:.2f}</span> ~ <span style="color: #ff7b72;">{insight[4]:.2f}</span>
+            <div style="font-size: 15px; color: #c9d1d9;">
+                預估價格區間：<span style="color: #ff7b72; font-weight: bold;">{insight[5]:.2f}</span> ~ <span style="color: #ff7b72; font-weight: bold;">{insight[4]:.2f}</span>
             </div>
         </div>
     </div>
@@ -755,26 +756,27 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.button("🚪 登出系統"): st.session_state.user = None; st.rerun()
 
-        # --- [7-6 段] 核心邏輯對接：確保變數生成後才渲染 ---
+        # --- [7-6 段] 核心邏輯對接：確保變數生成後才進行介面渲染 ---
         df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
         
         if df is not None:
-            # 1. 運算 AI 參數 (這步會生成所有預測點)
+            # 1. 執行運算生成關鍵參數
             f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
             
-            # 2. 執行核心引擎 (產出關鍵變數 insight)
+            # 2. 啟動 AI 引擎 (生成包含 insight 在內的所有核心變數)
             curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
                 df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
             )
             
-            # 3. 取得同步命中率數據 (依賴上一步的 insight)
+            # 3. 執行對帳與命中率同步 (需要剛剛生成的 insight)
             stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
             
-            # 4. 最後呼叫渲染函數，將所有變數傳進去
+            # 4. 最後才啟動第六章的渲染函數 (確保所有參數都已定義)
             render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__":
     main()
     
+
 
 
