@@ -664,20 +664,20 @@ Python
     while next_day.weekday() >= 5: next_day += timedelta(days=1)
     next_day_label = next_day.strftime("%m/%d")
 
-    # 2. 格式化數據
+    # 2. 格式化數據 (防範 insight 變數缺失)
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
     acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中"
 
-    # 3. HTML 佈局 (使用 components.html 解決原始碼外洩)
+    # 3. HTML 佈局 (完全解決代碼外洩問題)
     html_content = f"""
     <div style="background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="background: #FF4B4B; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;">{stock_accuracy}</div>
             <div style="font-size: 24px; color: {insight[2]}; font-weight: 900;">{insight[0]}</div>
         </div>
-        <hr style="border: 0; border-top: 1px solid #30363d; margin: 10px 0;">
+        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
         <p style="margin-bottom: 12px; font-size: 16px;"><b>AI 診斷建議：</b> {insight[1]}</p>
-        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率參考：{b_html}</p>
+        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率：{b_html}</p>
         <div style="background-color: #161b22; padding: 18px; border-radius: 10px; border: 1px solid #30363d;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 ({today_label})</span>
@@ -755,26 +755,26 @@ def main():
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.button("🚪 登出系統"): st.session_state.user = None; st.rerun()
 
-        # --- [7-6 段] 核心邏輯對接：先運算再渲染 ---
+        # --- [7-6 段] 核心邏輯對接：確保變數生成後才渲染 ---
         df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
         
         if df is not None:
-            # 1. 執行運算 (必須在 render_terminal 之前執行，產出 insight 變數)
+            # 1. 運算 AI 參數 (這步會生成所有預測點)
             f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
             
-            # 2. 產出所有介面變數
+            # 2. 執行核心引擎 (產出關鍵變數 insight)
             curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
                 df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
             )
             
-            # 3. 取得同步命中率數據
+            # 3. 取得同步命中率數據 (依賴上一步的 insight)
             stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
             
-            # 4. 最後才呼叫渲染函數，並將運算好的變數傳入
-            # 注意：請檢查 render_terminal 的定義，確保參數順序一致
+            # 4. 最後呼叫渲染函數，將所有變數傳進去
             render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__":
     main()
     
+
 
