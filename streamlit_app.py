@@ -124,38 +124,77 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
 # 第三章：自動對帳與反饋系統 (Feedback System)
 # =================================================================
 
-# --- [3-1 段] auto_sync_feedback 函數與歷史讀取 ---
+# --- [3-1 段] auto_sync_feedback 函數與時間判定邏輯 ---
 def auto_sync_feedback(ws_p, f_id, insight):
     try:
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
-        today = datetime.now().strftime("%Y-%m-%d")
-        is_weekend = datetime.now().weekday() >= 5
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # 14:30 收盤判定邏輯 (14*60 + 30 = 870 分鐘)
+        is_after_market = (now.hour * 60 + now.minute) >= 870
+        is_weekend = now.weekday() >= 5
 
-        # --- [3-2 段] 歷史預測與實際股價比對邏輯 ---
+        # --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
         for i, row in df_p.iterrows():
-            if not is_weekend and str(row['actual_close']) == "" and row['date'] != today:
-                h = yf.download(row['symbol'], start=row['date'], end=(pd.to_datetime(row['date']) + timedelta(days=3)).strftime("%Y-%m-%d"), progress=False)
+            # 若 actual_close 欄位為空，且該列記錄的預測目標日期已到達或已過(<=今天)
+            if str(row.get('actual_close', '')).strip() == "" and str(row.get('date', '')) <= today_str:
+                target_date = row['date']
+                # 抓取該目標日的收盤數據 (end_date 設為隔日以確保抓到當天)
+                end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+                h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
+                
                 if not h.empty:
-                    act_close = float(h['Close'].iloc[0])
-                    err_val = (act_close - float(row['pred_close'])) / float(row['pred_close'])
+                    # 處理 yfinance 可能產生的 MultiIndex 欄位
+                    act_df = h.copy()
+                    if isinstance(act_df.columns, pd.MultiIndex):
+                        act_df.columns = act_df.columns.get_level_values(0)
+                    
+                    act_close = float(act_df['Close'].iloc[-1])
+                    pred_close = float(row['pred_close'])
+                    
+                    # 更新試算表：第 6 欄為實際收盤價，第 7 欄為誤差率
                     ws_p.update_cell(i + 2, 6, round(act_close, 2))
+                    err_val = (act_close - pred_close) / pred_close
                     ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
-        # --- [3-3 段] 命中率計算與新預測數據回填 ---
-        if not is_weekend and not any((r['date'] == today and r['symbol'] == f_id) for r in recs):
-            new_row = [today, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
-            ws_p.append_row(new_row)
+        # --- [3-3 段] 新預測數據回填：預測下一交易日 ---
+        # 嚴格執行您的要求：僅在 14:30 收盤後且非週末才寫入新的預測
+        if is_after_market and not is_weekend:
+            # 計算下一個交易日 (自動跳過週六與週日)
+            next_bus_day = now + timedelta(days=1)
+            while next_bus_day.weekday() >= 5:
+                next_bus_day += timedelta(days=1)
+            next_day_str = next_bus_day.strftime("%Y-%m-%d")
+
+            # 檢查試算表中是否已經存在對該標的、該目標日的預測記錄，避免重複寫入
+            if not any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs):
+                # 寫入順序：目標日期(明日), 股票代號, 預估收盤, 預估低, 預估高, 實際收盤(留空), 誤差(留空)
+                new_row = [
+                    next_day_str, 
+                    f_id, 
+                    round(insight[3], 2), 
+                    round(insight[5], 2), 
+                    round(insight[4], 2), 
+                    "", 
+                    ""
+                ]
+                ws_p.append_row(new_row)
         
+        # 命中率計算：從歷史已對帳數據中統計最近 10 筆
         df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
         if not df_stock.empty:
-            df_stock = df_stock.loc[df_stock['actual_close'].shift() != df_stock['actual_close']]
             df_recent = df_stock.tail(10)
-            hit = sum((df_recent['actual_close'] >= df_recent['range_low']) & (df_recent['actual_close'] <= df_recent['range_high']))
+            hit = sum((df_recent['actual_close'].astype(float) >= df_recent['range_low'].astype(float)) & 
+                      (df_recent['actual_close'].astype(float) <= df_recent['range_high'].astype(float)))
             return f"🎯 此股實戰命中率: {(hit/len(df_recent))*100:.1f}%"
+        
         return "🎯 數據累積中"
-    except:
-        return "🎯 同步中"
+        
+    except Exception as e:
+        # 發生錯誤時返回同步中，避免主程式當機
+        return f"🎯 同步中..."
 
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
@@ -380,25 +419,65 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 
 # --- [6-1 段] render_terminal 呼叫與 UI 樣式覆蓋 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
+    # 1. 調用數據引擎抓取基礎資料
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
+    # 2. 調用第四章微調引擎獲取 AI 參數
     final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     
+    # 3. 調用第五章運算核心執行預測
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
+    
+    # 4. 調用修正後的第三章對帳系統
     stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
 
+    # 5. UI 樣式覆蓋 (確保深色模式與自定義組件樣式)
     st.markdown("""
         <style>
         .stApp { background-color: #000000; }
         .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; font-weight: 900 !important; }
-        .info-box { background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100px; }
-        .diag-box { background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .ai-advice-box { background: #000000; border: 2px solid #333; padding: 20px; border-radius: 15px; margin-top: 25px; }
-        .confidence-tag { background: #FF3131; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin-bottom: 10px; }
+        .info-box { 
+            background: #0A0A0A; 
+            padding: 12px; 
+            border: 1px solid #333; 
+            border-radius: 10px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100px; 
+        }
+        .diag-box { 
+            background: #050505; 
+            padding: 15px; 
+            border-radius: 12px; 
+            border: 1px solid #444; 
+            min-height: 120px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+        }
+        .ai-advice-box { 
+            background: #000000; 
+            border: 2px solid #333; 
+            padding: 20px; 
+            border-radius: 15px; 
+            margin-top: 25px; 
+        }
+        .confidence-tag { 
+            background: #FF3131; 
+            color: white; 
+            padding: 4px 12px; 
+            border-radius: 20px; 
+            font-size: 0.8rem; 
+            display: inline-block; 
+            margin-bottom: 10px; 
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -590,3 +669,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
