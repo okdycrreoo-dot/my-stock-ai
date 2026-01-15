@@ -652,27 +652,46 @@ def main():
                         ws_u.append_row([str(new_u), str(new_p)])
                         st.success("✅ 註冊成功！現在可以切換至登入分頁。")
     else:
-        # --- [7-5 段] 使用者自選股管理 (新增/刪除) ---
-        with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
-            m1, m2 = st.columns(2)
-            with m1:
-                all_w = pd.DataFrame(ws_w.get_all_records())
-                u_stocks = all_w[all_w['username']==st.session_state.user]['stock_symbol'].tolist()
-                target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330"])
-                ns = st.text_input("➕ 輸入股票代號 (例: 2454.TW)")
-                if st.button("加入到自選股清單"):
-                    if ns: ws_w.append_row([st.session_state.user, ns.upper().strip()]); st.success("✅ 已新增"); st.rerun()
+        # --- [7-5 段] 自選股管理：新增、刪除與列表顯示 (修正版) ---
+    with st.sidebar.expander("➕ 新增自選股", expanded=False):
+        new_stock = st.text_input("輸入股票代號 (如: 2330)", key="new_stock_input").strip().upper()
+        if st.button("確認新增"):
+            if new_stock:
+                # 這裡調用 2-1 段修正後的邏輯，自動判定上市或上櫃
+                _, final_s_code = fetch_comprehensive_data(new_stock, 3600)
                 
-                if u_stocks:
-                    st.write("")
-                    if st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
-                        try:
-                            cell = ws_w.find(target)
-                            if cell:
-                                ws_w.delete_rows(cell.row)
-                                st.success(f"✅ {target} 已移除"); st.rerun()
-                        except: st.error("❌ 刪除失敗")
+                if final_s_code:
+                    # --- 重複檢查邏輯 ---
+                    if final_s_code in st.session_state.watch_list:
+                        st.warning(f"⚠️ {final_s_code} 已經在您的自選清單中囉！")
+                    else:
+                        # 執行新增至 Google Sheets
+                        if add_stock_to_sheet(st.session_state.user_email, final_s_code):
+                            st.session_state.watch_list.append(final_s_code)
+                            st.success(f"✅ 已將 {final_s_code} 加入清單")
+                            st.rerun()
+                        else:
+                            st.error("❌ 新增失敗，請檢查網路或權限")
+                else:
+                    st.error("❌ 找不到該標的，請確認代號是否正確")
+            else:
+                st.info("💡 請先輸入股票代號")
 
+    # 自選清單列表顯示
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📋 我的關注清單")
+    if not st.session_state.watch_list:
+        st.sidebar.info("目前清單空空如也，快去新增吧！")
+    else:
+        for s in st.session_state.watch_list:
+            col_s, col_del = st.sidebar.columns([4, 1])
+            if col_s.button(f"🔍 {s}", key=f"btn_{s}", use_container_width=True):
+                st.session_state.selected_stock = s
+            
+            if col_del.button("🗑️", key=f"del_{s}"):
+                if remove_stock_from_sheet(st.session_state.user_email, s):
+                    st.session_state.watch_list.remove(s)
+                    st.rerun()
             # --- [7-6 段] 管理員專屬戰情室 (參數調整與同步) ---
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
@@ -706,6 +725,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
