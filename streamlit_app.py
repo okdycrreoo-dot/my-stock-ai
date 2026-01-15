@@ -770,11 +770,51 @@ def main():
     # -------------------------------------------------------------
     # --- [7-4 段] 批次引擎觸發點 ---
     # -------------------------------------------------------------
+    # 當使用者進入此區塊，表示已登入，立即執行背景檢查與資料寫入
     with st.spinner("同步全球 AI 預測數據中..."):
         run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
 
     # -------------------------------------------------------------
-    # [段落 7-5] 核心運算對接：先運算數據 -> 後渲染介面
+    # [段落 7-5] 管理面板：自選股維護 (請確保此段落在 fetch 之前執行以取得 target)
+    # -------------------------------------------------------------
+    with st.expander("⚙️ 管理自選股清單 (上限 20 支)", expanded=False):
+        all_w = pd.DataFrame(ws_w.get_all_records())
+        u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
+        s_count = len(u_stocks)
+        
+        m1, m2 = st.columns(2)
+        with m1:
+            s_color = "red" if s_count >= 20 else "green"
+            # 此處定義 target 變數，供後續 7-6 段使用
+            target = st.selectbox(f"我的清單 ({s_count}/20)", u_stocks if u_stocks else ["2330.TW"])
+            st.markdown(f"額度使用：:{s_color}[{s_count} / 20]")
+            
+            ns = st.text_input("➕ 新增代號")
+            if st.button("確認加入"):
+                if s_count >= 20:
+                    st.error("🚫 已達 20 支上限")
+                elif ns:
+                    raw_s = ns.upper().strip()
+                    if "." not in raw_s:
+                        final_s = f"{raw_s}.TWO" if raw_s.startswith(('3','5','6','8')) else f"{raw_s}.TW"
+                    else:
+                        final_s = raw_s
+                    if final_s not in u_stocks:
+                        ws_w.append_row([st.session_state.user, final_s])
+                        st.rerun()
+        with m2:
+            p_days = st.number_input("AI 預估天數", 1, 30, 7)
+            if st.button("🗑️ 刪除目前標的"):
+                row = all_w[(all_w['username'] == st.session_state.user) & (all_w['stock_symbol'] == target)]
+                if not row.empty:
+                    ws_w.delete_rows(int(row.index[0]) + 2)
+                    st.rerun()
+            if st.button("🚪 登出系統"):
+                st.session_state.user = None
+                st.rerun()
+
+    # -------------------------------------------------------------
+    # [段落 7-6] 核心運算對接：先運算數據 -> 後渲染介面
     # -------------------------------------------------------------
     # A. 抓取當前標的之綜合數據
     df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
@@ -788,20 +828,16 @@ def main():
             df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
         )
         
-        # D. 同步歷史預測命中率數據 (生成 stock_accuracy)
+        # D. 同步歷史預測命中率數據
         stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
         
-        # E. 最終渲染：請務必將運算出的變數傳入渲染函數
-        # 這裡增加了 insight 和 stock_accuracy 等必要參數的傳遞
-        render_terminal(
-            df, target, p_days, cp, tw_val, api_ttl, v_comp, 
-            ws_p, insight, stock_accuracy, curr_p, curr_v
-        )
+        # E. 最終渲染：呼叫第六章介面
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
     else:
-        st.error("數據獲取異常，請稍後再試或檢查代號。")
+        st.error("數據獲取異常，請稍後再試。")
 
 # -----------------------------------------------------------------
-# [段落 7-6] 程式進入點
+# [段落 7-7] 程式進入點
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
