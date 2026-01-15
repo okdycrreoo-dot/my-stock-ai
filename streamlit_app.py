@@ -242,18 +242,18 @@ def auto_sync_feedback(ws_p, f_id, insight):
         return f"🎯 系統同步中...", []
 
 
-# --- [3-4 段] 修正版：對齊試算表欄位順序 ---
+# --- [3-4 段] 修正版：對齊試算表 A-G 欄位順序 ---
 def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
     all_watchlist = pd.DataFrame(ws_w.get_all_records())
     if all_watchlist.empty: return
     
+    # 這裡必須即時抓取最新 predictions 內容以防重複寫入
     existing_p = pd.DataFrame(ws_p.get_all_records())
     today_str = datetime.now().strftime("%Y-%m-%d")
     unique_stocks = all_watchlist['stock_symbol'].unique()
     
     for symbol in unique_stocks:
         if not existing_p.empty:
-            # 檢查當天是否已存在該標的
             is_done = existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)]
             if not is_done.empty: continue
             
@@ -264,20 +264,21 @@ def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
             f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
             _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
             
-            # 關鍵修正：確保這裡的順序與試算表 A-G 欄完全對應
-            # A:date, B:symbol, C:pred_close, D:range_low, E:range_high, F:actual_close(放入診斷文字), G:error_pct
+            # --- 精確對位寫入 ---
+            # A:date, B:symbol, C:pred_close, D:range_low, E:range_high, F:actual_close, G:error_pct
             ws_p.append_row([
-                today_str,          # A: 日期
-                symbol,             # B: 代號
-                round(insight[3], 2),# C: 預估收盤 (取兩位小數)
-                round(insight[5], 2),# D: 區間低
-                round(insight[4], 2),# E: 區間高
-                insight[1],         # F: 診斷建議 (暫時放在原本 actual_close 的位置)
-                ""                  # G: 誤差百分比 (留空，等收盤後對帳)
+                today_str,                   # A: 日期
+                symbol,                      # B: 代號
+                round(float(insight[3]), 2), # C: 預估收盤 (insight[3])
+                round(float(insight[5]), 2), # D: 區間低   (insight[5])
+                round(float(insight[4]), 2), # E: 區間高   (insight[4])
+                "待更新",                    # F: Actual_Close (這裡填文字，避免文字擠掉數值欄位)
+                ""                           # G: Error_Pct (留空供對帳)
             ])
+            # 注意：若您試算表有 H 欄，可再加一項 insight[1]
             
         except Exception as e:
-            print(f"寫入錯誤: {e}")
+            print(f"寫入錯誤 {symbol}: {e}")
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -776,43 +777,8 @@ def main():
     with st.spinner("同步全球 AI 預測數據中..."):
         run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
 
-        # ---------------------------------------------------------
-        # [段落 7-5] 管理面板：自選股維護 (含 20 支上限邏輯)
-        # ---------------------------------------------------------
-        with st.expander("⚙️ 管理自選股清單 (上限 20 支)", expanded=False):
-            all_w = pd.DataFrame(ws_w.get_all_records())
-            u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
-            s_count = len(u_stocks)
-            
-            m1, m2 = st.columns(2)
-            with m1:
-                # 顯示當前額度進度
-                s_color = "red" if s_count >= 20 else "green"
-                target = st.selectbox(f"我的清單 ({s_count}/20)", u_stocks if u_stocks else ["2330.TW"])
-                st.markdown(f"目前額度使用：:{s_color}[{s_count} / 20]")
-                
-                ns = st.text_input("➕ 新增代號 (例: 2454)")
-                if st.button("確認加入"):
-                    if s_count >= 20:
-                        st.error("🚫 已達 20 支自選上限，請先刪除舊標的")
-                    elif ns:
-                        ws_w.append_row([st.session_state.user, ns.upper()])
-                        st.toast(f"✅ 已加入 {ns}")
-                        st.rerun()
-            
-            with m2:
-                p_days = st.number_input("AI 預估天數", 1, 30, 7)
-                if st.button("🗑️ 刪除目前標的"):
-                    row = all_w[(all_w['username'] == st.session_state.user) & (all_w['stock_symbol'] == target)]
-                    if not row.empty:
-                        # GSheet row index = DataFrame index + 2 (Header+Offset)
-                        ws_w.delete_rows(int(row.index[0]) + 2)
-                        st.rerun()
-                
-                if st.button("🚪 登出系統", use_container_width=True):
-                    st.session_state.user = None
-                    st.rerun()
-
+        預防重複添加：增加了 if final_s in u_stocks 的檢查，避免同一個帳號重複存入相同的股票。
+        
         # ---------------------------------------------------------
         # [段落 7-6] 核心運算對接：先運算數據 -> 後渲染介面
         # ---------------------------------------------------------
@@ -841,6 +807,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
