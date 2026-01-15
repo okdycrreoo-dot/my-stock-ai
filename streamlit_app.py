@@ -529,7 +529,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 # 第六章：終端渲染引擎 (Render Terminal)
 # =================================================================
 
-# --- [6-1 段] render_terminal 完整呼叫邏輯 ---
+# --- [6-1 段修正] render_terminal 定義 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -541,36 +541,23 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
     
-    # 重點：這裡必須同時接收文字(stock_accuracy)與清單(acc_history)
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    st.markdown("""
-        <style>
-        .stApp { background-color: #000000; }
-        .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; font-weight: 900 !important; }
-        .info-box { background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100px; }
-        .diag-box { background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .ai-advice-box { background: #000000; border: 2px solid #333; padding: 20px; border-radius: 15px; margin-top: 25px; }
-        .confidence-tag { background: #FF3131; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin-bottom: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
-
-# --- [6-2 段修正] 內部邏輯微調：動態判定預測顏色 ---
-    # 邏輯：預估 > 現價 = 紅色/漲, 預估 < 現價 = 綠色/跌
+    # --- [6-2 段修正] 紅漲綠跌判定與渲染 ---
     pred_val = float(insight[3])
     current_val = float(curr_p)
     
     if pred_val > current_val:
-        pred_color = "#FF3131"  # 亮紅色
+        pred_color = "#FF3131"  # 亮紅
         trend_icon = "▲"
     elif pred_val < current_val:
-        pred_color = "#00FF00"  # 亮綠色
+        pred_color = "#00FF00"  # 亮綠
         trend_icon = "▼"
     else:
         pred_color = "#FFFFFF"  # 白色
         trend_icon = "—"
 
-    # 更新 HTML 渲染部分：將動態顏色 pred_color 與 trend_icon 注入
+    # HTML 渲染部分
     st.components.v1.html(f"""
         <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333; color: white; font-family: sans-serif;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -589,6 +576,8 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             </div>
         </div>
     """, height=140)
+    
+    # ... 後續接 6-3 段 (K線圖等) 保持不變 ...
 
 # --- [6-3 段] 極短線/短線/波段買賣點診斷區 (1:1 保持) ---
     st.write(""); s_cols = st.columns(3)
@@ -807,34 +796,30 @@ def main():
                 st.session_state.user = None
                 st.rerun()
 
-    # ---------------------------------------------------------
-        # [段落 7-6] 核心運算對接：先運算數據 -> 後渲染介面
-        # ---------------------------------------------------------
-        df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
+    # -----------------------------------------------------------------
+        # [段落 7-6] 核心運算對接：呼叫渲染引擎
+        # -----------------------------------------------------------------
+        # 此處 target 來自 [7-5 段] 的 st.selectbox
+        # p_days 來自 [7-5 段] 的 st.number_input
+        # 其餘參數 (cp, tw_val, v_comp, api_ttl) 來自 [第一章] 的設定值
         
-        if df is not None:
-            # B. 啟動 AI 參數微調
-            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
-            
-            # C. 執行 AI 核心運算 (獲取 insight, ai_recs, pred_line 等)
-            pred_line, ai_recs, curr_p, open_p, last_p, curr_v, change, insight = perform_ai_engine(
-                df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
-            )
-            
-            # D. 同步歷史預測命中率
-            stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
-            
-            # E. 最終渲染：【參數補齊確認】
+        if target:
+            # 直接呼叫第六章渲染函數
+            # 注意：此處參數數量(7個)必須與 [第六章] def render_terminal 的定義完全一致
             render_terminal(
-                df, target, p_days, cp, tw_val, api_ttl, v_comp, 
-                ws_p, insight, stock_accuracy, curr_p, curr_v, ai_recs, pred_line
+                target,    # symbol
+                p_days,    # p_days
+                cp,        # cp
+                tw_val,    # tw_val
+                api_ttl,   # api_ttl
+                v_comp,    # v_comp
+                ws_p       # ws_p
             )
         else:
-            st.error("數據獲取異常，請稍後再試。")
+            st.info("💡 請由左側或管理面板選擇一支股票進行分析。")
 
 # -----------------------------------------------------------------
 # [段落 7-7] 程式進入點
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
-
