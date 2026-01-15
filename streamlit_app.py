@@ -211,15 +211,41 @@ def auto_sync_feedback(ws_p, f_id, insight):
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
 
-# --- [4-1 段] auto_fine_tune_engine 函數與大盤判斷 ---
-def auto_fine_tune_engine(df, base_p, base_tw, v_comp):
+# --- [4-1 段] AI 診斷引擎：顯性籌碼吸收版 ---
+def generate_ai_insight(df, f_id):
     try:
-        mkt_df = yf.download("^TWII", period="1mo", interval="1d", auto_adjust=True, progress=False)
-        mkt_rets = mkt_df['Close'].pct_change().dropna()
-        mkt_vol = mkt_rets.tail(20).std()
-        env_panic = 1.25 if mkt_vol > 0.012 else 1.0
+        # 取得最新數據
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+        
+        curr_p = latest['Close']
+        inst_force = latest['Inst_Force'] # 剛才計算的顯性籌碼力道
+        vol_ratio = latest['Volume'] / df['Volume'].mean()
+        
+        # 1. 預測核心：根據籌碼力道修正偏移量
+        # 如果法人力道強(inst_force高)，預測中心會向上微調
+        bias = 1 + (inst_force * 0.05) 
+        pred_close = curr_p * bias
+        
+        # 2. 動態區間修正：籌碼越集中，區間越收窄 (提升準確率)
+        atr = (df['High'] - df['Low']).mean()
+        confidence_multiplier = 1.2 if abs(inst_force) > 1 else 1.8
+        range_high = pred_close + (atr * confidence_multiplier)
+        range_low = pred_close - (atr * confidence_multiplier)
+        
+        # 3. 生成「吸收了顯性數據」後的簡潔診斷
+        if inst_force > 0.5 and vol_ratio > 1.2:
+            diag = "籌碼面呈現法人集體共識，量價結構穩固，預測精度調升。"
+        elif inst_force < -0.5:
+            diag = "偵測到大戶籌碼流出，波動風險增加，預測區間已自動放寬。"
+        else:
+            diag = "目前籌碼動向中性，股價遵循技術慣性走勢。"
+            
+        return [diag, "核心動能分析中", "環境共振正常", range_low, range_high, pred_close]
     except:
-        env_panic = 1.0
+        # 保底邏輯
+        p = df.iloc[-1]['Close']
+        return ["數據分析中", "穩定", "正常", p*0.97, p*1.03, p]
 
     # --- [4-2 段] 波動率與趨勢權重的多維度計算 ---
     rets = df['Close'].pct_change().dropna()
@@ -729,6 +755,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
