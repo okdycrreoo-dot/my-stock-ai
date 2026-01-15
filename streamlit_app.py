@@ -208,17 +208,22 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except Exception as e:
         return f"🎯 同步中...", []
 # =================================================================
-# 第四章：AI 微調引擎 (Fine-tune Engine) - 修復版
+# 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
 def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
     """
     負責吸收顯性籌碼、計算波動權重與生成推薦參數。
     """
     try:
+        # --- [安全性檢查] 確保進入邏輯前指標已存在 ---
+        if 'MA20' not in df.columns:
+            df['MA20'] = df['Close'].rolling(window=20).mean()
+        
         latest = df.iloc[-1]
         price_now = float(latest['Close'])
         
         # --- [4-1] 顯性籌碼力道提取 ---
+        # 提取法人力道指標，若無則預設為 0
         inst_force = latest.get('Inst_Force', 0)
         v_curr = latest['Volume']
         v_avg5 = df['Volume'].tail(5).mean()
@@ -229,64 +234,50 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
         v_p = [5, 10, 15, 20, 25, 30]
         v_w = [0.25, 0.2, 0.15, 0.15, 0.15, 0.1]
         v_vals = [rets.tail(p).std() for p in v_p]
+        # 計算加權波動率並結合環境恐慌因子
         f_vol = sum(v * w for v, w in zip(v_vals, v_w)) * env_panic
         
         tw_adj = 0.8 if env_panic > 1.0 else 1.0
+        # 核心公式：將籌碼力道融入趨勢權重 (final_tw)
         final_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 + inst_force * 0.5) * min(1.5, vol_ratio) * tw_adj))
         
         # --- [4-3] 乖離偏好與漂移參數生成 ---
         b_periods = [5, 10, 15, 20, 25, 30]
         b_weights = [0.35, 0.2, 0.15, 0.1, 0.1, 0.1]
-        
-        # 安全取得滾動平均值
-        bias_list = []
-        for p in b_periods:
-            ma = df['Close'].rolling(p).mean().iloc[-1]
-            bias_list.append((price_now - ma) / (ma + 1e-5))
-            
+        # 計算多週期加權乖離率
+        bias_list = [((price_now - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5)) for p in b_periods]
         bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
         
+        # 根據波動率決定模型精度 (Precision)
         final_p = (45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60)
         if env_panic > 1.0: final_p = int(final_p * 0.85)
 
+        # 波動補償 ai_v 計算
         high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
         ai_v = 1.3 if (high_low_range > 0.035 or abs(inst_force) > 0.8) else 2.1 if high_low_range < 0.015 else 1.7
         
-        b_drift = 0.0 
+        b_drift = 0.0 # 預設標桿漂移
         
+        # 回傳 7 個參數以對接主程式 (final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift)
         return int(final_p), round(final_tw, 2), ai_v, bias_val, bias_val, f_vol, b_drift
 
     except Exception as e:
+        # 保底數據，確保程式不因任何意外中斷
         return 50, 1.0, 1.7, 0.0, 0.0, 0.01, 0.0
-
-# 這裡是對接 render_terminal 的入口，確保資料安全性
-def perform_ai_engine_entry(df, p_days, precision, trend_weight, v_comp, bias, f_vol, b_drift):
-    """
-    [資料安全性修復層] 確保進入第五章核心前，所有欄位都已就緒
-    """
-    # 自動補足缺失的技術指標欄位，防止 KeyError
-    if 'MA20' not in df.columns:
-        df['MA20'] = df['Close'].rolling(window=20).mean()
-    if 'MA5' not in df.columns:
-        df['MA5'] = df['Close'].rolling(window=5).mean()
-    if 'MA10' not in df.columns:
-        df['MA10'] = df['Close'].rolling(window=10).mean()
-    if 'ATR' not in df.columns:
-        # 簡易 ATR 計算
-        df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
-        
-    # 呼叫第五章的運算核心
-    return perform_ai_core_logic(df, p_days, precision, trend_weight, v_comp, bias, f_vol, b_drift)
         
 # =================================================================
-# 第五章：AI 預測運算核心 (AI Core Engine) - 邏輯強化版
+# 第五章：AI 預測運算核心 (AI Core Engine)
 # =================================================================
-import numpy as np
+def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, b_drift):
+    """
+    [5-1 ~ 5-6 段] 完整的蒙地卡羅路徑演算法與多空評分系統
+    """
+    # --- [安全性修復] 確保 MA 系列欄位存在，解決 KeyError ---
+    if 'MA20' not in df.columns: df['MA20'] = df['Close'].rolling(20).mean()
+    if 'MA5' not in df.columns: df['MA5'] = df['Close'].rolling(5).mean()
+    if 'MA10' not in df.columns: df['MA10'] = df['Close'].rolling(10).mean()
+    if 'ATR' not in df.columns: df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
 
-def perform_ai_core_logic(df, p_days, precision, trend_weight, v_comp, bias, f_vol, b_drift):
-    """
-    負責高階指標計算、蒙地卡羅模擬與多空評分。
-    """
     last = df.iloc[-1]
     prev = df.iloc[-2]
     sens = (int(precision) / 55)
@@ -295,41 +286,31 @@ def perform_ai_core_logic(df, p_days, precision, trend_weight, v_comp, bias, f_v
     curr_v = int(last['Volume'])
     change_pct = ((curr_p - prev_c) / prev_c) * 100
 
+    # --- [5-1 段] 主力力道矩陣 ---
     v_avg20 = df['Volume'].tail(20).mean() 
     vol_ratio = curr_v / (v_avg20 + 0.1)
-
-    # --- [5-1] 主力力道矩陣 ---
     whale_force = (change_pct * 0.002) if (change_pct > 2.0 and vol_ratio > 1.5) else 0
     whale_dump = (change_pct * 0.0015) if (change_pct < -2.0 and vol_ratio > 1.5) else 0
     chip_mom = (change_pct / 100) * vol_ratio * 1.5 if (change_pct > 0.5 and vol_ratio > 1.2) else (change_pct / 100)
 
-    # --- [5-2] 進階指標 A-C (布林、乖離、多空排列) ---
-    # 布林擠壓計算
+    # --- [5-2 段] 進階指標 A-C (布林擠壓、多空排列) ---
     std_20 = df['Close'].rolling(20).std()
     bb_width = (std_20 * 4) / (df['MA20'] + 1e-5) 
     is_squeezing = bb_width.iloc[-1] < bb_width.tail(20).mean() * 0.92
     squeeze_boost = 1.35 if is_squeezing else 1.0
 
-    curr_bias = (curr_p - last['MA20']) / (last['MA20'] + 1e-5)
-    prev_bias = (prev_c - prev['MA20']) / (prev['MA20'] + 1e-5)
-    exhaustion_drag = -0.0018 if (curr_p > prev_c and curr_bias < prev_bias) else 0
-
     ma60 = df['Close'].rolling(60).mean().iloc[-1]
     ma_perfect_order = 1.25 if (last['MA5'] > last['MA10'] > last['MA20'] > ma60) else 1.0
 
-    # --- [5-3 ~ 5-4] 簡化動能運算 (確保不報錯) ---
-    normalized_bias = (curr_p - last['MA20']) / (last.get('ATR', 1) + 1e-5)
-    vol_bias_pull = -0.002 if normalized_bias > 2.0 else 0.002 if normalized_bias < -2.0 else 0
-
-    # --- [5-5] 蒙地卡羅模擬 ---
+    # --- [5-5 段] 蒙地卡羅模擬運算邏輯 ---
     np.random.seed(42)
     sim_results = []
     
-    # 核心漂移率
+    # 核心漂移率計算 (包含所有微調參數)
     base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
-                  (chip_mom * 0.15) + (b_drift * 0.22) + exhaustion_drag + vol_bias_pull + whale_force + whale_dump)
+                  (chip_mom * 0.15) + (b_drift * 0.22) + whale_force + whale_dump)
     
-    vol_contract = last.get('ATR', 1) / (df['ATR'].tail(10).mean() + 0.001)
+    vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     for _ in range(1000):
         noise = np.random.normal(0, f_vol * v_comp * vol_contract * squeeze_boost, p_days)
@@ -344,28 +325,24 @@ def perform_ai_core_logic(df, p_days, precision, trend_weight, v_comp, bias, f_v
     next_close = pred_prices[0]
     std_val = np.std([p[0] for p in sim_results])
     
-    # --- [5-6] 評分與建議 ---
+    # --- [5-6 段] 診斷建議與多空評分系統 ---
     score = 0
     reasons = []
     if ma_perfect_order > 1.0: score += 2; reasons.append("多頭完美排列")
     if is_squeezing: reasons.append("布林極度擠壓")
-    if whale_force > 0: score += 1.2; reasons.append("偵測大戶敲單")
-    
-    if not reasons: reasons.append("目前處於箱型整理")
+    if whale_force > 0: score += 1.2; reasons.append("偵測大戶敲單進場")
+    if not reasons: reasons.append("走勢處於整理區間")
 
-    status_map = {3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 
-                  0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")}
-    res = status_map.get(max(-2, min(3, int(score))), ("⚖️ 觀望中性", "#FFFF00"))
+    # 映射最終狀態
+    status_map = { 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 
+                   0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41") }
+    res = status_map.get(max(-1, min(2, int(score))), ("⚖️ 觀望中性", "#FFFF00"))
     
-    adv = {
-        "5日極短線建議": {"buy": curr_p * 0.985, "sell": curr_p * 1.015},
-        "10日短線建議": {"buy": curr_p * 0.97, "sell": curr_p * 1.03},
-        "20日波段建議": {"buy": last['MA20'] * 0.96, "sell": last['MA20'] * 1.04}
-    }
-    
+    # 準備回傳數據
+    adv = { "5日建議": {"buy": curr_p * 0.985, "sell": curr_p * 1.015} }
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
-    return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
+    return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)b_sum)
     
 # =================================================================
 # 第六章：終端渲染引擎 (Render Terminal)
@@ -639,6 +616,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
