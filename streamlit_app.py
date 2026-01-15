@@ -68,7 +68,7 @@ st.markdown("""
 
 # --- 2. 數據引擎 ---
 @st.cache_data(ttl=180, show_spinner=False)
-def fetch_comprehensive_data(symbol):
+def fetch_comprehensive_data(symbol): # 移除傳入參數，解決 TypeError
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
@@ -76,10 +76,27 @@ def fetch_comprehensive_data(symbol):
     try:
         df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
         
-        # 異常自動清除快取邏輯
+        # [自動刷新] 數據太舊或為空則清快取
         if df is None or df.empty:
             st.cache_data.clear()
             return None, s
+        if (datetime.now().date() - df.index[-1].date()).days > 3 and datetime.now().weekday() < 5:
+            st.cache_data.clear()
+
+        # [解決 KeyError] 強制處理多層索引並將欄位轉為大寫
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [str(c).upper() for c in df.columns] 
+
+        # 重新計算 MA20 確保它一定存在於 DataFrame 中
+        df['MA20'] = df['CLOSE'].rolling(20).mean()
+        
+        # 解決 1/15 數據缺失問題
+        df = df.ffill() 
+        return df.dropna(), s
+    except Exception:
+        st.cache_data.clear()
+        return None, s
 
         # [解決 KeyError]：強制處理 MultiIndex 欄位並將名稱轉為大寫
         if isinstance(df.columns, pd.MultiIndex):
@@ -403,7 +420,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 修改為一個參數，與新函數定義同步
-    df, f_id = fetch_comprehensive_data(symbol)
+    df, f_id = fetch_comprehensive_data(symbol) # 拿掉後面的 api_ttl * 60
     
     if df is None or df.empty:
         st.warning("🔄 數據同步中，請稍候...")
@@ -550,20 +567,26 @@ def main():
                 if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
                     st.session_state.user = u; st.rerun()
                 else: st.error("❌ 驗證失敗")
-        with tab_reg:
-    new_u = st.text_input("新帳號", key="reg_u")
-    new_p = st.text_input("新密碼", type="password", key="reg_p")
-    if st.button("提交註冊申請"):
-        if not new_u:
-            st.error("❌ 請輸入帳號")
-        else:
-            # 讀取現有用戶清單比對
-            udf = pd.DataFrame(ws_u.get_all_records())
-            if not udf.empty and str(new_u) in udf['username'].astype(str).values:
-                st.error(f"❌ 帳號 '{new_u}' 已存在，請使用其他名稱。")
-            else:
-                ws_u.append_row([str(new_u), str(new_p)])
-                st.success("✅ 註冊成功，現在可以登入了！")
+with tab_reg:
+        new_u = st.text_input("新帳號", key="reg_u") # 這裡縮排跑掉了
+        new_p = st.text_input("新密碼", type="password", key="reg_p")
+        if st.button("提交註冊申請"):
+            ws_u.append_row([str(new_u), str(new_p)])
+            st.success("✅ 註冊成功")
+with tab_reg:
+            new_u = st.text_input("新帳號", key="reg_u")
+            new_p = st.text_input("新密碼", type="password", key="reg_p")
+            if st.button("提交註冊申請"):
+                if not new_u or not new_p:
+                    st.error("❌ 帳號與密碼不能為空")
+                else:
+                    # 讀取現有帳號清單防止重複
+                    udf = pd.DataFrame(ws_u.get_all_records())
+                    if not udf.empty and str(new_u) in udf['username'].astype(str).values:
+                        st.error(f"❌ 註冊失敗：帳號 '{new_u}' 已被使用")
+                    else:
+                        ws_u.append_row([str(new_u), str(new_p)])
+                        st.success("✅ 註冊成功，請切換至登入頁面")
     else:
         # --- 使用者儀表板 ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
@@ -623,6 +646,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
