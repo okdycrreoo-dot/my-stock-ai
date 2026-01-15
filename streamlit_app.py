@@ -75,151 +75,174 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # =================================================================
-# 第二章：數據引擎 (Data Engine) - [2-1 段] 修正版
+# 第二章：數據引擎 (Data Engine)
 # =================================================================
 
+# --- [2-1 段] fetch_comprehensive_data 函數與 yfinance 下載邏輯 ---
 @st.cache_data(show_spinner=False)
 def fetch_comprehensive_data(symbol, ttl_seconds):
     raw_s = str(symbol).strip().upper()
     
-    # 支援直接輸入或自動補全
+    # 如果使用者已經手動輸入後綴，直接使用
     if raw_s.endswith(".TW") or raw_s.endswith(".TWO"):
         search_list = [raw_s]
     else:
+        # 如果只輸入數字，優先嘗試上市 (.TW)，失敗則嘗試上櫃 (.TWO)
         search_list = [f"{raw_s}.TW", f"{raw_s}.TWO"]
 
     for s in search_list:
-        # 增加重試機制，確保後台同步不因單次網路波動中斷
-        for attempt in range(2):
+        for _ in range(2):  # 每個後綴嘗試 2 次重試
             try:
-                # 盤後數據下載
+                # 下載 2 年日線數據
                 df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
-                if df is not None and not df.empty and len(df) > 20:
-                    # --- [2-2 段] 欄位處理邏輯保持不變 ---
+                
+                if df is not None and not df.empty and len(df) > 10:
+                    # --- [2-2 段] 欄位處理 (MultiIndex 壓平) 與均線 (MA) 計算 ---
+                    # 處理 yfinance 可能產生的多重索引欄位
                     if isinstance(df.columns, pd.MultiIndex): 
                         df.columns = df.columns.get_level_values(0)
                     
-                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+                    # 確保基礎欄位存在且為數值型別
+                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
                     
+                    # 計算常用均線
                     df['MA5'] = df['Close'].rolling(5).mean()
                     df['MA10'] = df['Close'].rolling(10).mean()
                     df['MA20'] = df['Close'].rolling(20).mean()
                     
-                    # --- [2-3 段] 指標計算邏輯保持不變 ---
-                    e12 = df['Close'].ewm(span=12).mean()
-                    e26 = df['Close'].ewm(span=26).mean()
+                    # --- [2-3 段] 技術指標計算 (MACD, KDJ, RSI, ATR) ---
+                    # MACD 指標
+                    e12 = df['Close'].ewm(span=12, adjust=False).mean()
+                    e26 = df['Close'].ewm(span=26, adjust=False).mean()
                     df['MACD'] = e12 - e26
-                    df['Signal'] = df['MACD'].ewm(span=9).mean()
+                    df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
                     df['Hist'] = df['MACD'] - df['Signal']
                     
+                    # KDJ 隨機指標
                     l9 = df['Low'].rolling(9).min()
                     h9 = df['High'].rolling(9).max()
-                    rsv = (df['Close'] - l9) / (h9 - l9 + 0.001) * 100
-                    df['K'] = rsv.ewm(com=2).mean()
-                    df['D'] = df['K'].ewm(com=2).mean()
+                    rsv = (df['Close'] - l9) / (h9 - l9 + 1e-9) * 100
+                    df['K'] = rsv.ewm(com=2, adjust=False).mean()
+                    df['D'] = df['K'].ewm(com=2, adjust=False).mean()
                     df['J'] = 3 * df['K'] - 2 * df['D']
                     
+                    # RSI 相對強弱指標
                     delta = df['Close'].diff()
                     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                    df['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-5))))
+                    df['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-9))))
                     
+                    # ATR 真實波幅均值
                     tr = pd.concat([
-                        df['High']-df['Low'], 
-                        abs(df['High']-df['Close'].shift()), 
-                        abs(df['Low']-df['Close'].shift())
+                        df['High'] - df['Low'], 
+                        abs(df['High'] - df['Close'].shift()), 
+                        abs(df['Low'] - df['Close'].shift())
                     ], axis=1).max(axis=1)
                     df['ATR'] = tr.rolling(14).mean()
                     
                     return df.dropna(), s
-            except:
+                
+                time.sleep(1)
+            except Exception as e:
                 time.sleep(1)
                 continue
     return None, raw_s
 # =================================================================
-# 第三章：自動對帳與全域同步系統 (Global Sync & Feedback)
+# 第三章：自動對帳與反饋系統 (Feedback System)
 # =================================================================
 
-# --- [3-1 段] 全域同步管理器 (10秒一筆邏輯) ---
-def run_global_sync(ws_p, ws_w, ws_s, cp, tw_val, v_comp):
-    now = datetime.now()
-    today_str = now.strftime("%Y-%m-%d")
-    
-    # 判斷是否為 14:30 之後且非週末
-    is_after_market = (now.hour * 60 + now.minute) >= 870
-    is_weekend = now.weekday() >= 5
-    
-    if not is_after_market or is_weekend:
-        return "☕ 等待盤後數據更新", 0
-
-    # 1. 取得所有使用者的去重標的清單
-    all_watchlist = pd.DataFrame(ws_w.get_all_records())
-    if all_watchlist.empty: return "📭 自選清單為空", 0
-    unique_symbols = sorted(list(set(all_watchlist['stock_symbol'].tolist())))
-    
-    # 2. 取得今日已存紀錄
-    existing_preds = pd.DataFrame(ws_p.get_all_records())
-    
-    # 計算下一營業日（存檔目標日）
-    next_bus_day = now + timedelta(days=1)
-    while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
-    next_day_str = next_bus_day.strftime("%Y-%m-%d")
-
-    # 3. 找出「待處理」標的 (今日尚未預測過的)
-    to_process = []
-    for s in unique_symbols:
-        if existing_preds.empty or not any((str(r.get('date')) == next_day_str and r.get('symbol') == s) for _, r in existing_preds.iterrows()):
-            to_process.append(s)
-
-    if not to_process:
-        return "✅ 今日全數預測完成", 100
-
-    # 4. 異步執行一筆預測 (10秒節奏控制由外部呼叫者或 Loop 控制)
-    # 為了不卡死 UI，我們每次呼叫只處理 1-2 筆，或在後台執行
-    target_s = to_process[0]
-    
-    df, f_id = fetch_comprehensive_data(target_s, 3600)
-    if df is not None:
-        # 執行運算
-        f_p, f_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
-        pred_line, adv, curr_p, open_p, prev_c, curr_v, chg, insight = perform_ai_engine(
-            df, 7, f_p, f_tw, ai_v, bias, f_vol, b_drift
-        )
-        # 寫入試算表 (下一日日期, 代號, 預測價, 低標, 高標)
-        new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
-        ws_p.append_row(new_row)
-        
-        # 這裡回傳進度，外部配合 time.sleep(10)
-        progress = int((1 - len(to_process)/len(unique_symbols)) * 100)
-        return f"⚙️ 正在同步: {f_id} (10秒節流中...)", progress
-    
-    return "⚠️ 同步中...", 0
-
-# --- [3-2 段] 歷史對帳回填 (原本的邏輯優化) ---
-def sync_historical_accuracy(ws_p):
+# --- [3-1 段] auto_sync_feedback 函數與時間判定邏輯 ---
+def auto_sync_feedback(ws_p, f_id, insight):
     try:
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
         
-        updated_count = 0
-        for i, row in df_p.iterrows():
-            # 限制一次對帳量，避免卡頓
-            if updated_count > 5: break 
-            if str(row.get('actual_close', '')).strip() == "" and str(row.get('date', '')) <= today_str:
-                target_date = row['date']
-                end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
-                h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
-                if not h.empty:
-                    act_df = h.copy()
-                    if isinstance(act_df.columns, pd.MultiIndex): act_df.columns = act_df.columns.get_level_values(0)
-                    act_close = float(act_df['Close'].iloc[-1])
-                    pred_close = float(row['pred_close'])
-                    ws_p.update_cell(i + 2, 6, round(act_close, 2))
-                    err_val = (act_close - pred_close) / (pred_close + 1e-5)
-                    ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
-                    updated_count += 1
-    except: pass
+        # 14:30 收盤判定邏輯 (14*60 + 30 = 870 分鐘)
+        is_after_market = (now.hour * 60 + now.minute) >= 870
+        is_weekend = now.weekday() >= 5
+
+        # --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
+        if not df_p.empty:
+            for i, row in df_p.iterrows():
+                # 若 actual_close 欄位為空，且該列記錄的預測目標日期已到達或已過(<=今天)
+                if str(row.get('actual_close', '')).strip() == "" and str(row.get('date', '')) <= today_str:
+                    target_date = row['date']
+                    # 抓取該目標日的收盤數據 (end_date 設為隔日以確保抓到當天)
+                    end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+                    h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
+                    
+                    if not h.empty:
+                        # 處理 yfinance 可能產生的 MultiIndex 欄位
+                        act_df = h.copy()
+                        if isinstance(act_df.columns, pd.MultiIndex):
+                            act_df.columns = act_df.columns.get_level_values(0)
+                        
+                        act_close = float(act_df['Close'].iloc[-1])
+                        pred_close = float(row['pred_close'])
+                        
+                        # 更新試算表：第 6 欄為實際收盤價，第 7 欄為誤差率
+                        ws_p.update_cell(i + 2, 6, round(act_close, 2))
+                        err_val = (act_close - pred_close) / (pred_close + 1e-9)
+                        ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+
+        # --- [3-3 段] 新預測數據回填與命中率計算 ---
+        # 14:30 收盤後且非週末才寫入新預測
+        if is_after_market and not is_weekend:
+            next_bus_day = now + timedelta(days=1)
+            while next_bus_day.weekday() >= 5:
+                next_bus_day += timedelta(days=1)
+            next_day_str = next_bus_day.strftime("%Y-%m-%d")
+
+            # 檢查是否已經存在該標的的下一個交易日預測
+            is_exists = any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs)
+            if not is_exists:
+                new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
+                ws_p.append_row(new_row)
+        
+        # 重新取得最新數據用於計算準確率
+        recs_latest = ws_p.get_all_records()
+        df_latest = pd.DataFrame(recs_latest)
+        
+        # 取得最近 10 筆已對帳數據並計算精確準確率
+        df_stock = df_latest[(df_latest['symbol'] == f_id) & (df_latest['actual_close'] != "")].copy()
+        accuracy_history = []
+        hit_text = "🎯 數據累積中"
+        
+        if not df_stock.empty:
+            df_recent = df_stock.tail(10)
+            for _, row in df_recent.iterrows():
+                try:
+                    act = float(row['actual_close'])
+                    pred = float(row['pred_close'])
+                    # 計算準確率：1 - |(實際-預測)/預測|
+                    acc_val = (1 - abs(act - pred) / (pred + 1e-9)) * 100
+                    acc_val = max(0, min(100, acc_val)) 
+                    
+                    accuracy_history.append({
+                        "date": str(row['date'])[-5:], 
+                        "acc_val": f"{acc_val:.1f}%",
+                        "color": "#FF3131" if acc_val >= 98 else "#FFFFFF" 
+                    })
+                except:
+                    continue
+            
+            # 計算區間命中率文字
+            try:
+                act_v = pd.to_numeric(df_recent['actual_close'])
+                low_v = pd.to_numeric(df_recent['range_low'])
+                high_v = pd.to_numeric(df_recent['range_high'])
+                hit = sum((act_v >= low_v) & (act_v <= high_v))
+                hit_text = f"🎯 此股近期區間命中率: {(hit/len(df_recent))*100:.1f}%"
+            except:
+                hit_text = "🎯 命中率統計中"
+        
+        return hit_text, accuracy_history
+
+    except Exception as e:
+        # 這裡不報錯，避免干擾 UI 渲染
+        return f"🎯 系統同步中...", []
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -477,40 +500,34 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 # --- [6-1 段] render_terminal 完整呼叫邏輯 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
-    if df is None: return
+    if df is None: 
+        st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 1. 取得預測參數與結果 (運算邏輯)
-    f_p, f_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
+    final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
+    
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
-        df, p_days, f_p, f_tw, ai_v, bias, f_vol, b_drift
+        df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
+    
+    # 重點：這裡必須同時接收文字(stock_accuracy)與清單(acc_history)
+    stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 2. 數據準備：解決截圖中的 NameError
-    recs = ws_p.get_all_records()
-    df_p = pd.DataFrame(recs)
-    
-    # 提前計算 acc_history 與 stock_accuracy 供後續所有段落使用
-    df_history = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].tail(10)
-    acc_history = []
-    hit_count = 0
-    if not df_history.empty:
-        for _, row in df_history.iterrows():
-            try:
-                # 區間命中判斷
-                is_hit = float(row['actual_close']) >= float(row['range_low']) and float(row['actual_close']) <= float(row['range_high'])
-                if is_hit: hit_count += 1
-                # 準確率計算
-                acc_val = 1 - abs((float(row['actual_close']) - float(row['pred_close'])) / (float(row['pred_close']) + 1e-5))
-                color = "#FF3131" if acc_val >= 0.98 else "#FFFFFF"
-                acc_history.append({"date": row['date'][-5:], "acc_val": f"{acc_val:.1%}", "color": color})
-            except: pass
-    
-    stock_accuracy = f"🎯 近期區間命中率: {(hit_count/len(df_history)*100):.1f}%" if not df_history.empty else "🎯 數據累積中"
+    st.markdown("""
+        <style>
+        .stApp { background-color: #000000; }
+        .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; font-weight: 900 !important; }
+        .info-box { background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100px; }
+        .diag-box { background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .ai-advice-box { background: #000000; border: 2px solid #333; padding: 20px; border-radius: 15px; margin-top: 25px; }
+        .confidence-tag { background: #FF3131; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin-bottom: 10px; }
+        </style>
+    """, unsafe_allow_html=True)
 
 # --- [6-2 段] 頂部核心指標看板與 10 日精確準確率紀錄 ---
+    # 渲染大標題
     st.title(f"📊 {f_id} 台股AI預測系統")
     
-    # 渲染 10 日準確率小方塊
+    # 渲染橫向 10 日準確率數值紀錄
     if acc_history:
         acc_cols = st.columns(len(acc_history))
         for i, item in enumerate(acc_history):
@@ -522,10 +539,11 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
                     </div>
                 """, unsafe_allow_html=True)
 
+    # 顯示整體命中率標籤
     st.markdown(f"<div class='confidence-tag'>{stock_accuracy}</div>", unsafe_allow_html=True)
     st.caption(f"✨ AI 大腦：籌碼與動能分析 | 環境共振分析 | 技術面與乖離率評估 | 自我學習與反饋")
 
-    # 核心指標看板
+    # 核心指標看板佈局 (Metrics)
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
@@ -536,6 +554,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
         ("成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")
     ]
+    
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: 
             st.markdown(f"""
@@ -553,58 +572,53 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 # --- [6-4 段] Plotly 四層子圖繪製 (K線、量能、MACD、KDJ) ---
     t_main = "■ 價格與均線 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#FF3131'>●</span> K線 <span style='color:#FFD700'>━━</span> 5MA <span style='color:#00F5FF'>━━</span> 10MA <span style='color:#FF00FF'>━━</span> 20MA <span style='color:#FF3131'>···</span> AI預測</span>"
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04, subplot_titles=(t_main, "■ 成交量分析 (張)", "■ MACD 指標", "■ KDJ 擺動指標"))
+    t_vol  = "■ 成交量分析 (張)"
+    t_macd = "■ MACD 指標 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#FF3131'>■</span> 能量柱 <span style='color:#FFFFFF'>━━</span> DIF <span style='color:#FFA726'>━━</span> DEA</span>"
+    t_kdj  = "■ KDJ 擺動指標 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#00F5FF'>━━</span> K值 <span style='color:#FFFF00'>━━</span> D值 <span style='color:#E066FF'>━━</span> J值</span>"
+
+    fig = make_subplots(
+        rows=4, cols=1, 
+        shared_xaxes=True, 
+        row_heights=[0.4, 0.15, 0.2, 0.25], 
+        vertical_spacing=0.04, 
+        subplot_titles=(t_main, t_vol, t_macd, t_kdj)
+    )
     p_df = df.tail(90)
     
-    # 子圖 1: K線與預測線
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], line=dict(color='#FFD700', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA10'], line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], line=dict(color='#FF00FF', width=2), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=[p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)], y=pred_line, line=dict(color='#FF3131', width=3, dash='dash'), showlegend=False), 1, 1)
     
-    # 子圖 2: 成交量
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_colors, showlegend=False), 2, 1)
     
-    # 子圖 3: MACD
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Hist'], marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in p_df['Hist']], showlegend=False), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MACD'], line=dict(color='#FFFFFF', width=1.2), showlegend=False), 3, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['Signal'], line=dict(color='#FFA726', width=1.2), showlegend=False), 3, 1)
     
-    # 子圖 4: KDJ
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], line=dict(color='#00F5FF'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], line=dict(color='#FFFF00'), showlegend=False), 4, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], line=dict(color='#E066FF'), showlegend=False), 4, 1)
 
     fig.update_layout(template="plotly_dark", height=880, xaxis_rangeslider_visible=False, showlegend=False, margin=dict(l=10, r=10, t=50, b=50), paper_bgcolor='#000000', plot_bgcolor='#000000')
+    
+    for i in fig['layout']['annotations']:
+        i['x'] = 0; i['xanchor'] = 'left'; i['font'] = dict(size=14, color="#FFFFFF")
+
     st.plotly_chart(fig, use_container_width=True)
 
-# --- [6-5 段] 底部 AI 診斷建議盒與狀態標籤 ---
-    # 判斷今日同步狀態
-    now = datetime.now()
-    next_bus_day = now + timedelta(days=1)
-    while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
-    next_day_str = next_bus_day.strftime("%Y-%m-%d")
-    
-    is_synced = not df_p[(df_p['symbol'] == f_id) & (df_p['date'] == next_day_str)].empty if not df_p.empty else False
-    status_label = "✅ AI 預測已存檔" if is_synced else "⚙️ AI 引擎排隊計算中..."
-    status_color = "#00FF41" if is_synced else "#FFAC33"
+# --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 ---
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
-
     st.markdown(f"""
         <div class='ai-advice-box'>
-            <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;'>
-                <div class='confidence-tag'>{stock_accuracy}</div>
-                <div style='color:{status_color}; font-weight:900; font-size:0.85rem; border:1.5px solid {status_color}; padding:3px 10px; border-radius:15px; background:rgba(0,0,0,0.5);'>
-                    {status_label}
-                </div>
-            </div>
+            <div class='confidence-tag'>{stock_accuracy}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
             <p><b>AI診斷建議:</b> {insight[1]}</p>
             <p style='font-size:0.9rem; color:#8899A6;'>乖離率參考: {b_html}</p>
-            <div style='background: #1C2128; padding: 15px; border-radius: 8px; border-left: 5px solid #FFAC33;'>
+            <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
                 <p style='color:#00F5FF; font-weight:bold; margin:0;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')})：</p>
                 <p style='font-size:1.8rem; color:#FFAC33; font-weight:900; margin:5px 0;'>預估隔日收盤價：{insight[3]:.2f}</p>
                 <p style='color:#8899A6; margin:0;'>預估浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
@@ -615,112 +629,152 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 # 第七章：主程式邏輯與權限控管 (Main Logic)
 # =================================================================
 
-# --- [7-1 段] main() 函數初始化與全域同步監控 ---
+# --- [7-1 段] main() 函數初始化與逾時邏輯 ---
 def main():
     if 'user' not in st.session_state: 
-        st.session_state.user = None
-    if 'last_active' not in st.session_state:
-        st.session_state.last_active = time.time()
+        st.session_state.user, st.session_state.last_active = None, time.time()
     
-    # 建立連線 (此處呼叫 7-2 段定義的函數)
+    # 自動登出邏輯 (1小時不活動則登出)
+    if st.session_state.user and (time.time() - st.session_state.last_active > 3600): 
+        st.session_state.user = None
+    st.session_state.last_active = time.time()
+    
+    # --- [7-2 段] get_gsheets_connection 函數與授權 ---
+    @st.cache_resource(ttl=30)
+    def get_gsheets_connection():
+        sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
+        creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
+        sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+        return {
+            "users": sh.worksheet("users"), 
+            "watchlist": sh.worksheet("watchlist"), 
+            "settings": sh.worksheet("settings"), 
+            "predictions": sh.worksheet("predictions")
+        }
+
     try:
         sheets = get_gsheets_connection()
         ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
         
-        # 讀取全局設定
+        # 讀取全局 AI 配置
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-        cp, api_ttl = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1))
-        tw_val, v_comp = float(s_map.get('trend_weight', 1.0)), float(s_map.get('vol_comp', 1.5))
+        cp = int(s_map.get('global_precision', 55))
+        api_ttl = int(s_map.get('api_ttl_min', 1))
+        tw_val = float(s_map.get('trend_weight', 1.0))
+        v_comp = float(s_map.get('vol_comp', 1.5))
     except Exception as e:
-        st.error(f"🚨 系統連線失敗: {e}"); return
+        st.error(f"🚨 資料庫連線失敗: {e}"); return
 
-    # --- 側邊欄：登入後顯示用戶與同步狀態 ---
-    if st.session_state.user:
-        with st.sidebar:
-            st.markdown(f"👤 **目前用戶**: {st.session_state.user}")
-            st.markdown("### 🛰️ 系統盤後同步")
-            
-            # 呼叫全域同步器
-            status_msg, progress_val = run_global_sync(ws_p, ws_w, ws_s, cp, tw_val, v_comp)
-            
-            if progress_val < 100:
-                st.info(status_msg)
-                st.progress(progress_val / 100.0)
-                if "⚙️" in status_msg:
-                    time.sleep(10)
-                    st.rerun()
-            else:
-                st.success("✅ 今日預測同步完成")
-                st.progress(1.0)
-            
-            if 'recon_done' not in st.session_state:
-                sync_historical_accuracy(ws_p)
-                st.session_state.recon_done = True
-            st.markdown("---")
-
-# --- [7-2 段] get_gsheets_connection 定義 ---
-@st.cache_resource(ttl=30)
-def get_gsheets_connection():
-    sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
-    creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-    sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-    return {"users": sh.worksheet("users"), "watchlist": sh.worksheet("watchlist"), "settings": sh.worksheet("settings"), "predictions": sh.worksheet("predictions")}
-
-# --- [7-3 段] 登入分頁邏輯 ---
+    # --- [7-3 段] 登入與註冊分頁 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 台股預測系統")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
+        
         with tab_login:
-            u = st.text_input("帳號", key="login_u")
-            p = st.text_input("密碼", type="password", key="login_p")
+            u = st.text_input("請輸入帳號", key="login_u")
+            p = st.text_input("請輸入密碼", type="password", key="login_p")
             if st.button("登入帳號", use_container_width=True):
                 udf = pd.DataFrame(ws_u.get_all_records())
                 if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
                     st.session_state.user = u; st.rerun()
-                else: st.error("❌ 驗證失敗")
+                else: 
+                    st.error("❌ 驗證失敗，請檢查帳密")
 
-# --- [7-4 段] 註冊分頁邏輯 ---
+        # --- [7-4 段] 註冊分頁邏輯 ---
         with tab_reg:
             new_u = st.text_input("新帳號", key="reg_u")
             new_p = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("提交註冊申請"):
-                udf = pd.DataFrame(ws_u.get_all_records())
-                if not udf.empty and str(new_u) in udf['username'].astype(str).values:
-                    st.error(f"⚠️ 帳號 '{new_u}' 已存在")
+                if not new_u or not new_p:
+                    st.error("❌ 帳號或密碼不能為空白")
                 else:
-                    ws_u.append_row([str(new_u), str(new_p)])
-                    st.success("✅ 註冊成功！請切換至登入頁。")
-
-# --- [7-5 段] 使用者自選股管理 ---
+                    udf = pd.DataFrame(ws_u.get_all_records())
+                    if not udf.empty and str(new_u) in udf['username'].astype(str).values:
+                        st.error(f"⚠️ 帳號 '{new_u}' 已被註冊")
+                    else:
+                        ws_u.append_row([str(new_u), str(new_p)])
+                        st.success("✅ 註冊成功！請切換至登入頁面。")
+    
     else:
-        with st.expander("⚙️ 管理自選股清單(點擊開啟)", expanded=False):
+        # --- [7-5 段] 使用者自選股管理 (新增/刪除) ---
+        with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
+                # 1. 讀取目前的自選清單
                 all_w = pd.DataFrame(ws_w.get_all_records())
-                u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
+                u_stocks = []
+                if not all_w.empty:
+                    u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist()
+                
+                # 預設目標顯示
                 target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330.TW"])
                 
+                # 2. 新增股票邏輯 (加入 20 支上限檢查)
                 ns = st.text_input("➕ 輸入股票代號 (例: 2454)")
                 if st.button("加入到自選股清單"):
-                    if len(u_stocks) >= 20:
-                        st.error("🚫 自選股已達上限 (20 支)")
+                    if ns:
+                        # 自動判定上市/上櫃並補上後綴
+                        _, final_s_code = fetch_comprehensive_data(ns, 3600)
+                        
+                        if final_s_code:
+                            # --- 重點：上限與重複檢查邏輯 ---
+                            if len(u_stocks) >= 20:
+                                st.error(f"🚫 自選股已達上限 (20 支)，請先刪除舊標的再新增。")
+                            elif final_s_code in u_stocks:
+                                st.warning(f"⚠️ {final_s_code} 已經在您的清單中囉！")
+                            else:
+                                ws_w.append_row([st.session_state.user, final_s_code])
+                                st.success(f"✅ 已新增 {final_s_code}")
+                                st.rerun()
+                        else:
+                            st.error("❌ 找不到該標的，請確認代號是否正確")
                     else:
-                        _, f_code = fetch_comprehensive_data(ns, 3600)
-                        if f_code:
-                            ws_w.append_row([st.session_state.user, f_code])
-                            st.success(f"✅ 已新增 {f_code}"); st.rerun()
+                        st.info("💡 請先輸入代號")
+                
+                # 3. 刪除股票邏輯
+                if u_stocks:
+                    st.write("")
+                    if st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
+                        try:
+                            # 精確刪除：必須帳號與代號同時符合
+                            all_w_full = pd.DataFrame(ws_w.get_all_records())
+                            row_idx = all_w_full[(all_w_full['username'] == st.session_state.user) & 
+                                                (all_w_full['stock_symbol'] == target)].index
+                            
+                            if not row_idx.empty:
+                                ws_w.delete_rows(int(row_idx[0]) + 2)
+                                st.success(f"✅ {target} 已移除")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 刪除失敗: {e}")
 
-                if u_stocks and st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
-                    row_idx = all_w[(all_w['username'] == st.session_state.user) & (all_w['stock_symbol'] == target)].index[0]
-                    ws_w.delete_rows(int(row_idx) + 2); st.rerun()
-
-# --- [7-6 段] 管理員戰情室與終端渲染 ---
+            # --- [7-6 段] 管理員專屬戰情室 (參數調整與同步) ---
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
+                    st.markdown("---")
                     st.markdown("### 🛠️ 管理員戰情室")
-                    # (此處保留原有的參數調整 Slider 邏輯...)
+                    # (此處保留管理員調整 Slider 與同步雲端邏輯...)
+                    temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
+                    ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0, 0)
+                    ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
+                    
+                    b1 = st.text_input(f"1. 基準藍籌股", ai_b[0])
+                    b2 = st.text_input(f"2. 高波動成長股", ai_b[1])
+                    b3 = st.text_input(f"3. 指數 ETF 標本", ai_b[2])
+                    
+                    new_p = st.slider(f"系統靈敏度", 0, 100, ai_p)
+                    new_tw = st.number_input(f"趨勢權重參數", 0.5, 3.0, ai_tw)
+                    new_v = st.slider(f"波動補償係數", 0.5, 3.0, ai_v)
+                    new_ttl = st.number_input(f"Google API 連線時間", 1, 10, api_ttl)
+                    
+                    if st.button("💾 同步 AI 推薦參數至雲端"):
+                        ws_s.update_cell(2, 2, str(new_p)); ws_s.update_cell(3, 2, str(new_ttl))
+                        ws_s.update_cell(4, 2, b1); ws_s.update_cell(5, 2, b2); ws_s.update_cell(6, 2, b3)
+                        ws_s.update_cell(7, 2, str(new_tw)); ws_s.update_cell(8, 2, str(new_v))
+                        st.success("✅ 雲端配置已更新"); st.rerun()
                 
+                st.write("")
                 if st.button("🚪 登出 StockAI 系統", use_container_width=True):
                     st.session_state.user = None; st.rerun()
 
@@ -729,8 +783,5 @@ def get_gsheets_connection():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
