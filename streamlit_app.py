@@ -75,38 +75,37 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # =================================================================
-# 第二章：數據引擎 (Data Engine)
+# 第二章：數據引擎 (Data Engine) - [2-1 段] 修正版
 # =================================================================
 
-# --- [2-1 段] fetch_comprehensive_data 函數與 yfinance 下載邏輯 ---
 @st.cache_data(show_spinner=False)
 def fetch_comprehensive_data(symbol, ttl_seconds):
     raw_s = str(symbol).strip().upper()
     
-    # 如果使用者已經手動輸入後綴，直接使用
+    # 支援直接輸入或自動補全
     if raw_s.endswith(".TW") or raw_s.endswith(".TWO"):
         search_list = [raw_s]
     else:
-        # 如果只輸入數字，優先嘗試上市 (.TW)，失敗則嘗試上櫃 (.TWO)
         search_list = [f"{raw_s}.TW", f"{raw_s}.TWO"]
 
     for s in search_list:
-        for _ in range(2):  # 每個後綴嘗試 2 次重試
+        # 增加重試機制，確保後台同步不因單次網路波動中斷
+        for attempt in range(2):
             try:
+                # 盤後數據下載
                 df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
-                if df is not None and not df.empty and len(df) > 10:
-                    # --- [2-2 段] 欄位處理 (MultiIndex 壓平) 與均線 (MA) 計算 ---
+                if df is not None and not df.empty and len(df) > 20:
+                    # --- [2-2 段] 欄位處理邏輯保持不變 ---
                     if isinstance(df.columns, pd.MultiIndex): 
                         df.columns = df.columns.get_level_values(0)
                     
-                    # 確保基礎欄位存在
                     df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
                     
                     df['MA5'] = df['Close'].rolling(5).mean()
                     df['MA10'] = df['Close'].rolling(10).mean()
                     df['MA20'] = df['Close'].rolling(20).mean()
                     
-                    # --- [2-3 段] 技術指標計算 (MACD, KDJ, RSI, ATR) ---
+                    # --- [2-3 段] 指標計算邏輯保持不變 ---
                     e12 = df['Close'].ewm(span=12).mean()
                     e26 = df['Close'].ewm(span=26).mean()
                     df['MACD'] = e12 - e26
@@ -133,94 +132,94 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
                     df['ATR'] = tr.rolling(14).mean()
                     
                     return df.dropna(), s
-                time.sleep(1)
             except:
                 time.sleep(1)
                 continue
     return None, raw_s
-
 # =================================================================
-# 第三章：自動對帳與反饋系統 (Feedback System)
+# 第三章：自動對帳與全域同步系統 (Global Sync & Feedback)
 # =================================================================
 
-# --- [3-1 段] auto_sync_feedback 函數與時間判定邏輯 ---
-def auto_sync_feedback(ws_p, f_id, insight):
+# --- [3-1 段] 全域同步管理器 (10秒一筆邏輯) ---
+def run_global_sync(ws_p, ws_w, ws_s, cp, tw_val, v_comp):
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    
+    # 判斷是否為 14:30 之後且非週末
+    is_after_market = (now.hour * 60 + now.minute) >= 870
+    is_weekend = now.weekday() >= 5
+    
+    if not is_after_market or is_weekend:
+        return "☕ 等待盤後數據更新", 0
+
+    # 1. 取得所有使用者的去重標的清單
+    all_watchlist = pd.DataFrame(ws_w.get_all_records())
+    if all_watchlist.empty: return "📭 自選清單為空", 0
+    unique_symbols = sorted(list(set(all_watchlist['stock_symbol'].tolist())))
+    
+    # 2. 取得今日已存紀錄
+    existing_preds = pd.DataFrame(ws_p.get_all_records())
+    
+    # 計算下一營業日（存檔目標日）
+    next_bus_day = now + timedelta(days=1)
+    while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
+    next_day_str = next_bus_day.strftime("%Y-%m-%d")
+
+    # 3. 找出「待處理」標的 (今日尚未預測過的)
+    to_process = []
+    for s in unique_symbols:
+        if existing_preds.empty or not any((str(r.get('date')) == next_day_str and r.get('symbol') == s) for _, r in existing_preds.iterrows()):
+            to_process.append(s)
+
+    if not to_process:
+        return "✅ 今日全數預測完成", 100
+
+    # 4. 異步執行一筆預測 (10秒節奏控制由外部呼叫者或 Loop 控制)
+    # 為了不卡死 UI，我們每次呼叫只處理 1-2 筆，或在後台執行
+    target_s = to_process[0]
+    
+    df, f_id = fetch_comprehensive_data(target_s, 3600)
+    if df is not None:
+        # 執行運算
+        f_p, f_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
+        pred_line, adv, curr_p, open_p, prev_c, curr_v, chg, insight = perform_ai_engine(
+            df, 7, f_p, f_tw, ai_v, bias, f_vol, b_drift
+        )
+        # 寫入試算表 (下一日日期, 代號, 預測價, 低標, 高標)
+        new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
+        ws_p.append_row(new_row)
+        
+        # 這裡回傳進度，外部配合 time.sleep(10)
+        progress = int((1 - len(to_process)/len(unique_symbols)) * 100)
+        return f"⚙️ 正在同步: {f_id} (10秒節流中...)", progress
+    
+    return "⚠️ 同步中...", 0
+
+# --- [3-2 段] 歷史對帳回填 (原本的邏輯優化) ---
+def sync_historical_accuracy(ws_p):
     try:
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
-        now = datetime.now()
-        today_str = now.strftime("%Y-%m-%d")
+        today_str = datetime.now().strftime("%Y-%m-%d")
         
-        # 14:30 收盤判定邏輯 (14*60 + 30 = 870 分鐘)
-        is_after_market = (now.hour * 60 + now.minute) >= 870
-        is_weekend = now.weekday() >= 5
-
-        # --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
+        updated_count = 0
         for i, row in df_p.iterrows():
-            # 若 actual_close 欄位為空，且該列記錄的預測目標日期已到達或已過(<=今天)
+            # 限制一次對帳量，避免卡頓
+            if updated_count > 5: break 
             if str(row.get('actual_close', '')).strip() == "" and str(row.get('date', '')) <= today_str:
                 target_date = row['date']
-                # 抓取該目標日的收盤數據 (end_date 設為隔日以確保抓到當天)
                 end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
                 h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
-                
                 if not h.empty:
-                    # 處理 yfinance 可能產生的 MultiIndex 欄位
                     act_df = h.copy()
-                    if isinstance(act_df.columns, pd.MultiIndex):
-                        act_df.columns = act_df.columns.get_level_values(0)
-                    
+                    if isinstance(act_df.columns, pd.MultiIndex): act_df.columns = act_df.columns.get_level_values(0)
                     act_close = float(act_df['Close'].iloc[-1])
                     pred_close = float(row['pred_close'])
-                    
-                    # 更新試算表：第 6 欄為實際收盤價，第 7 欄為誤差率
                     ws_p.update_cell(i + 2, 6, round(act_close, 2))
-                    err_val = (act_close - pred_close) / pred_close
+                    err_val = (act_close - pred_close) / (pred_close + 1e-5)
                     ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
-
-        # --- [3-3 段] 新預測數據回填與命中率計算 ---
-        # 14:30 收盤後且非週末才寫入新預測
-        if is_after_market and not is_weekend:
-            next_bus_day = now + timedelta(days=1)
-            while next_bus_day.weekday() >= 5:
-                next_bus_day += timedelta(days=1)
-            next_day_str = next_bus_day.strftime("%Y-%m-%d")
-
-            if not any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs):
-                new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
-                ws_p.append_row(new_row)
-        
-        # 取得最近 10 筆已對帳數據並計算精確準確率
-        df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
-        accuracy_history = []
-        hit_text = "🎯 數據累積中"
-        
-        if not df_stock.empty:
-            df_recent = df_stock.tail(10)
-            for _, row in df_recent.iterrows():
-                try:
-                    act = float(row['actual_close'])
-                    pred = float(row['pred_close'])
-                    # 計算準確率：1 - |(實際-預測)/預測|
-                    acc_val = (1 - abs(act - pred) / pred) * 100
-                    acc_val = max(0, min(100, acc_val)) # 限制在 0-100%
-                    
-                    accuracy_history.append({
-                        "date": str(row['date'])[-5:], 
-                        "acc_val": f"{acc_val:.1f}%",
-                        "color": "#FF3131" if acc_val >= 98 else "#FFFFFF" # 98% 以上顯示紅色
-                    })
-                except:
-                    continue
-            
-            # 計算區間命中率文字
-            hit = sum((df_recent['actual_close'].astype(float) >= df_recent['range_low'].astype(float)) & 
-                      (df_recent['actual_close'].astype(float) <= df_recent['range_high'].astype(float)))
-            hit_text = f"🎯 此股近期區間命中率: {(hit/len(df_recent))*100:.1f}%"
-        
-        return hit_text, accuracy_history
-    except Exception as e:
-        return f"🎯 同步中...", []
+                    updated_count += 1
+    except: pass
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -478,28 +477,29 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 # --- [6-1 段] render_terminal 完整呼叫邏輯 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
-    if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗"); return
+    if df is None: return
 
-    final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
-    
+    # 1. 取得預測參數與結果 (這部分只做運算，不寫入)
+    f_p, f_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
-        df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
+        df, p_days, f_p, f_tw, ai_v, bias, f_vol, b_drift
     )
-    
-    # 重點：這裡必須同時接收文字(stock_accuracy)與清單(acc_history)
-    stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    st.markdown("""
-        <style>
-        .stApp { background-color: #000000; }
-        .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; font-weight: 900 !important; }
-        .info-box { background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100px; }
-        .diag-box { background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .ai-advice-box { background: #000000; border: 2px solid #333; padding: 20px; border-radius: 15px; margin-top: 25px; }
-        .confidence-tag { background: #FF3131; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin-bottom: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
+    # 2. 從試算表檢查今日是否已經「計算完成」
+    now = datetime.now()
+    next_bus_day = now + timedelta(days=1)
+    while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
+    next_day_str = next_bus_day.strftime("%Y-%m-%d")
+    
+    recs = ws_p.get_all_records()
+    df_p = pd.DataFrame(recs)
+    
+    # 判斷狀態
+    is_synced = False
+    if not df_p.empty:
+        today_record = df_p[(df_p['symbol'] == f_id) & (df_p['date'] == next_day_str)]
+        if not today_record.empty:
+            is_synced = True
 
 # --- [6-2 段] 頂部核心指標看板與 10 日精確準確率紀錄 ---
     # 渲染大標題
@@ -587,19 +587,47 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 ---
+    # --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 (修正版) ---
+    # 1. 取得預測參數與結果 (此處僅做運算與顯示，不執行寫入)
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
+    
+    # 2. 判斷今日數據是否已經在 predictions 表中完成全域同步
+    now = datetime.now()
+    next_bus_day = now + timedelta(days=1)
+    while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
+    next_day_str = next_bus_day.strftime("%Y-%m-%d")
+    
+    # 讀取試算表紀錄 (ws_p 在 render_terminal 中傳入)
+    recs = ws_p.get_all_records()
+    df_p = pd.DataFrame(recs)
+    
+    is_synced = False
+    if not df_p.empty:
+        today_record = df_p[(df_p['symbol'] == f_id) & (df_p['date'] == next_day_str)]
+        if not today_record.empty:
+            is_synced = True
+
+    status_label = "✅ AI 預測已存檔" if is_synced else "⚙️ AI 引擎排隊計算中..."
+    status_color = "#00FF41" if is_synced else "#FFAC33"
+    
+    # 3. 渲染診斷盒
     st.markdown(f"""
         <div class='ai-advice-box'>
-            <div class='confidence-tag'>{stock_accuracy}</div>
+            <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;'>
+                <div class='confidence-tag'>{stock_accuracy}</div>
+                <div style='color:{status_color}; font-weight:900; font-size:0.85rem; border:1.5px solid {status_color}; padding:3px 10px; border-radius:15px; background:rgba(0,0,0,0.5);'>
+                    {status_label}
+                </div>
+            </div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
             <p><b>AI診斷建議:</b> {insight[1]}</p>
             <p style='font-size:0.9rem; color:#8899A6;'>乖離率參考: {b_html}</p>
-            <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
+            <div style='background: #1C2128; padding: 15px; border-radius: 8px; border-left: 5px solid #FFAC33;'>
                 <p style='color:#00F5FF; font-weight:bold; margin:0;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')})：</p>
                 <p style='font-size:1.8rem; color:#FFAC33; font-weight:900; margin:5px 0;'>預估隔日收盤價：{insight[3]:.2f}</p>
                 <p style='color:#8899A6; margin:0;'>預估浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
+                <p style='font-size:0.7rem; color:#555; margin-top:5px;'>※ 預測結果僅供參考，投資請謹慎評估風險。</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -608,10 +636,14 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 # 第七章：主程式邏輯與權限控管 (Main Logic)
 # =================================================================
 
-# --- [7-1 段] main() 函數初始化與逾時邏輯 ---
+# --- [7-1 段] main() 函數初始化與全域同步監控 (修正版) ---
 def main():
-    if 'user' not in st.session_state: st.session_state.user, st.session_state.last_active = None, time.time()
-    if st.session_state.user and (time.time() - st.session_state.last_active > 3600): st.session_state.user = None
+    if 'user' not in st.session_state: 
+        st.session_state.user, st.session_state.last_active = None, time.time()
+    
+    # 逾時邏輯 (1小時)
+    if st.session_state.user and (time.time() - st.session_state.last_active > 3600): 
+        st.session_state.user = None
     st.session_state.last_active = time.time()
     
     # --- [7-2 段] get_gsheets_connection 函數與授權 ---
@@ -743,5 +775,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
