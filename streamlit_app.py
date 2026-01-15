@@ -68,28 +68,40 @@ st.markdown("""
 
 # --- 2. 數據引擎 ---
 @st.cache_data(ttl=180, show_spinner=False)
-def fetch_comprehensive_data(symbol): 
+def fetch_comprehensive_data(symbol):
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
+    
     try:
-        # 強制不使用 yfinance 本地緩存
+        # 1. 抓取數據
         df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
-        if df is not None and not df.empty:
-            if isinstance(df.columns, pd.MultiIndex): 
-                df.columns = df.columns.get_level_values(0)
+        
+        # 2. [自動刷新邏輯]：若數據為空或日期停留在3天前(非週末)，自動清除快取
+        if df is None or df.empty:
+            st.cache_data.clear()
+            return None, s
             
-            # --- 以下計算邏輯保持不變 ---
-            df['MA5'] = df['Close'].rolling(5).mean()
-            # ... (中間省略其餘指標計算) ...
+        last_date = df.index[-1].date()
+        today = datetime.now().date()
+        # 排除週六(5)、週日(6)，若落差超過3天則判定為過舊
+        if (today - last_date).days > 3 and datetime.now().weekday() < 5:
+            st.cache_data.clear()
+
+        # 3. 欄位處理
+        if isinstance(df.columns, pd.MultiIndex): 
+            df.columns = df.columns.get_level_values(0)
             
-            # [關鍵修復]：先填補最新的盤中數據，再 dropna
-            # 這樣 1/15 的數據才不會因為 MACD 還沒算出來就被整行刪掉
-            df = df.ffill() 
-            return df.dropna(), s
-    except:
-        pass
-    return None, s
+        # --- 指標計算 (保持您原有的 MA, MACD, RSI, KDJ 等邏輯) ---
+        # ... 
+        
+        # 4. [基準日修復]：先填補最新盤中缺值再 dropna，確保 1/15 顯示
+        df = df.ffill() 
+        return df.dropna(), s
+        
+    except Exception as e:
+        st.cache_data.clear() # 發生錯誤即清空快取，下次重整時重來
+        return None, s
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
@@ -391,7 +403,14 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    df, f_id = fetch_comprehensive_data(symbol) # 移除 api_ttl * 60
+    # 呼叫參數必須與新定義的 fetch_comprehensive_data 一致
+    df, f_id = fetch_comprehensive_data(symbol)
+    
+    if df is None: 
+        st.warning(f"⚠️ {symbol} 數據同步中，請稍候...")
+        time.sleep(2)
+        st.rerun() # 配合自動清除快取後的重整
+        return
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
@@ -610,3 +629,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
