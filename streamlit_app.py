@@ -68,7 +68,7 @@ st.markdown("""
 
 # --- 2. 數據引擎 ---
 @st.cache_data(ttl=180, show_spinner=False)
-def fetch_comprehensive_data(symbol): # 移除 ttl_seconds 參數避免 TypeError
+def fetch_comprehensive_data(symbol):
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
@@ -76,29 +76,22 @@ def fetch_comprehensive_data(symbol): # 移除 ttl_seconds 參數避免 TypeErro
     try:
         df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
         
-        # --- 自動異常刷新邏輯 ---
+        # 異常自動清除快取邏輯
         if df is None or df.empty:
             st.cache_data.clear()
             return None, s
-            
-        # 檢查日期，若今天交易日但數據停留在 3 天前，自動清快取
-        last_date = df.index[-1].date()
-        if (datetime.now().date() - last_date).days > 3 and datetime.now().weekday() < 5:
-            st.cache_data.clear()
-        # ----------------------
 
-        # [解決 KeyError] 處理 yfinance 可能回傳的多層索引 (MultiIndex)
+        # [解決 KeyError]：強制處理 MultiIndex 欄位並將名稱轉為大寫
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        
-        # 統一欄位名稱大小寫 (確保能找到 Close, MA20 等)
-        df.columns = [str(c).title() for c in df.columns]
+        df.columns = [str(c).upper() for c in df.columns] 
 
-        # 計算指標
-        df['Ma20'] = df['Close'].rolling(20).mean()
-        # ... (其餘指標計算比照辦理)
+        # 計算必要指標，確保 MA20 存在
+        df['MA5'] = df['CLOSE'].rolling(5).mean()
+        df['MA10'] = df['CLOSE'].rolling(10).mean()
+        df['MA20'] = df['CLOSE'].rolling(20).mean()
         
-        # [解決日期卡住] 先用前值填補盤中缺口再 dropna
+        # 補全資料，避免 1/15 數據因計算中的 NaN 被刪除
         df = df.ffill() 
         return df.dropna(), s
     except Exception as e:
@@ -409,13 +402,13 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    # 移除 api_ttl * 60，與新定義的函數同步
+    # 修改為一個參數，與新函數定義同步
     df, f_id = fetch_comprehensive_data(symbol)
     
     if df is None or df.empty:
-        st.warning(f"⚠️ {symbol} 數據獲取失敗，正嘗試重置環境...")
+        st.warning("🔄 數據同步中，請稍候...")
         time.sleep(1)
-        st.rerun() # 觸發自動重整以抓取新數據
+        st.rerun()
         return
 
     # 1. 執行 AI 引擎：精確接收 7 個變數
@@ -558,20 +551,19 @@ def main():
                     st.session_state.user = u; st.rerun()
                 else: st.error("❌ 驗證失敗")
         with tab_reg:
-            new_u = st.text_input("新帳號", key="reg_u")
-            new_p = st.text_input("新密碼", type="password", key="reg_p")
-            if st.button("提交註冊申請"):
-                if not new_u or not new_p:
-                    st.error("❌ 帳號與密碼為必填項目")
-                else:
-                    # 先抓取 Google Sheets 現有的所有使用者
-                    udf = pd.DataFrame(ws_u.get_all_records())
-                    # 檢查新輸入的帳號是否已在 'username' 欄位中
-                    if not udf.empty and str(new_u) in udf['username'].astype(str).values:
-                        st.error(f"⚠️ 註冊失敗：帳號 '{new_u}' 已被使用，請更換名稱。")
-                    else:
-                        ws_u.append_row([str(new_u), str(new_p)])
-                        st.success("✅ 註冊成功！請切換至「登入」頁面。")
+    new_u = st.text_input("新帳號", key="reg_u")
+    new_p = st.text_input("新密碼", type="password", key="reg_p")
+    if st.button("提交註冊申請"):
+        if not new_u:
+            st.error("❌ 請輸入帳號")
+        else:
+            # 讀取現有用戶清單比對
+            udf = pd.DataFrame(ws_u.get_all_records())
+            if not udf.empty and str(new_u) in udf['username'].astype(str).values:
+                st.error(f"❌ 帳號 '{new_u}' 已存在，請使用其他名稱。")
+            else:
+                ws_u.append_row([str(new_u), str(new_p)])
+                st.success("✅ 註冊成功，現在可以登入了！")
     else:
         # --- 使用者儀表板 ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
@@ -631,5 +623,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
