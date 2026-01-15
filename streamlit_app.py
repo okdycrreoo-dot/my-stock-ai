@@ -68,36 +68,42 @@ st.markdown("""
 
 # --- 2. 數據引擎 ---
 @st.cache_data(ttl=180, show_spinner=False)
-def fetch_comprehensive_data(symbol):
+def fetch_comprehensive_data(symbol): # 移除 ttl_seconds 參數避免 TypeError
     s = str(symbol).strip().upper()
     if not (s.endswith(".TW") or s.endswith(".TWO")): 
         s = f"{s}.TW"
     
     try:
-        # 1. 抓取數據
         df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
         
-        # 2. [自動刷新邏輯]：若數據為空或日期停留在3天前(非週末)，自動清除快取
+        # --- 自動異常刷新邏輯 ---
         if df is None or df.empty:
             st.cache_data.clear()
             return None, s
             
+        # 檢查日期，若今天交易日但數據停留在 3 天前，自動清快取
         last_date = df.index[-1].date()
-        today = datetime.now().date()
-        # 排除週六(5)、週日(6)，若落差超過3天則判定為過舊
-        if (today - last_date).days > 3 and datetime.now().weekday() < 5:
+        if (datetime.now().date() - last_date).days > 3 and datetime.now().weekday() < 5:
             st.cache_data.clear()
+        # ----------------------
 
-        # 3. 欄位處理
-        if isinstance(df.columns, pd.MultiIndex): 
+        # [解決 KeyError] 處理 yfinance 可能回傳的多層索引 (MultiIndex)
+        if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-            
-        # --- 指標計算 (保持您原有的 MA, MACD, RSI, KDJ 等邏輯) ---
-        # ... 
         
-        # 4. [基準日修復]：先填補最新盤中缺值再 dropna，確保 1/15 顯示
+        # 統一欄位名稱大小寫 (確保能找到 Close, MA20 等)
+        df.columns = [str(c).title() for c in df.columns]
+
+        # 計算指標
+        df['Ma20'] = df['Close'].rolling(20).mean()
+        # ... (其餘指標計算比照辦理)
+        
+        # [解決日期卡住] 先用前值填補盤中缺口再 dropna
         df = df.ffill() 
         return df.dropna(), s
+    except Exception as e:
+        st.cache_data.clear()
+        return None, s
         
     except Exception as e:
         st.cache_data.clear() # 發生錯誤即清空快取，下次重整時重來
@@ -403,16 +409,14 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    # 呼叫參數必須與新定義的 fetch_comprehensive_data 一致
+    # 移除 api_ttl * 60，與新定義的函數同步
     df, f_id = fetch_comprehensive_data(symbol)
     
-    if df is None: 
-        st.warning(f"⚠️ {symbol} 數據同步中，請稍候...")
-        time.sleep(2)
-        st.rerun() # 配合自動清除快取後的重整
+    if df is None or df.empty:
+        st.warning(f"⚠️ {symbol} 數據獲取失敗，正嘗試重置環境...")
+        time.sleep(1)
+        st.rerun() # 觸發自動重整以抓取新數據
         return
-    if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗"); return
 
     # 1. 執行 AI 引擎：精確接收 7 個變數
     final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
@@ -558,18 +562,16 @@ def main():
             new_p = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("提交註冊申請"):
                 if not new_u or not new_p:
-                    st.error("❌ 帳號或密碼不能為空白")
+                    st.error("❌ 帳號與密碼為必填項目")
                 else:
-                    # 1. 抓取目前所有用戶資料
+                    # 先抓取 Google Sheets 現有的所有使用者
                     udf = pd.DataFrame(ws_u.get_all_records())
-            
-                    # 2. 檢查新帳號是否已在 'username' 欄位中
+                    # 檢查新輸入的帳號是否已在 'username' 欄位中
                     if not udf.empty and str(new_u) in udf['username'].astype(str).values:
-                        st.error(f"⚠️ 帳號 '{new_u}' 已被註冊，請嘗試其他名稱")
+                        st.error(f"⚠️ 註冊失敗：帳號 '{new_u}' 已被使用，請更換名稱。")
                     else:
-                        # 3. 確認無重複才寫入
                         ws_u.append_row([str(new_u), str(new_p)])
-                        st.success("✅ 註冊成功！現在可以切換至登入分頁。")
+                        st.success("✅ 註冊成功！請切換至「登入」頁面。")
     else:
         # --- 使用者儀表板 ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
@@ -629,4 +631,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
