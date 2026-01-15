@@ -645,65 +645,70 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 (穩定解析版) ---
-# 1. 計算 UI 顯示用的精確日期
-now = datetime.now()
-today_label = now.strftime("%m/%d")
+# --- [6-5 段] 底部 AI 診斷建議盒 (防錯渲染版) ---
+try:
+    # 1. 計算日期
+    now = datetime.now()
+    today_label = now.strftime("%m/%d")
+    next_day = now + timedelta(days=1)
+    while next_day.weekday() >= 5: next_day += timedelta(days=1)
+    next_day_label = next_day.strftime("%m/%d")
 
-next_day = now + timedelta(days=1)
-while next_day.weekday() >= 5:
-    next_day += timedelta(days=1)
-next_day_label = next_day.strftime("%m/%d")
+    # 2. 安全提取命中率
+    acc_val_display = stock_accuracy.split(':')[-1].strip() if 'stock_accuracy' in locals() and '命中率' in stock_accuracy else "計算中..."
+    
+    # 3. 處理乖離率 (b_html) - 避免 NameError
+    b_html_list = []
+    if 'insight' in locals() and len(insight) > 6:
+        for k, v in insight[6].items():
+            color = '#FF3131' if v >= 0 else '#00FF41'
+            b_html_list.append(f"{k}D: <span style='color:{color}'>{v:.2%}</span>")
+    b_html = " | ".join(b_html_list) if b_html_list else "暫無乖離數據"
 
-# 2. 格式化乖離率顯示文字
-b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
-
-# 3. 提取命中率數值
-acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中..."
-
-# 4. 建立 HTML 字串 (注意：這裡不使用 f-string 處理大區塊，避免大括號衝突)
-html_content = f"""
-<div style="background: #0E1117; padding: 20px; border-radius: 15px; border: 1px solid #30363D; color: white; font-family: sans-serif;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <span style="background: #FF4B4B; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;">{stock_accuracy}</span>
-        <span style="font-size: 1.6rem; color: {insight[2]}; font-weight: 900;">{insight[0]}</span>
+    # 4. 構建完整的 HTML 字串
+    # 注意：這裡將 CSS 直接寫在標籤內，不使用大括號 {} 避免 f-string 衝突
+    html_code = f"""
+    <div style="background-color: #161b22; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="background: #FF4B4B; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;">{stock_accuracy if 'stock_accuracy' in locals() else '診斷中'}</div>
+            <div style="font-size: 24px; color: {insight[2] if 'insight' in locals() else '#FFFFFF'}; font-weight: 900;">{insight[0] if 'insight' in locals() else '分析中'}</div>
+        </div>
+        
+        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
+        
+        <p style="margin-bottom: 12px; font-size: 16px;"><b>AI 診斷建議：</b> {insight[1] if 'insight' in locals() else '載入中...'}</p>
+        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率參考：{b_html}</p>
+        
+        <div style="background-color: #0d1117; padding: 15px; border-radius: 10px; border: 1px solid #30363d;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 (基準日: {today_label})</span>
+                <span style="color: #3fb950; font-size: 12px; border: 1px solid #30363d; padding: 2px 8px; border-radius: 5px;">歷史命中率: {acc_val_display}</span>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <div style="font-size: 14px; color: #8b949e;">預估 {next_day_label} 收盤價</div>
+                <div style="font-size: 36px; color: #e3b341; font-weight: bold;">{insight[3]:.2f if 'insight' in locals() else 0.00}</div>
+            </div>
+            
+            <div style="font-size: 15px; color: #c9d1d9;">
+                預估 {next_day_label} 價格區間：
+                <span style="color: #ff7b72;">{insight[5]:.2f if 'insight' in locals() else 0.00}</span> ~ 
+                <span style="color: #ff7b72;">{insight[4]:.2f if 'insight' in locals() else 0.00}</span>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; text-align: center; font-size: 11px; color: #484f58;">
+            * AI 預測僅供參考，投資必有風險，操作請謹慎評估。
+        </div>
     </div>
-    
-    <hr style="border: 0; border-top: 1px solid #30363D; margin: 15px 0;">
-    
-    <p style="margin-bottom: 10px; font-size: 1rem; line-height: 1.5;"><b>AI 診斷建議：</b> {insight[1]}</p>
-    <p style="font-size: 0.85rem; color: #8B949E; margin-bottom: 20px;">當前 {today_label} 乖離率參考：{b_html}</p>
-    
-    <div style="background: #161B22; padding: 20px; border-radius: 12px; border: 1px solid #30363D;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <p style="color: #58A6FF; font-weight: bold; margin: 0; font-size: 1.1rem;">🔮 AI 統一展望 (基準日: {today_label})</p>
-            <span style="background: #21262D; color: #3FB950; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; border: 1px solid #30363D;">歷史命中率: {acc_val_display}</span>
-        </div>
-        
-        <div style="margin: 20px 0;">
-            <p style="font-size: 0.9rem; color: #8B949E; margin: 0;">預估 {next_day_label} 收盤價</p>
-            <p style="font-size: 2.5rem; color: #E3B341; font-weight: 900; margin: 0; line-height: 1.2;">{insight[3]:.2f}</p>
-        </div>
-        
-        <p style="color: #C9D1D9; margin: 5px 0; font-size: 1rem;">
-            預估 {next_day_label} 價格浮動區間：
-            <span style="color: #FF7B72;">{insight[5]:.2f}</span> ~ <span style="color: #FF7B72;">{insight[4]:.2f}</span>
-        </p>
-        
-        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #30363D; display: flex; justify-content: space-between;">
-            <span style="color: #8B949E; font-size: 0.85rem;">今日 {today_label} 真實收盤：<b style="color: #F0F6FC;">{curr_p:.2f}</b></span>
-            <span style="color: #8B949E; font-size: 0.85rem;">成交量：<b style="color: #D29922;">{int(curr_v/1000):,} 張</b></span>
-        </div>
-    </div>
-    
-    <p style="font-size: 0.75rem; color: #484F58; margin-top: 20px; text-align: center;">
-        * AI 預測僅供參考，投資必有風險，操作請謹慎評估。
-    </p>
-</div>
-"""
+    """
 
-# 5. 最終渲染 (最關鍵的一行)
-st.components.v1.html(html_content, height=450, scrolling=False)
+    # 5. 使用專用 HTML 元件渲染，解決原始碼外洩問題
+    import streamlit.components.v1 as components
+    components.html(html_code, height=450)
+
+except Exception as e:
+    st.error(f"AI 診斷顯示異常: {e}")
 # =================================================================
 # 第七章：主程式邏輯與權限控管 (修訂版)
 # =================================================================
@@ -854,6 +859,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
