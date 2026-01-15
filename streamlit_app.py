@@ -671,7 +671,7 @@ def main():
                 
                 target = st.selectbox("自選股清單", u_stocks if u_stocks else ["尚未新增"])
                 
-                # 2. 新增股票邏輯
+                # 2. 新增股票邏輯 (加入 20 支上限檢查)
                 ns = st.text_input("➕ 輸入股票代號 (例: 2454)")
                 if st.button("加入到自選股清單"):
                     if ns:
@@ -679,8 +679,10 @@ def main():
                         _, final_s_code = fetch_comprehensive_data(ns, 3600)
                         
                         if final_s_code:
-                            # --- 重複檢查邏輯 ---
-                            if final_s_code in u_stocks:
+                            # --- 上限與重複檢查邏輯 ---
+                            if len(u_stocks) >= 20:
+                                st.error(f"🚫 自選股已達上限 (20 支)，請先刪除舊標的再新增。")
+                            elif final_s_code in u_stocks:
                                 st.warning(f"⚠️ {final_s_code} 已經在您的清單中囉！")
                             else:
                                 ws_w.append_row([st.session_state.user, final_s_code])
@@ -741,6 +743,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
