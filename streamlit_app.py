@@ -179,42 +179,48 @@ def auto_sync_feedback(ws_p, f_id, insight):
                     ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
         # --- [3-3 段] 新預測數據回填：預測下一交易日 ---
-        # 嚴格執行您的要求：僅在 14:30 收盤後且非週末才寫入新的預測
+        # 僅在收盤後且非週末才寫入新的預測值
         if is_after_market and not is_weekend:
-            # 計算下一個交易日 (自動跳過週六與週日)
+            # 計算下一交易日
             next_bus_day = now + timedelta(days=1)
             while next_bus_day.weekday() >= 5:
                 next_bus_day += timedelta(days=1)
             next_day_str = next_bus_day.strftime("%Y-%m-%d")
 
-            # 檢查試算表中是否已經存在對該標的、該目標日的預測記錄，避免重複寫入
+            # 檢查是否已存在該標的對該目標日的預測
             if not any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs):
-                # 寫入順序：目標日期(明日), 股票代號, 預估收盤, 預估低, 預估高, 實際收盤(留空), 誤差(留空)
-                new_row = [
-                    next_day_str, 
-                    f_id, 
-                    round(insight[3], 2), 
-                    round(insight[5], 2), 
-                    round(insight[4], 2), 
-                    "", 
-                    ""
-                ]
+                # 順序：日期(明日), 代號, 預估收盤, 預估低, 預估高, 實際收盤(空), 誤差(空)
+                new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
                 ws_p.append_row(new_row)
         
-        # 命中率計算：從歷史已對帳數據中統計最近 10 筆
+        # 命中率計算與 10 日歷史追蹤
         df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "")].copy()
+        accuracy_history = []
+        hit_text = "🎯 數據累積中"
+        
         if not df_stock.empty:
+            # 取最後 10 筆已結算數據
             df_recent = df_stock.tail(10)
-            hit = sum((df_recent['actual_close'].astype(float) >= df_recent['range_low'].astype(float)) & 
-                      (df_recent['actual_close'].astype(float) <= df_recent['range_high'].astype(float)))
-            return f"🎯 此股實戰命中率: {(hit/len(df_recent))*100:.1f}%"
+            for _, row in df_recent.iterrows():
+                try:
+                    act = float(row['actual_close'])
+                    r_low = float(row['range_low'])
+                    r_high = float(row['range_high'])
+                    is_hit = r_low <= act <= r_high
+                    # 格式化日期為 MM-DD，並記錄結果
+                    accuracy_history.append({
+                        "date": str(row['date'])[-5:], 
+                        "result": "✅" if is_hit else "❌"
+                    })
+                except:
+                    continue
+            
+            hit_count = sum(1 for item in accuracy_history if item["result"] == "✅")
+            hit_text = f"🎯 此股近期命中率: {(hit_count/len(accuracy_history))*100:.1f}%"
         
-        return "🎯 數據累積中"
-        
+        return hit_text, accuracy_history
     except Exception as e:
-        # 發生錯誤時返回同步中，避免主程式當機
-        return f"🎯 同步中..."
-
+        return f"🎯 同步中...", []
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -484,8 +490,8 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
     
-    # 4. 調用修正後的第三章對帳系統
-    stock_accuracy = auto_sync_feedback(ws_p, f_id, insight)
+    # 4. 調用修正後的第三章對帳系統 (接收兩個回傳值)
+    stock_accuracy_text, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
     # 5. UI 樣式覆蓋 (確保深色模式與自定義組件樣式)
     st.markdown("""
@@ -534,22 +540,46 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     """, unsafe_allow_html=True)
 
     # --- [6-2 段] 頂部核心指標看板 (Metrics Dashboard) ---
+    # 標題
     st.title(f"📊 {f_id} 台股AI預測系統")
-    st.subheader(stock_accuracy)
+    
+    # [新增] 10 日 AI 預測準確率歷史記錄追蹤
+    if acc_history:
+        acc_cols = st.columns(len(acc_history))
+        for i, item in enumerate(acc_history):
+            with acc_cols[i]:
+                # 渲染日期與 ✅/❌ 標籤
+                st.markdown(f"""
+                    <div style='text-align: center; border: 1px solid #333; border-radius: 8px; padding: 5px; background: #111; margin-bottom: 10px;'>
+                        <div style='font-size: 0.75rem; color: #888; font-weight: bold;'>{item['date']}</div>
+                        <div style='font-size: 1.2rem; margin-top: 2px;'>{item['result']}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+    # 命中率子標題與大腦描述
+    st.subheader(stock_accuracy_text)
     st.caption(f"✨ AI 大腦：籌碼與動能分析 | 環境共振分析 | 技術面與乖離率評估 | 自我學習與反饋")
 
+    # 核心指標 Metrics 佈局
     c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
     sign = "+" if change_pct >= 0 else ""
     m_cols = st.columns(5)
     metrics = [
-        ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), 
-        ("當前價格", f"{curr_p:.2f}", c_p), ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
+        ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
+        ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), 
+        ("當前價格", f"{curr_p:.2f}", c_p), 
+        ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
         ("成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")
     ]
     
     for i, (lab, val, col) in enumerate(metrics):
         with m_cols[i]: 
-            st.markdown(f"<div class='info-box'><span style='color:#888; font-size:1.1rem; margin-bottom:5px;'>{lab}</span><b style='color:{col}; font-size:2.0rem; line-height:1;'>{val}</b></div>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class='info-box'>
+                    <span style='color:#888; font-size:1.1rem; margin-bottom:5px;'>{lab}</span>
+                    <b style='color:{col}; font-size:2.0rem; line-height:1;'>{val}</b>
+                </div>
+            """, unsafe_allow_html=True)
 
     # --- [6-3 段] 極短線/短線/波段買賣點診斷區 ---
     st.write(""); s_cols = st.columns(3)
@@ -721,5 +751,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
