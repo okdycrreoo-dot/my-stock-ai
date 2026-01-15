@@ -242,43 +242,40 @@ def auto_sync_feedback(ws_p, f_id, insight):
         return f"🎯 系統同步中...", []
 
 
-# --- [3-4 段] 修正版：移除 UI 進度條，改為靜默執行 ---
+# --- [3-4 段] 批次預測寫入引擎 ---
 def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
-    now = datetime.now()
-    if (now.hour * 60 + now.minute) >= 870 and now.weekday() < 5:
+    # A. 取得當前自選股總表
+    all_watchlist = pd.DataFrame(ws_w.get_all_records())
+    if all_watchlist.empty: return
+    
+    # B. 取得已存在的預測紀錄 (避免重複寫入同一天的同一支標的)
+    existing_p = pd.DataFrame(ws_p.get_all_records())
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # 取得去重後的股票清單
+    unique_stocks = all_watchlist['stock_symbol'].unique()
+    
+    for symbol in unique_stocks:
+        # C. 檢查是否今天已經預測過 (關鍵篩選)
+        if not existing_p.empty:
+            is_done = existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)]
+            if not is_done.empty: continue # 如果今天寫過了，就跳過
+            
         try:
-            all_w = pd.DataFrame(ws_w.get_all_records())
-            if all_w.empty: return
-            unique_stocks = all_w['stock_symbol'].unique()
+            # D. 抓取數據並運算
+            df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
+            if df is None: continue
             
-            next_bus_day = now + timedelta(days=1)
-            while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
-            next_day_str = next_bus_day.strftime("%Y-%m-%d")
+            # 取得 AI 預測值
+            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
+            _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
             
-            existing_recs = pd.DataFrame(ws_p.get_all_records())
+            # E. 寫入試算表 (predictions)
+            # 欄位順序：日期, 代號, 預測收盤, 預測高, 預測低, 診斷建議
+            ws_p.append_row([today_str, symbol, insight[3], insight[4], insight[5], insight[1]])
             
-            # --- 這裡原本有 progress_bar 與 status_text，現在全部刪除 ---
-            
-            for idx, symbol in enumerate(unique_stocks):
-                if not existing_recs.empty:
-                    is_done = ((existing_recs['date'] == next_day_str) & 
-                               (existing_recs['symbol'] == symbol)).any()
-                    if is_done: continue
-                
-                df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
-                if df is not None:
-                    f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
-                    _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
-                    
-                    new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
-                    ws_p.append_row(new_row)
-                    time.sleep(10) # 為了保護 API 頻率，這行必須留下
-            
-            # 任務結束後，可以用一個不佔空間的小通知告知管理員
-            st.toast(f"✅ 盤後批次數據已同步至 {next_day_str}", icon="🚀")
-
         except Exception as e:
-            print(f"靜默執行異常: {e}") # 改用 print，不打擾使用者 UI
+            print(f"批次寫入失敗 ({symbol}): {e}")
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -772,10 +769,9 @@ def main():
                     st.error("帳號密碼不可為空")
 
     # -------------------------------------------------------------
-    # [段落 7-4] 登入後主介面：自動化引擎與功能面板
-    # -------------------------------------------------------------
-    else:
-        # 執行靜默批次引擎 (處理盤後數據同步)
+    # --- [7-4 段] 批次引擎觸發點 ---
+    # 當使用者進入此區塊，表示已登入，立即執行背景檢查
+    with st.spinner("同步全球 AI 預測數據中..."):
         run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
 
         # ---------------------------------------------------------
@@ -843,4 +839,5 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
