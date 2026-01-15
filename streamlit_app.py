@@ -529,7 +529,7 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 # 第六章：終端渲染引擎 (Render Terminal)
 # =================================================================
 
-# --- [6-1 段修正] render_terminal 定義 ---
+# --- [6-1 段] render_terminal 完整呼叫邏輯 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
@@ -541,51 +541,68 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
     
+    # 重點：這裡必須同時接收文字(stock_accuracy)與清單(acc_history)
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # --- [6-2 段修正] 紅漲綠跌判定與渲染 ---
-    pred_val = float(insight[3])
-    current_val = float(curr_p)
-    
-    if pred_val > current_val:
-        pred_color = "#FF3131"  # 亮紅
-        trend_icon = "▲"
-    elif pred_val < current_val:
-        pred_color = "#00FF00"  # 亮綠
-        trend_icon = "▼"
-    else:
-        pred_color = "#FFFFFF"  # 白色
-        trend_icon = "—"
+    st.markdown("""
+        <style>
+        .stApp { background-color: #000000; }
+        .streamlit-expanderHeader { background-color: #FF3131 !important; color: white !important; font-weight: 900 !important; }
+        .info-box { background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100px; }
+        .diag-box { background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .ai-advice-box { background: #000000; border: 2px solid #333; padding: 20px; border-radius: 15px; margin-top: 25px; }
+        .confidence-tag { background: #FF3131; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin-bottom: 10px; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    # HTML 渲染部分
-    st.components.v1.html(f"""
-        <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333; color: white; font-family: sans-serif;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="color: #888; font-size: 14px;">AI 預測次日收盤</div>
-                    <div style="color: {pred_color}; font-size: 32px; font-weight: bold; margin-top: 5px;">
-                        {trend_icon} {pred_val:,.2f}
-                    </div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="color: #888; font-size: 14px;">預測波動區間</div>
-                    <div style="color: #aaa; font-size: 18px; margin-top: 5px;">
-                        {insight[5]:,.2f} - {insight[4]:,.2f}
-                    </div>
-                </div>
-            </div>
-        </div>
-    """, height=140)
+# --- [6-2 段] 頂部核心指標看板與 10 日精確準確率紀錄 ---
+    # 渲染大標題
+    st.title(f"📊 {f_id} 台股AI預測系統")
     
-    # ... 後續接 6-3 段 (K線圖等) 保持不變 ...
+    # 渲染橫向 10 日準確率數值紀錄
+    if acc_history:
+        acc_cols = st.columns(len(acc_history))
+        for i, item in enumerate(acc_history):
+            with acc_cols[i]:
+                st.markdown(f"""
+                    <div style='text-align: center; border: 1px solid #333; border-radius: 8px; padding: 5px; background: #111; margin-bottom: 10px;'>
+                        <div style='font-size: 0.7rem; color: #888; font-weight: bold;'>{item['date']}</div>
+                        <div style='font-size: 0.9rem; margin-top: 2px; color: {item['color']}; font-weight: 900;'>{item['acc_val']}</div>
+                    </div>
+                """, unsafe_allow_html=True)
 
-# --- [6-3 段] 極短線/短線/波段買賣點診斷區 (1:1 保持) ---
+    # 顯示整體命中率標籤
+    st.markdown(f"<div class='confidence-tag'>{stock_accuracy}</div>", unsafe_allow_html=True)
+    st.caption(f"✨ AI 大腦：籌碼與動能分析 | 環境共振分析 | 技術面與乖離率評估 | 自我學習與反饋")
+
+    # 核心指標看板佈局 (Metrics)
+    c_p = "#FF3131" if change_pct >= 0 else "#00FF41"
+    sign = "+" if change_pct >= 0 else ""
+    m_cols = st.columns(5)
+    metrics = [
+        ("昨日收盤", f"{prev_c:.2f}", "#FFFFFF"), 
+        ("今日開盤", f"{open_p:.2f}", "#FFFFFF"), 
+        ("當前價格", f"{curr_p:.2f}", c_p), 
+        ("今日漲跌", f"{sign}{change_pct:.2f}%", c_p), 
+        ("成交 (張)", f"{int(curr_v/1000):,}", "#FFFF00")
+    ]
+    
+    for i, (lab, val, col) in enumerate(metrics):
+        with m_cols[i]: 
+            st.markdown(f"""
+                <div class='info-box'>
+                    <span style='color:#888; font-size:1.1rem; margin-bottom:5px;'>{lab}</span>
+                    <b style='color:{col}; font-size:2.0rem; line-height:1;'>{val}</b>
+                </div>
+            """, unsafe_allow_html=True)
+
+# --- [6-3 段] 極短線/短線/波段買賣點診斷區 ---
     st.write(""); s_cols = st.columns(3)
     for i, (label, p) in enumerate(ai_recs.items()):
         with s_cols[i]: 
             st.markdown(f"<div class='diag-box'><b style='font-size:1.5rem; color:#FFFFFF;'>{label}</b><hr style='border:0.5px solid #444; width:80%; margin:10px 0;'><div style='font-size:1.2rem; color:#CCC;'>買入: <span style='color:#FF3131; font-weight:900; font-size:1.6rem;'>{p['buy']:.2f}</span></div><div style='font-size:1.2rem; color:#CCC;'>賣出: <span style='color:#00FF41; font-weight:900; font-size:1.6rem;'>{p['sell']:.2f}</span></div></div>", unsafe_allow_html=True)
 
-# --- [6-4 段] Plotly 四層子圖繪製 (1:1 保持) ---
+# --- [6-4 段] Plotly 四層子圖繪製 (K線、量能、MACD、KDJ) ---
     t_main = "■ 價格與均線 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#FF3131'>●</span> K線 <span style='color:#FFD700'>━━</span> 5MA <span style='color:#00F5FF'>━━</span> 10MA <span style='color:#FF00FF'>━━</span> 20MA <span style='color:#FF3131'>···</span> AI預測</span>"
     t_vol  = "■ 成交量分析 (張)"
     t_macd = "■ MACD 指標 <span style='font-weight:normal; font-size:14px; color:#AAA;'>&nbsp;&nbsp; <span style='color:#FF3131'>■</span> 能量柱 <span style='color:#FFFFFF'>━━</span> DIF <span style='color:#FFA726'>━━</span> DEA</span>"
@@ -605,7 +622,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA10'], line=dict(color='#00F5FF', width=1.5), showlegend=False), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], line=dict(color='#FF00FF', width=2), showlegend=False), 1, 1)
     
-    # 預測線繪製
+    # 預測線繪製 (確保 pred_line 已傳入)
     fig.add_trace(go.Scatter(x=[p_df.index[-1] + timedelta(days=i) for i in range(1, p_days + 1)], y=pred_line, line=dict(color='#FF3131', width=3, dash='dash'), showlegend=False), 1, 1)
     
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
@@ -626,7 +643,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- [6-5 段] 底部 AI 診斷建議盒 (1:1 保持) ---
+    # --- [6-5 段] 底部 AI 診斷建議盒 (隔離渲染修正版) ---
     import streamlit.components.v1 as components
     now = datetime.now()
     today_label = now.strftime("%m/%d")
@@ -796,30 +813,32 @@ def main():
                 st.session_state.user = None
                 st.rerun()
 
-    # -----------------------------------------------------------------
-        # [段落 7-6] 核心運算對接：呼叫渲染引擎
-        # -----------------------------------------------------------------
-        # 此處 target 來自 [7-5 段] 的 st.selectbox
-        # p_days 來自 [7-5 段] 的 st.number_input
-        # 其餘參數 (cp, tw_val, v_comp, api_ttl) 來自 [第一章] 的設定值
+    # -------------------------------------------------------------
+    # [段落 7-6] 核心運算對接：先運算數據 -> 後渲染介面
+    # -------------------------------------------------------------
+    # A. 抓取當前標的之綜合數據
+    df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
+    
+    if df is not None:
+        # B. 啟動 AI 參數微調引擎
+        f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
         
-        if target:
-            # 直接呼叫第六章渲染函數
-            # 注意：此處參數數量(7個)必須與 [第六章] def render_terminal 的定義完全一致
-            render_terminal(
-                target,    # symbol
-                p_days,    # p_days
-                cp,        # cp
-                tw_val,    # tw_val
-                api_ttl,   # api_ttl
-                v_comp,    # v_comp
-                ws_p       # ws_p
-            )
-        else:
-            st.info("💡 請由左側或管理面板選擇一支股票進行分析。")
+        # C. 執行 AI 核心運算 (生成關鍵變數 insight)
+        curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
+            df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
+        )
+        
+        # D. 同步歷史預測命中率數據
+        stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
+        
+        # E. 最終渲染：呼叫第六章介面
+        render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+    else:
+        st.error("數據獲取異常，請稍後再試。")
 
 # -----------------------------------------------------------------
 # [段落 7-7] 程式進入點
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
