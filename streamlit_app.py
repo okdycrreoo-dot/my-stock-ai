@@ -475,26 +475,21 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 # 第六章：終端渲染引擎 (Render Terminal)
 # =================================================================
 
-# --- [6-1 段] render_terminal 呼叫與 UI 樣式覆蓋 ---
+# --- [6-1 段] render_terminal 完整呼叫邏輯 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    # 1. 抓取基礎資料
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
 
-    # 2. 執行 AI 微調引擎
     final_p, final_tw, ai_v, ai_b, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
     
-    # 3. 執行 AI 核心運算
     pred_line, ai_recs, curr_p, open_p, prev_c, curr_v, change_pct, insight = perform_ai_engine(
         df, p_days, final_p, final_tw, ai_v, bias, f_vol, b_drift
     )
     
-    # 4. 執行對帳系統 (獲取文字與歷史清單)
-    # 注意：這裡的變數名稱統一使用 stock_accuracy 以相容後續代碼
+    # 重點：這裡必須同時接收文字(stock_accuracy)與清單(acc_history)
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 5. UI 樣式覆蓋
     st.markdown("""
         <style>
         .stApp { background-color: #000000; }
@@ -711,6 +706,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
