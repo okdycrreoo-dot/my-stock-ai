@@ -211,84 +211,81 @@ def auto_sync_feedback(ws_p, f_id, insight):
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
 
-# --- [4-1 段] AI 診斷引擎：顯性籌碼吸收版 ---
-def generate_ai_insight(df, f_id):
+def generate_ai_insight(df, f_id, env_panic=1.0):
+    """
+    [4-1 ~ 4-3 完整整合]
+    整合內容：顯性籌碼吸收、多維度波動計算、乖離率偏移與最終參數生成
+    """
     try:
-        # 取得最新數據
+        # --- [4-1 段] 核心數據與顯性籌碼力道提取 ---
         latest = df.iloc[-1]
         prev = df.iloc[-2]
+        price_now = float(latest['Close'])
         
-        curr_p = latest['Close']
-        inst_force = latest['Inst_Force'] # 剛才計算的顯性籌碼力道
-        vol_ratio = latest['Volume'] / df['Volume'].mean()
+        # 提取 2-2 段產出的籌碼力道 (若無則預設為 0)
+        inst_force = latest.get('Inst_Force', 0)
+        v_curr = latest['Volume']
+        v_avg5 = df['Volume'].tail(5).mean()
+        vol_ratio = v_curr / (v_avg5 + 1e-5)
         
-        # 1. 預測核心：根據籌碼力道修正偏移量
-        # 如果法人力道強(inst_force高)，預測中心會向上微調
-        bias = 1 + (inst_force * 0.05) 
-        pred_close = curr_p * bias
+        # --- [4-2 段] 波動率與趨勢權重的多維度計算 ---
+        rets = df['Close'].pct_change().dropna()
+        v_p = [5, 10, 15, 20, 25, 30]
+        v_w = [0.25, 0.20, 0.15, 0.15, 0.15, 0.10]
+        v_vals = [rets.tail(p).std() for p in v_p]
         
-        # 2. 動態區間修正：籌碼越集中，區間越收窄 (提升準確率)
-        atr = (df['High'] - df['Low']).mean()
-        confidence_multiplier = 1.2 if abs(inst_force) > 1 else 1.8
-        range_high = pred_close + (atr * confidence_multiplier)
-        range_low = pred_close - (atr * confidence_multiplier)
+        # 計算加權波動率 (受環境恐慌指標修正)
+        f_vol = sum(v * w for v, w in zip(v_vals, v_w)) * env_panic
         
-        # 3. 生成「吸收了顯性數據」後的簡潔診斷
-        if inst_force > 0.5 and vol_ratio > 1.2:
+        # 計算趨勢權重 (加入顯性籌碼 inst_force 修正)
+        tw_adj = 0.8 if env_panic > 1.0 else 1.0
+        # 將籌碼力道納入趨勢係數計算，使預測更靈敏
+        f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 + inst_force * 0.5) * min(1.5, vol_ratio) * tw_adj))
+        
+        # --- [4-3 段] 乖離率偏好、標本群漂移與 AI 推薦參數生成 ---
+        b_periods = [5, 10, 15, 20, 25, 30]
+        b_weights = [0.35, 0.20, 0.15, 0.10, 0.10, 0.10]
+        bias_list = []
+        for p in b_periods:
+            ma_tmp = df['Close'].rolling(p).mean().iloc[-1]
+            bias_list.append((price_now - ma_tmp) / (ma_tmp + 1e-5))
+        bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
+        
+        # 信心評分生成 (f_p)
+        f_p = (45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60)
+        if env_panic > 1.0: f_p = int(f_p * 0.85)
+
+        # 預測區間寬度控制 (f_v) - 籌碼力道強時自動收窄以求精確
+        high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
+        f_v = 1.3 if (high_low_range > 0.035 or abs(inst_force) > 0.8) else 2.1 if high_low_range < 0.015 else 1.7
+        
+        # 標本群漂移分析 (Benchmarking)
+        benchmarks = ("2330", "2382", "00878") if f_vol > 0.02 else ("2317", "2454", "0050")
+        b_drift = 0.0
+        try:
+            # 這裡為了效能，若 yf 下載失敗則採保底
+            b_data = yf.download([f"{c}.TW" for c in benchmarks], period="5d", interval="1d", progress=False)['Close']
+            if isinstance(b_data, pd.DataFrame):
+                b_rets = b_data.pct_change().iloc[-1]
+                b_drift = b_rets.mean()
+        except:
+            b_drift = 0.0
+            
+        # 5. 生成最終診斷文字 (Diag)
+        if inst_force > 0.5 and vol_ratio > 1.1:
             diag = "籌碼面呈現法人集體共識，量價結構穩固，預測精度調升。"
         elif inst_force < -0.5:
             diag = "偵測到大戶籌碼流出，波動風險增加，預測區間已自動放寬。"
         else:
             diag = "目前籌碼動向中性，股價遵循技術慣性走勢。"
-            
-        return [diag, "核心動能分析中", "環境共振正常", range_low, range_high, pred_close]
-    except:
-        # 保底邏輯
-        p = df.iloc[-1]['Close']
-        return ["數據分析中", "穩定", "正常", p*0.97, p*1.03, p]
 
-    # --- [4-2 段] 波動率與趨勢權重的多維度計算 ---
-    rets = df['Close'].pct_change().dropna()
-    v_p = [5, 10, 15, 20, 25, 30]
-    v_w = [0.25, 0.20, 0.15, 0.15, 0.15, 0.10]
-    v_vals = [rets.tail(p).std() for p in v_p]
-    
-    f_vol = sum(v * w for v, w in zip(v_vals, v_w)) * env_panic
-    
-    v_curr = df['Volume'].iloc[-1]
-    v_avg5 = df['Volume'].tail(5).mean()
-    vol_ratio = v_curr / (v_avg5 + 0.1)
-    
-    tw_adj = 0.8 if env_panic > 1.0 else 1.0
-    f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 * min(1.5, vol_ratio)) * tw_adj))
-    
-    # --- [4-3 段] 乖離率偏好、標本群漂移與 AI 推薦參數生成 ---
-    price_now = float(df['Close'].iloc[-1])
-    b_periods = [5, 10, 15, 20, 25, 30]
-    b_weights = [0.35, 0.20, 0.15, 0.10, 0.10, 0.10]
-    bias_list = []
-    for p in b_periods:
-        ma_tmp = df['Close'].rolling(p).mean().iloc[-1]
-        bias_list.append((price_now - ma_tmp) / (ma_tmp + 1e-5))
-    bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
-    
-    f_p = (45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60)
-    if env_panic > 1.0: f_p = int(f_p * 0.85)
+        # 返回 AI 引擎所需的 7 個參數：[信心, 趨勢, 區間, 標桿, 乖離, 波動, 漂移, 診斷]
+        # 注意：為了對接您的主程式，我將診斷放在最後
+        return int(f_p), round(f_tw, 2), f_v, benchmarks, bias_val, f_vol, b_drift, diag
 
-    high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
-    f_v = 1.3 if high_low_range > 0.035 else 2.1 if high_low_range < 0.015 else 1.7
-    
-    benchmarks = ("2330", "2382", "00878") if f_vol > 0.02 else ("2317", "2454", "0050")
-    b_drift = 0.0
-    try:
-        b_data = yf.download([f"{c}.TW" for c in benchmarks], period="5d", interval="1d", progress=False)['Close']
-        if isinstance(b_data, pd.DataFrame):
-            b_rets = b_data.pct_change().iloc[-1]
-            b_drift = b_rets.mean()
-    except:
-        b_drift = 0.0
-    
-    return int(f_p), round(f_tw, 2), f_v, benchmarks, bias_val, f_vol, b_drift
+    except Exception as e:
+        # 發生異常時的保底參數
+        return 50, 1.0, 1.7, ("2330", "2317", "0050"), 0.0, 0.01, 0.0, "數據計算中..."
 
 # =================================================================
 # 第五章：AI 預測運算核心 (AI Core Engine)
@@ -755,6 +752,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
