@@ -78,66 +78,52 @@ st.markdown("""
 # 第二章：數據引擎 (Data Engine)
 # =================================================================
 
-# --- [2-1 段] fetch_comprehensive_data 函數與 yfinance 下載邏輯 ---
-@st.cache_data(show_spinner=False)
-def fetch_comprehensive_data(symbol, ttl_seconds):
-    raw_s = str(symbol).strip().upper()
-    
-    # 如果使用者已經手動輸入後綴，直接使用
-    if raw_s.endswith(".TW") or raw_s.endswith(".TWO"):
-        search_list = [raw_s]
-    else:
-        # 如果只輸入數字，優先嘗試上市 (.TW)，失敗則嘗試上櫃 (.TWO)
-        search_list = [f"{raw_s}.TW", f"{raw_s}.TWO"]
+def fetch_comprehensive_data(stock_id, period_seconds=3600):
+    """
+    [2-1 & 2-2 整合段落]
+    """
+    try:
+        # --- [2-1 段] 自動識別與格式化代碼 ---
+        f_id = str(stock_id).upper().strip()
+        
+        if not (f_id.endswith(".TW") or f_id.endswith(".TWO")):
+            # 優先嘗試上市格式
+            test_id = f_id + ".TW"
+            ticker = yf.Ticker(test_id)
+            df = ticker.history(period="1mo")
+            
+            if df.empty:
+                # 若上市查無資料，嘗試上櫃格式
+                test_id = f_id + ".TWO"
+                ticker = yf.Ticker(test_id)
+                df = ticker.history(period="1mo")
+                
+            f_id = test_id
+        else:
+            # 若已帶後綴，直接抓取
+            ticker = yf.Ticker(f_id)
+            df = ticker.history(period="1mo")
 
-    for s in search_list:
-        for _ in range(2):  # 每個後綴嘗試 2 次重試
-            try:
-                df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
-                if df is not None and not df.empty and len(df) > 10:
-                    # --- [2-2 段] 欄位處理 (MultiIndex 壓平) 與均線 (MA) 計算 ---
-                    if isinstance(df.columns, pd.MultiIndex): 
-                        df.columns = df.columns.get_level_values(0)
-                    
-                    # 確保基礎欄位存在
-                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
-                    
-                    df['MA5'] = df['Close'].rolling(5).mean()
-                    df['MA10'] = df['Close'].rolling(10).mean()
-                    df['MA20'] = df['Close'].rolling(20).mean()
-                    
-                    # --- [2-3 段] 技術指標計算 (MACD, KDJ, RSI, ATR) ---
-                    e12 = df['Close'].ewm(span=12).mean()
-                    e26 = df['Close'].ewm(span=26).mean()
-                    df['MACD'] = e12 - e26
-                    df['Signal'] = df['MACD'].ewm(span=9).mean()
-                    df['Hist'] = df['MACD'] - df['Signal']
-                    
-                    l9 = df['Low'].rolling(9).min()
-                    h9 = df['High'].rolling(9).max()
-                    rsv = (df['Close'] - l9) / (h9 - l9 + 0.001) * 100
-                    df['K'] = rsv.ewm(com=2).mean()
-                    df['D'] = df['K'].ewm(com=2).mean()
-                    df['J'] = 3 * df['K'] - 2 * df['D']
-                    
-                    delta = df['Close'].diff()
-                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                    df['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-5))))
-                    
-                    tr = pd.concat([
-                        df['High']-df['Low'], 
-                        abs(df['High']-df['Close'].shift()), 
-                        abs(df['Low']-df['Close'].shift())
-                    ], axis=1).max(axis=1)
-                    df['ATR'] = tr.rolling(14).mean()
-                    
-                    return df.dropna(), s
-                time.sleep(1)
-            except:
-                time.sleep(1)
-                continue
-    return None, raw_s
+        # 檢查最終是否有數據，若無則回傳空值
+        if df.empty:
+            return None, None
+
+        # --- [2-2 段] 顯性籌碼因子幕後計算 (隱藏於後台) ---
+        # 目的：透過成交量與價格變動的連動性，量化法人/大戶的推動力道
+        df['Price_Change'] = df['Close'].pct_change()
+        df['Vol_Change'] = df['Volume'].pct_change()
+        
+        # 指標公式：當價格變動與量能變動同步放大，代表籌碼力道強化
+        df['Inst_Force'] = df['Price_Change'] * df['Vol_Change'] * 100
+        
+        # 填補計算首列產生的空值，確保數據完整性
+        df = df.fillna(0)
+
+        # 回傳包含籌碼因子的數據集與正確代碼
+        return df, f_id
+
+    except Exception as e:
+        return None, None
 
 # =================================================================
 # 第三章：自動對帳與反饋系統 (Feedback System)
@@ -743,6 +729,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
