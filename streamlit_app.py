@@ -215,12 +215,14 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
     分析數據流並自動產出最佳模擬參數。
     """
     try:
-        # --- [數據預處理] 確保後續運算不會 KeyError ---
+        # --- [數據預先檢查] 確保 MA 系列與 ATR 存在，防止後續 KeyError ---
         if 'MA20' not in df.columns:
             df['MA20'] = df['Close'].rolling(window=20).mean()
         if 'MA5' not in df.columns:
             df['MA5'] = df['Close'].rolling(window=5).mean()
-        
+        if 'ATR' not in df.columns:
+            df['ATR'] = (df['High'] - df['Low']).rolling(window=14).mean()
+            
         latest = df.iloc[-1]
         price_now = float(latest['Close'])
         
@@ -238,6 +240,7 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
         f_vol = sum(v * w for v, w in zip(v_vals, v_w)) * env_panic
         
         tw_adj = 0.8 if env_panic > 1.0 else 1.0
+        # 核心公式：根據漲跌幅與籌碼修正趨勢權重
         final_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 + inst_force * 0.5) * min(1.5, vol_ratio) * tw_adj))
         
         # --- [4-3] 乖離偏好與漂移參數生成 ---
@@ -246,9 +249,11 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
         bias_list = [((price_now - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5)) for p in b_periods]
         bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
         
+        # 決定模型精度
         final_p = (45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60)
         if env_panic > 1.0: final_p = int(final_p * 0.85)
 
+        # 波動補償係數
         high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
         ai_v = 1.3 if (high_low_range > 0.035 or abs(inst_force) > 0.8) else 2.1 if high_low_range < 0.015 else 1.7
         
@@ -257,6 +262,7 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
         return int(final_p), round(final_tw, 2), ai_v, bias_val, bias_val, f_vol, b_drift
 
     except Exception as e:
+        # 保底數據回傳
         return 50, 1.0, 1.7, 0.0, 0.0, 0.01, 0.0
         
 # =================================================================
@@ -264,13 +270,14 @@ def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
 # =================================================================
 def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, b_drift):
     """
-    執行蒙地卡羅路徑演習與多空評分。
+    執行 1000 次蒙地卡羅演習並產出投資建議。
     """
-    # --- [安全性修正] 確保進入邏輯前指標已存在，避免 KeyError ---
-    if 'MA20' not in df.columns: df['MA20'] = df['Close'].rolling(20).mean()
-    if 'MA5' not in df.columns: df['MA5'] = df['Close'].rolling(5).mean()
-    if 'MA10' not in df.columns: df['MA10'] = df['Close'].rolling(10).mean()
-    if 'ATR' not in df.columns: df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
+    # --- [二次數據保險] 確保計算時不會因為遺漏欄位崩潰 ---
+    for ma in [5, 10, 20]:
+        if f'MA{ma}' not in df.columns:
+            df[f'MA{ma}'] = df['Close'].rolling(window=ma).mean()
+    if 'ATR' not in df.columns:
+        df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
 
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -286,26 +293,32 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     whale_dump = (change_pct * 0.0015) if (change_pct < -2.0 and vol_ratio > 1.5) else 0
     chip_mom = (change_pct / 100) * vol_ratio * 1.5 if (change_pct > 0.5 and vol_ratio > 1.2) else (change_pct / 100)
 
-    # --- [5-2] 進階指標 (布林擠壓、多空排列) ---
+    # --- [5-2] 進階指標 A-C (布林擠壓、多空排列) ---
     std_20 = df['Close'].rolling(20).std()
     bb_width = (std_20 * 4) / (df['MA20'] + 1e-5) 
     is_squeezing = bb_width.iloc[-1] < bb_width.tail(20).mean() * 0.92
     squeeze_boost = 1.35 if is_squeezing else 1.0
 
-    ma60 = df['Close'].rolling(60).mean().iloc[-1]
+    ma60 = df['Close'].rolling(60).mean().iloc[-1] if len(df) >= 60 else df['MA20'].iloc[-1]
     ma_perfect_order = 1.25 if (last['MA5'] > last['MA10'] > last['MA20'] > ma60) else 1.0
 
-    # --- [5-5] 蒙地卡羅模擬 ---
+    # --- [5-5] 蒙地卡羅模擬運算邏輯 ---
     np.random.seed(42)
     sim_results = []
-    base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + (chip_mom * 0.15) + (b_drift * 0.22) + whale_force + whale_dump)
+    
+    # 核心漂移率
+    base_drift = (((int(precision) - 55) / 1000) * float(trend_weight) * ma_perfect_order + 
+                  (chip_mom * 0.15) + (b_drift * 0.22) + whale_force + whale_dump)
+    
     vol_contract = last['ATR'] / (df['ATR'].tail(10).mean() + 0.001)
     
     for _ in range(1000):
         noise = np.random.normal(0, f_vol * v_comp * vol_contract * squeeze_boost, p_days)
         path = [curr_p]
         for i in range(p_days):
-            path.append(path[-1] * (1 + base_drift - (bias * 0.08) + noise[i]))
+            reversion_pull = bias * 0.08
+            next_p = path[-1] * (1 + base_drift - reversion_pull + noise[i])
+            path.append(next_p)
         sim_results.append(path[1:])
     
     pred_prices = np.mean(sim_results, axis=0)
@@ -315,19 +328,21 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     # --- [5-6] 診斷建議與評分 ---
     score = 0
     reasons = []
-    if ma_perfect_order > 1.0: score += 2; reasons.append("多頭排列")
-    if is_squeezing: score += 0.5; reasons.append("布林擠壓")
-    if whale_force > 0: score += 1; reasons.append("大戶進場")
-    if not reasons: reasons.append("盤整區間")
+    if ma_perfect_order > 1.0: score += 2; reasons.append("多頭強勢排列")
+    if is_squeezing: score += 1; reasons.append("布林極度擠壓")
+    if whale_force > 0: score += 1.5; reasons.append("偵測籌碼敲單")
+    if not reasons: reasons.append("區間橫盤整理")
 
     status_map = { 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41") }
     res = status_map.get(max(-1, min(2, int(score))), ("⚖️ 觀望中性", "#FFFF00"))
     
-    adv = { "5日建議": {"buy": curr_p * 0.98, "sell": curr_p * 1.02} }
+    # 計算各週期乖離
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
-    # 確保回傳括號完整 (修復 image_5dd6f3 的 SyntaxError)
+    # 準備回傳 (特別修正 image_5dd6f3 的括號配對問題)
     insight_tuple = (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
+    adv = { "5日建議": {"buy": curr_p * 0.98, "sell": curr_p * 1.02} }
+    
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, insight_tuple
     
 # =================================================================
@@ -602,6 +617,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
