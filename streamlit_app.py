@@ -187,25 +187,26 @@ def auto_sync_feedback(ws_p, f_id, insight):
                         err_val = (act_close - pred_close) / (pred_close + 1e-9)
                         ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
-        # --- [3-3 段] 新預測數據回填與命中率計算 ---
-        # 14:30 收盤後且非週末才寫入新預測
+        # --- [3-3 段] 單一標的即時預測回填與命中率計算 ---
+        # 邏輯：14:30 收盤後，若使用者查詢該股，自動檢查並寫入下一交易日預測
         if is_after_market and not is_weekend:
             next_bus_day = now + timedelta(days=1)
             while next_bus_day.weekday() >= 5:
                 next_bus_day += timedelta(days=1)
             next_day_str = next_bus_day.strftime("%Y-%m-%d")
 
-            # 檢查是否已經存在該標的的下一個交易日預測
+            # 檢查 predictions 中是否已存在該標的下一日的紀錄
             is_exists = any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs)
             if not is_exists:
+                # 寫入預測值：[日期, 代號, 預測價, 區間低, 區間高, 實際價(空), 誤差(空)]
                 new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
                 ws_p.append_row(new_row)
         
-        # 重新取得最新數據用於計算準確率
+        # 重新取得最新數據用於計算 UI 上的準確率與命中率
         recs_latest = ws_p.get_all_records()
         df_latest = pd.DataFrame(recs_latest)
         
-        # 取得最近 10 筆已對帳數據並計算精確準確率
+        # 取得最近 10 筆已對帳數據
         df_stock = df_latest[(df_latest['symbol'] == f_id) & (df_latest['actual_close'] != "")].copy()
         accuracy_history = []
         hit_text = "🎯 數據累積中"
@@ -216,7 +217,6 @@ def auto_sync_feedback(ws_p, f_id, insight):
                 try:
                     act = float(row['actual_close'])
                     pred = float(row['pred_close'])
-                    # 計算準確率：1 - |(實際-預測)/預測|
                     acc_val = (1 - abs(act - pred) / (pred + 1e-9)) * 100
                     acc_val = max(0, min(100, acc_val)) 
                     
@@ -225,8 +225,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
                         "acc_val": f"{acc_val:.1f}%",
                         "color": "#FF3131" if acc_val >= 98 else "#FFFFFF" 
                     })
-                except:
-                    continue
+                except: continue
             
             # 計算區間命中率文字
             try:
@@ -235,14 +234,51 @@ def auto_sync_feedback(ws_p, f_id, insight):
                 high_v = pd.to_numeric(df_recent['range_high'])
                 hit = sum((act_v >= low_v) & (act_v <= high_v))
                 hit_text = f"🎯 此股近期區間命中率: {(hit/len(df_recent))*100:.1f}%"
-            except:
-                hit_text = "🎯 命中率統計中"
+            except: hit_text = "🎯 命中率統計中"
         
         return hit_text, accuracy_history
 
     except Exception as e:
-        # 這裡不報錯，避免干擾 UI 渲染
         return f"🎯 系統同步中...", []
+
+
+# --- [3-4 段] 修正版：移除 UI 進度條，改為靜默執行 ---
+def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
+    now = datetime.now()
+    if (now.hour * 60 + now.minute) >= 870 and now.weekday() < 5:
+        try:
+            all_w = pd.DataFrame(ws_w.get_all_records())
+            if all_w.empty: return
+            unique_stocks = all_w['stock_symbol'].unique()
+            
+            next_bus_day = now + timedelta(days=1)
+            while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
+            next_day_str = next_bus_day.strftime("%Y-%m-%d")
+            
+            existing_recs = pd.DataFrame(ws_p.get_all_records())
+            
+            # --- 這裡原本有 progress_bar 與 status_text，現在全部刪除 ---
+            
+            for idx, symbol in enumerate(unique_stocks):
+                if not existing_recs.empty:
+                    is_done = ((existing_recs['date'] == next_day_str) & 
+                               (existing_recs['symbol'] == symbol)).any()
+                    if is_done: continue
+                
+                df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
+                if df is not None:
+                    f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
+                    _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
+                    
+                    new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "", ""]
+                    ws_p.append_row(new_row)
+                    time.sleep(10) # 為了保護 API 頻率，這行必須留下
+            
+            # 任務結束後，可以用一個不佔空間的小通知告知管理員
+            st.toast(f"✅ 盤後批次數據已同步至 {next_day_str}", icon="🚀")
+
+        except Exception as e:
+            print(f"靜默執行異常: {e}") # 改用 print，不打擾使用者 UI
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -609,27 +645,64 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 ---
+# --- [6-5 段] 底部 AI 診斷建議盒與展望預測輸出 (日期精確化版) ---
+    # 1. 計算 UI 顯示用的精確日期
+    now = datetime.now()
+    today_label = now.strftime("%m/%d") # 例如: 01/15
+    
+    # 計算下一個交易日 (跳過週末)
+    next_day = now + timedelta(days=1)
+    while next_day.weekday() >= 5:
+        next_day += timedelta(days=1)
+    next_day_label = next_day.strftime("%m/%d") # 例如: 01/16
+
+    # 2. 格式化乖離率顯示文字
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
+    
+    # 3. 提取命中率數值 (從 stock_accuracy 字串中解析)
+    acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中..."
+
+    # 4. 渲染 AI 診斷盒 HTML
     st.markdown(f"""
         <div class='ai-advice-box'>
             <div class='confidence-tag'>{stock_accuracy}</div>
             <span style='font-size:1.5rem; color:{insight[2]}; font-weight:900;'>{insight[0]}</span>
             <hr style='border:0.5px solid #444; margin:10px 0;'>
-            <p><b>AI診斷建議:</b> {insight[1]}</p>
-            <p style='font-size:0.9rem; color:#8899A6;'>乖離率參考: {b_html}</p>
-            <div style='background: #1C2128; padding: 12px; border-radius: 8px;'>
-                <p style='color:#00F5FF; font-weight:bold; margin:0;'>🔮 AI 統一展望 (基準日: {df.index[-1].strftime('%Y/%m/%d')})：</p>
-                <p style='font-size:1.8rem; color:#FFAC33; font-weight:900; margin:5px 0;'>預估隔日收盤價：{insight[3]:.2f}</p>
-                <p style='color:#8899A6; margin:0;'>預估浮動區間：{insight[5]:.2f} ~ {insight[4]:.2f}</p>
+            
+            <p style='margin-bottom:15px;'><b>AI診斷建議:</b> {insight[1]}</p>
+            <p style='font-size:0.85rem; color:#8899A6; margin-bottom:20px;'>當前 {today_label} 乖離率參考: {b_html}</p>
+            
+            <div style='background: #1C2128; padding: 18px; border-radius: 12px; border: 1px solid #30363D;'>
+                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                    <p style='color:#00F5FF; font-weight:bold; margin:0; font-size:1.1rem;'>🔮 AI 統一展望 (基準日: {today_label})</p>
+                    <span style='background:#232931; color:#00FF41; padding:3px 10px; border-radius:6px; font-size:0.75rem; border:1px solid #444;'>歷史命中率: {acc_val_display}</span>
+                </div>
+                
+                <div style='margin: 15px 0;'>
+                    <p style='font-size:0.9rem; color:#8899A6; margin:0;'>預估 {next_day_label} 收盤價</p>
+                    <p style='font-size:2.2rem; color:#FFAC33; font-weight:900; margin:0; line-height:1.2;'>{insight[3]:.2f}</p>
+                </div>
+                
+                <p style='color:#CCCCCC; margin:5px 0; font-size:0.95rem;'>
+                    預估 {next_day_label} 價格浮動區間：
+                    <span style='color:#FF7A7A;'>{insight[5]:.2f}</span> ~ <span style='color:#FF7A7A;'>{insight[4]:.2f}</span>
+                </p>
+                
+                <div style='margin-top:15px; padding-top:12px; border-top:1px dashed #444; display:flex; justify-content:space-between;'>
+                    <span style='color:#8899A6; font-size:0.85rem;'>今日 {today_label} 真實收盤：<b style='color:#FFFFFF;'>{curr_p:.2f}</b></span>
+                    <span style='color:#8899A6; font-size:0.85rem;'>成交量：<b style='color:#FFFF00;'>{int(curr_v/1000):,} 張</b></span>
+                </div>
             </div>
+            
+            <p style='font-size:0.7rem; color:#555; margin-top:15px; text-align:center;'>
+                * AI 預測僅供參考，投資必有風險，操作請謹慎評估。
+            </p>
         </div>
     """, unsafe_allow_html=True)
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (Main Logic)
+# 第七章：主程式邏輯與權限控管 (修訂版)
 # =================================================================
 
-# --- [7-1 段] main() 函數初始化與逾時邏輯 ---
 def main():
     if 'user' not in st.session_state: 
         st.session_state.user, st.session_state.last_active = None, time.time()
@@ -680,7 +753,6 @@ def main():
                 else: 
                     st.error("❌ 驗證失敗，請檢查帳密")
 
-        # --- [7-4 段] 註冊分頁邏輯 ---
         with tab_reg:
             new_u = st.text_input("新帳號", key="reg_u")
             new_p = st.text_input("新密碼", type="password", key="reg_p")
@@ -696,65 +768,59 @@ def main():
                         st.success("✅ 註冊成功！請切換至登入頁面。")
     
     else:
-        # --- [7-5 段] 使用者自選股管理 (新增/刪除) ---
+        # --- [7-4 段] 盤後全自動接力觸發點 (此處維持呼叫，進度條已於第三章函數內移除) ---
+        run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
+
+        # --- [7-5 段] 使用者自選股管理 (新增 20 支上限提示) ---
         with st.expander("⚙️ :red[管理自選股清單(點擊開啟)]", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
-                # 1. 讀取目前的自選清單
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = []
                 if not all_w.empty:
                     u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist()
                 
-                # 預設目標顯示
-                target = st.selectbox("自選股清單", u_stocks if u_stocks else ["2330.TW"])
+                # 計算數量與決定提示顏色
+                s_count = len(u_stocks)
+                s_color = "red" if s_count >= 20 else "green"
                 
-                # 2. 新增股票邏輯 (加入 20 支上限檢查)
+                # 修改點：下拉選單標籤顯示 (目前數量/上限20)
+                target = st.selectbox(f"自選股清單 ({s_count}/上限20)", u_stocks if u_stocks else ["2330.TW"])
+                
+                # 額外提供直觀的額度提示
+                st.markdown(f"目前額度使用：:{s_color}[{s_count} / 20]")
+                
                 ns = st.text_input("➕ 輸入股票代號 (例: 2454)")
-                if st.button("加入到自選股清單"):
+                if st.button("加入到自選股清單", use_container_width=True):
                     if ns:
-                        # 自動判定上市/上櫃並補上後綴
                         _, final_s_code = fetch_comprehensive_data(ns, 3600)
-                        
                         if final_s_code:
-                            # --- 重點：上限與重複檢查邏輯 ---
-                            if len(u_stocks) >= 20:
+                            # 檢查是否超過 20 支
+                            if s_count >= 20:
                                 st.error(f"🚫 自選股已達上限 (20 支)，請先刪除舊標的再新增。")
                             elif final_s_code in u_stocks:
                                 st.warning(f"⚠️ {final_s_code} 已經在您的清單中囉！")
                             else:
                                 ws_w.append_row([st.session_state.user, final_s_code])
-                                st.success(f"✅ 已新增 {final_s_code}")
-                                st.rerun()
+                                st.success(f"✅ 已新增 {final_s_code}"); st.rerun()
                         else:
                             st.error("❌ 找不到該標的，請確認代號是否正確")
-                    else:
-                        st.info("💡 請先輸入代號")
                 
-                # 3. 刪除股票邏輯
                 if u_stocks:
-                    st.write("")
                     if st.button(f"🗑️ 刪除目前標的 ({target})", use_container_width=True):
-                        try:
-                            # 精確刪除：必須帳號與代號同時符合
-                            all_w_full = pd.DataFrame(ws_w.get_all_records())
-                            row_idx = all_w_full[(all_w_full['username'] == st.session_state.user) & 
-                                                (all_w_full['stock_symbol'] == target)].index
-                            
-                            if not row_idx.empty:
-                                ws_w.delete_rows(int(row_idx[0]) + 2)
-                                st.success(f"✅ {target} 已移除")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ 刪除失敗: {e}")
+                        all_w_full = pd.DataFrame(ws_w.get_all_records())
+                        row_idx = all_w_full[(all_w_full['username'] == st.session_state.user) & (all_w_full['stock_symbol'] == target)].index
+                        if not row_idx.empty:
+                            ws_w.delete_rows(int(row_idx[0]) + 2)
+                            st.success(f"✅ {target} 已移除"); st.rerun()
 
-            # --- [7-6 段] 管理員專屬戰情室 (參數調整與同步) ---
+            # --- [7-6 段] 管理員專屬戰情室 ---
             with m2:
                 p_days = st.number_input("預測天數", 1, 30, 7)
                 if st.session_state.user == "okdycrreoo":
                     st.markdown("---")
                     st.markdown("### 🛠️ 管理員戰情室")
-                    # (此處保留管理員調整 Slider 與同步雲端邏輯...)
+                    
                     temp_df, _ = fetch_comprehensive_data(target, api_ttl*60)
                     ai_res = auto_fine_tune_engine(temp_df, cp, tw_val, v_comp) if temp_df is not None else (cp, tw_val, v_comp, ("2330", "2382", "00878"), 0, 0, 0)
                     ai_p, ai_tw, ai_v, ai_b = ai_res[0], ai_res[1], ai_res[2], ai_res[3]
@@ -783,5 +849,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
