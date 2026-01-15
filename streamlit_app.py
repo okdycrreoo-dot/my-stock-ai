@@ -662,7 +662,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 3. 提取命中率數值 (從 stock_accuracy 字串中解析)
     acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中..."
 
-    # 4. 渲染 AI 診斷盒 HTML
+    # 4. 渲染 AI 診斷盒 HTML (修正 F-string 與 CSS 衝突)
     st.markdown(f"""
         <div class='ai-advice-box'>
             <div class='confidence-tag'>{stock_accuracy}</div>
@@ -849,4 +849,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
