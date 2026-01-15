@@ -658,18 +658,18 @@ Python
     import streamlit.components.v1 as components
     from datetime import datetime, timedelta
 
-    # 1. 計算 UI 日期標籤
+    # 1. 計算日期
     now = datetime.now()
     today_label = now.strftime("%m/%d")
     next_day = now + timedelta(days=1)
     while next_day.weekday() >= 5: next_day += timedelta(days=1)
     next_day_label = next_day.strftime("%m/%d")
 
-    # 2. 安全處理乖離率 HTML 文字
+    # 2. 安全處理數據
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
     acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "統計中"
 
-    # 3. 構建完全隔離的 HTML (這會徹底解決標籤直接顯示在螢幕上的問題)
+    # 3. HTML 隔離渲染 (解決標籤直接顯示在螢幕上的問題)
     html_content = f"""
     <div style="background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -681,7 +681,7 @@ Python
         <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前 {today_label} 乖離率參考：{b_html}</p>
         <div style="background-color: #161b22; padding: 18px; border-radius: 10px; border: 1px solid #30363d;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 (基準日: {today_label})</span>
+                <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 ({today_label})</span>
                 <span style="color: #3fb950; font-size: 12px; border: 1px solid #30363d; padding: 2px 8px; border-radius: 5px;">命中率: {acc_val_display}</span>
             </div>
             <div style="margin-bottom: 15px;">
@@ -696,87 +696,151 @@ Python
     """
     components.html(html_content, height=450)
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (完整修正版)
+# 第七章：主程式邏輯與權限控管 (完整最終版)
 # =================================================================
+
 def main():
-    if 'user' not in st.session_state: 
-        st.session_state.user, st.session_state.last_active = None, time.time()
+    # 1. 初始化 Session State
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+    if 'last_active' not in st.session_state:
+        st.session_state.last_active = time.time()
     
-    # --- [7-2 段] 資料庫與配置 ---
+    # 自動登出邏輯 (1小時不活動)
+    if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
+        st.session_state.user = None
+    st.session_state.last_active = time.time()
+    
+    # --- [7-2 段] 資料庫連線與全局配置 ---
     @st.cache_resource(ttl=30)
     def get_gsheets_connection():
-        sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
-        creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-        sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
-        return {"users": sh.worksheet("users"), "watchlist": sh.worksheet("watchlist"), "settings": sh.worksheet("settings"), "predictions": sh.worksheet("predictions")}
+        try:
+            sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
+            creds = Credentials.from_service_account_info(
+                sc, 
+                scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+            )
+            sh = gspread.authorize(creds).open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+            return {
+                "users": sh.worksheet("users"),
+                "watchlist": sh.worksheet("watchlist"),
+                "settings": sh.worksheet("settings"),
+                "predictions": sh.worksheet("predictions")
+            }
+        except Exception as e:
+            st.error(f"資料庫連線配置錯誤: {e}")
+            return None
 
+    sheets = get_gsheets_connection()
+    if not sheets: return
+    
+    ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
+    
+    # 讀取全局 AI 參數配置
     try:
-        sheets = get_gsheets_connection()
-        ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-        cp, api_ttl = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1))
-        tw_val, v_comp = float(s_map.get('trend_weight', 1.0)), float(s_map.get('vol_comp', 1.5))
-    except Exception as e:
-        st.error(f"🚨 連線失敗: {e}"); return
+        cp = int(s_map.get('global_precision', 55))
+        api_ttl = int(s_map.get('api_ttl_min', 1))
+        tw_val = float(s_map.get('trend_weight', 1.0))
+        v_comp = float(s_map.get('vol_comp', 1.5))
+    except:
+        cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
-    # --- [7-3 段] 登入控管 ---
+    # --- [7-3 段] 登入/註冊頁面 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 台股預測系統")
-        t1, t2 = st.tabs(["🔑 登入", "📝 註冊"])
-        with t1:
-            u, p = st.text_input("帳號"), st.text_input("密碼", type="password")
-            if st.button("登入系統"):
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
+        
+        with tab_login:
+            u = st.text_input("帳號", key="login_u")
+            p = st.text_input("密碼", type="password", key="login_p")
+            if st.button("確認登入", use_container_width=True):
                 udf = pd.DataFrame(ws_u.get_all_records())
                 if not udf.empty and not udf[(udf['username'].astype(str)==u) & (udf['password'].astype(str)==p)].empty:
-                    st.session_state.user = u; st.rerun()
-                else: st.error("❌ 驗證失敗")
-        with t2:
-            nu, np = st.text_input("新帳號"), st.text_input("新密碼", type="password")
+                    st.session_state.user = u
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼錯誤")
+                    
+        with tab_reg:
+            new_u = st.text_input("新帳號", key="reg_u")
+            new_p = st.text_input("新密碼", type="password", key="reg_p")
             if st.button("提交註冊"):
-                ws_u.append_row([str(nu), str(np)]); st.success("✅ 註冊成功")
+                udf = pd.DataFrame(ws_u.get_all_records())
+                if str(new_u) in udf['username'].astype(str).values:
+                    st.error("⚠️ 帳號已存在")
+                else:
+                    ws_u.append_row([str(new_u), str(new_p)])
+                    st.success("✅ 註冊成功，請切換至登入頁面")
+
     else:
-        # --- [7-4 段] 靜默批次引擎 ---
+        # --- [7-4 段] 靜默啟動批次引擎 (移除進度條 UI) ---
         run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
 
-        # --- [7-5 段] 自選股與參數管理 ---
-        with st.expander("⚙️ 管理自選股 (點擊開啟)", expanded=False):
+        # --- [7-5 段] 自選股管理 (含 20 支上限邏輯) ---
+        with st.expander("⚙️ 管理自選股與預測配置", expanded=False):
             m1, m2 = st.columns(2)
             with m1:
+                # 取得當前使用者的自選清單
                 all_w = pd.DataFrame(ws_w.get_all_records())
                 u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
                 s_count = len(u_stocks)
-                target = st.selectbox(f"自選股清單 ({s_count}/20)", u_stocks if u_stocks else ["2330.TW"])
-                st.markdown(f"目前額度使用：:{'red' if s_count >= 20 else 'green'}[{s_count} / 20]")
-                ns = st.text_input("➕ 新增代號")
-                if st.button("加入清單") and ns:
-                    if s_count < 20:
-                        ws_w.append_row([st.session_state.user, ns]); st.rerun()
-                    else: st.error("🚫 已達上限")
-            with m2:
-                p_days = st.number_input("預測天數", 1, 30, 7)
-                if st.button("🚪 登出系統"): st.session_state.user = None; st.rerun()
+                
+                # 顯示上限提醒
+                s_color = "red" if s_count >= 20 else "green"
+                target = st.selectbox(f"我的自選清單 ({s_count}/20)", u_stocks if u_stocks else ["2330.TW"])
+                st.markdown(f"目前持股額度：:{s_color}[{s_count} / 20]")
+                
+                if s_count >= 20:
+                    st.warning("⚠️ 已達 20 支股票上限，若要新增請先刪除舊標的。")
+                
+                new_s = st.text_input("➕ 新增股票代號 (例如: 2454)")
+                if st.button("確認加入自選"):
+                    if not new_s:
+                        st.error("請輸入代號")
+                    elif s_count >= 20:
+                        st.error("🚫 加入失敗：已達 20 支上限")
+                    elif new_s in u_stocks:
+                        st.warning("此標的已在清單中")
+                    else:
+                        ws_w.append_row([st.session_state.user, new_s])
+                        st.success(f"✅ {new_s} 已加入")
+                        st.rerun()
 
-        # --- [7-6 段] 核心邏輯對接：確保變數生成後才進行介面渲染 ---
-        df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
+                if u_stocks and st.button(f"🗑️ 刪除目前標的 ({target})"):
+                    # 找到對應行數並刪除 (GSpread 索引從 1 開始，Header 佔 1 行)
+                    user_rows = all_w[(all_w['username'] == st.session_state.user) & (all_w['stock_symbol'] == target)]
+                    if not user_rows.empty:
+                        idx_to_del = user_rows.index[0] + 2
+                        ws_w.delete_rows(int(idx_to_del))
+                        st.rerun()
+
+            with m2:
+                p_days = st.number_input("AI 預測天數", 1, 30, 7)
+                if st.button("🚪 登出系統", use_container_width=True):
+                    st.session_state.user = None
+                    st.rerun()
+
+        # --- [7-6 段] 核心邏輯對接：確保變數先生成再進行介面渲染 ---
+        # 1. 抓取基礎數據
+        temp_df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
         
-        if df is not None:
-            # 1. 執行運算生成關鍵參數
-            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
+        if temp_df is not None:
+            # 2. 啟動 AI 運算 (取得所有參數，產出渲染所需的變數)
+            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(temp_df, p_days, tw_val, v_comp)
             
-            # 2. 啟動 AI 引擎 (生成包含 insight 在內的所有核心變數)
+            # 3. 執行核心引擎 (生成包含 insight 在內的所有核心變數)
             curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
-                df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
+                temp_df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
             )
             
-            # 3. 執行對帳與命中率同步 (需要剛剛生成的 insight)
+            # 4. 執行對帳與命中率同步 (需要剛剛生成的 insight)
             stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
             
-            # 4. 最後才啟動第六章的渲染函數 (確保所有參數都已定義)
+            # 5. 啟動第六章的渲染函數 (確保所有參數都已定義，解決 NameError)
             render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+        else:
+            st.error("數據加載失敗，請檢查網路連線或代號是否正確。")
 
 if __name__ == "__main__":
     main()
-    
-
-
-
