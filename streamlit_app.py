@@ -211,18 +211,17 @@ def auto_sync_feedback(ws_p, f_id, insight):
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
 
-def generate_ai_insight(df, f_id, env_panic=1.0):
+def auto_fine_tune_engine(df, cp, tw_val, v_comp, env_panic=1.0):
     """
-    [4-1 ~ 4-3 完整整合]
-    整合內容：顯性籌碼吸收、多維度波動計算、乖離率偏移與最終參數生成
+    [4-1 ~ 4-3 完整整合版]
+    整合內容：顯性籌碼、多維度波動計算、乖離率偏移、標本群漂移及診斷生成
     """
     try:
         # --- [4-1 段] 核心數據與顯性籌碼力道提取 ---
         latest = df.iloc[-1]
-        prev = df.iloc[-2]
         price_now = float(latest['Close'])
         
-        # 提取 2-2 段產出的籌碼力道 (若無則預設為 0)
+        # 提取 2-2 段計算的法人力道 (Inst_Force)
         inst_force = latest.get('Inst_Force', 0)
         v_curr = latest['Volume']
         v_avg5 = df['Volume'].tail(5).mean()
@@ -237,10 +236,10 @@ def generate_ai_insight(df, f_id, env_panic=1.0):
         # 計算加權波動率 (受環境恐慌指標修正)
         f_vol = sum(v * w for v, w in zip(v_vals, v_w)) * env_panic
         
-        # 計算趨勢權重 (加入顯性籌碼 inst_force 修正)
+        # 計算趨勢權重 (加入顯性籌碼修正)
         tw_adj = 0.8 if env_panic > 1.0 else 1.0
-        # 將籌碼力道納入趨勢係數計算，使預測更靈敏
-        f_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 + inst_force * 0.5) * min(1.5, vol_ratio) * tw_adj))
+        # 將籌碼力道納入趨勢係數計算
+        final_tw = max(0.5, min(2.5, 1.0 + (rets.tail(5).mean() * 15 + inst_force * 0.5) * min(1.5, vol_ratio) * tw_adj))
         
         # --- [4-3 段] 乖離率偏好、標本群漂移與 AI 推薦參數生成 ---
         b_periods = [5, 10, 15, 20, 25, 30]
@@ -249,29 +248,29 @@ def generate_ai_insight(df, f_id, env_panic=1.0):
         for p in b_periods:
             ma_tmp = df['Close'].rolling(p).mean().iloc[-1]
             bias_list.append((price_now - ma_tmp) / (ma_tmp + 1e-5))
-        bias_val = sum(b * w for b, w in zip(bias_list, b_weights))
+        bias = sum(b * w for b, w in zip(bias_list, b_weights))
         
-        # 信心評分生成 (f_p)
-        f_p = (45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60)
-        if env_panic > 1.0: f_p = int(f_p * 0.85)
+        # 信心評分生成 (final_p)
+        final_p = (45 if f_vol > 0.02 else 75 if f_vol < 0.008 else 60)
+        if env_panic > 1.0: final_p = int(final_p * 0.85)
 
-        # 預測區間寬度控制 (f_v) - 籌碼力道強時自動收窄以求精確
+        # 預測區間寬度控制 (ai_v) - 籌碼力道強時縮窄以提升精準度
         high_low_range = (df['High'] - df['Low']).tail(5).mean() / price_now
-        f_v = 1.3 if (high_low_range > 0.035 or abs(inst_force) > 0.8) else 2.1 if high_low_range < 0.015 else 1.7
+        ai_v = 1.3 if (high_low_range > 0.035 or abs(inst_force) > 0.8) else 2.1 if high_low_range < 0.015 else 1.7
         
-        # 標本群漂移分析 (Benchmarking)
+        # 標本群漂移分析
         benchmarks = ("2330", "2382", "00878") if f_vol > 0.02 else ("2317", "2454", "0050")
         b_drift = 0.0
         try:
-            # 這裡為了效能，若 yf 下載失敗則採保底
+            import yfinance as yf
             b_data = yf.download([f"{c}.TW" for c in benchmarks], period="5d", interval="1d", progress=False)['Close']
             if isinstance(b_data, pd.DataFrame):
                 b_rets = b_data.pct_change().iloc[-1]
                 b_drift = b_rets.mean()
         except:
             b_drift = 0.0
-            
-        # 5. 生成最終診斷文字 (Diag)
+
+        # 生成最終 AI 診斷語句 (回傳給主程式使用)
         if inst_force > 0.5 and vol_ratio > 1.1:
             diag = "籌碼面呈現法人集體共識，量價結構穩固，預測精度調升。"
         elif inst_force < -0.5:
@@ -279,14 +278,14 @@ def generate_ai_insight(df, f_id, env_panic=1.0):
         else:
             diag = "目前籌碼動向中性，股價遵循技術慣性走勢。"
 
-        # 返回 AI 引擎所需的 7 個參數：[信心, 趨勢, 區間, 標桿, 乖離, 波動, 漂移, 診斷]
-        # 注意：為了對接您的主程式，我將診斷放在最後
-        return int(f_p), round(f_tw, 2), f_v, benchmarks, bias_val, f_vol, b_drift, diag
+        # 根據您的報錯截圖，回傳 7 個主參數 (對接第 496 行)
+        # 注意：ai_b 在此邏輯中對應 bias
+        ai_b = bias 
+        return int(final_p), round(final_tw, 2), ai_v, ai_b, bias, f_vol, b_drift
 
     except Exception as e:
-        # 發生異常時的保底參數
-        return 50, 1.0, 1.7, ("2330", "2317", "0050"), 0.0, 0.01, 0.0, "數據計算中..."
-
+        # 發生異常時的保底回傳，確保系統不崩潰
+        return 50, 1.0, 1.7, 0.0, 0.0, 0.01, 0.0
 # =================================================================
 # 第五章：AI 預測運算核心 (AI Core Engine)
 # =================================================================
@@ -752,6 +751,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
