@@ -81,44 +81,63 @@ st.markdown("""
 # --- [2-1 段] fetch_comprehensive_data 函數與 yfinance 下載邏輯 ---
 @st.cache_data(show_spinner=False)
 def fetch_comprehensive_data(symbol, ttl_seconds):
-    s = str(symbol).strip().upper()
-    if not (s.endswith(".TW") or s.endswith(".TWO")): 
-        s = f"{s}.TW"
-    for _ in range(3):
-        try:
-            df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
-            if df is not None and not df.empty:
-                # --- [2-2 段] 欄位處理 (MultiIndex 壓平) 與均線 (MA) 計算 ---
-                if isinstance(df.columns, pd.MultiIndex): 
-                    df.columns = df.columns.get_level_values(0)
-                df['MA5'] = df['Close'].rolling(5).mean()
-                df['MA10'] = df['Close'].rolling(10).mean()
-                df['MA20'] = df['Close'].rolling(20).mean()
-                # --- [2-3 段] 技術指標計算 (MACD, KDJ, RSI, ATR) ---
-                e12 = df['Close'].ewm(span=12).mean()
-                e26 = df['Close'].ewm(span=26).mean()
-                df['MACD'] = e12 - e26
-                df['Signal'] = df['MACD'].ewm(span=9).mean()
-                df['Hist'] = df['MACD'] - df['Signal']
-                l9 = df['Low'].rolling(9).min()
-                h9 = df['High'].rolling(9).max()
-                rsv = (df['Close'] - l9) / (h9 - l9 + 0.001) * 100
-                df['K'] = rsv.ewm(com=2).mean()
-                df['D'] = df['K'].ewm(com=2).mean()
-                df['J'] = 3 * df['K'] - 2 * df['D']
-                delta = df['Close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                df['RSI'] = 100 - (100 / (1 + (gain / (loss + 0.00001))))
-                
-                tr = pd.concat([df['High']-df['Low'], abs(df['High']-df['Close'].shift()), abs(df['Low']-df['Close'].shift())], axis=1).max(axis=1)
-                df['ATR'] = tr.rolling(14).mean()
-                return df.dropna(), s
-            time.sleep(1.5)
-        except: 
-            time.sleep(1.5)
-            continue
-    return None, s
+    raw_s = str(symbol).strip().upper()
+    
+    # 如果使用者已經手動輸入後綴，直接使用
+    if raw_s.endswith(".TW") or raw_s.endswith(".TWO"):
+        search_list = [raw_s]
+    else:
+        # 如果只輸入數字，優先嘗試上市 (.TW)，失敗則嘗試上櫃 (.TWO)
+        search_list = [f"{raw_s}.TW", f"{raw_s}.TWO"]
+
+    for s in search_list:
+        for _ in range(2):  # 每個後綴嘗試 2 次重試
+            try:
+                df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
+                if df is not None and not df.empty and len(df) > 10:
+                    # --- [2-2 段] 欄位處理 (MultiIndex 壓平) 與均線 (MA) 計算 ---
+                    if isinstance(df.columns, pd.MultiIndex): 
+                        df.columns = df.columns.get_level_values(0)
+                    
+                    # 確保基礎欄位存在
+                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+                    
+                    df['MA5'] = df['Close'].rolling(5).mean()
+                    df['MA10'] = df['Close'].rolling(10).mean()
+                    df['MA20'] = df['Close'].rolling(20).mean()
+                    
+                    # --- [2-3 段] 技術指標計算 (MACD, KDJ, RSI, ATR) ---
+                    e12 = df['Close'].ewm(span=12).mean()
+                    e26 = df['Close'].ewm(span=26).mean()
+                    df['MACD'] = e12 - e26
+                    df['Signal'] = df['MACD'].ewm(span=9).mean()
+                    df['Hist'] = df['MACD'] - df['Signal']
+                    
+                    l9 = df['Low'].rolling(9).min()
+                    h9 = df['High'].rolling(9).max()
+                    rsv = (df['Close'] - l9) / (h9 - l9 + 0.001) * 100
+                    df['K'] = rsv.ewm(com=2).mean()
+                    df['D'] = df['K'].ewm(com=2).mean()
+                    df['J'] = 3 * df['K'] - 2 * df['D']
+                    
+                    delta = df['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    df['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-5))))
+                    
+                    tr = pd.concat([
+                        df['High']-df['Low'], 
+                        abs(df['High']-df['Close'].shift()), 
+                        abs(df['Low']-df['Close'].shift())
+                    ], axis=1).max(axis=1)
+                    df['ATR'] = tr.rolling(14).mean()
+                    
+                    return df.dropna(), s
+                time.sleep(1)
+            except:
+                time.sleep(1)
+                continue
+    return None, raw_s
 
 # =================================================================
 # 第三章：自動對帳與反饋系統 (Feedback System)
@@ -368,20 +387,24 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     std_val = np.std([p[0] for p in sim_results])
     
     # --- [5-6 段] 診斷建議與多空評分系統 ---
+    # (此段接續 5-5 段的計算結果)
     ma_check_list = [5, 10, 15, 20, 25, 30]
     above_ma_count = sum(1 for p in ma_check_list if curr_p > df['Close'].rolling(p).mean().iloc[-1])
 
     score = 0
     reasons = []
     
-    if ma_perfect_order > 1.0: score += 2; reasons.append("多頭完美排列(飆股模式)")
-    elif above_ma_count >= 5: score += 1.5; reasons.append(f"均線多頭排列")
+    # --- 1. 動態指標特徵判定 ---
+    if ma_perfect_order > 1.0: 
+        score += 2; reasons.append("多頭完美排列(飆股模式)")
+    elif above_ma_count >= 5: 
+        score += 1.5; reasons.append(f"均線多頭排列")
     
     if is_squeezing: reasons.append("布林極度擠壓(即將噴發)")
     if exhaustion_drag < 0: score -= 0.5; reasons.append("漲勢背離力竭")
     
-    if slope_decay < 0: 
-        score -= 0.3; reasons.append("均線慣性減速")
+    if slope_decay < 0: score -= 0.3; reasons.append("均線慣性減速")
+    
     if normalized_bias > 2.0: 
         score -= 0.5; reasons.append("波動超漲(引力修正)")
     elif normalized_bias < -2.0: 
@@ -405,10 +428,39 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     if change_pct > 1.2 and vol_ratio > 1.3: score += 1; reasons.append("法人級放量攻擊")
     if b_drift > 0.003: score += 1; reasons.append("標本群體向上共振")
     
-    status_map = {3: ("🚀 強力買入", "#FF3131"), 2: ("🚀 強力買入", "#FF3131"), 1: ("📈 偏多操作", "#FF7A7A"), 0: ("⚖️ 觀望中性", "#FFFF00"), -1: ("📉 偏空警戒", "#00FF41"), -2: ("📉 偏空警戒", "#00FF41")}
+    # --- 2. [新增] 保底邏輯：若無明顯異動特徵，則給予狀態描述 ---
+    if not reasons:
+        if score >= 1:
+            reasons.append("走勢溫和偏多，建議沿均線擇優布局")
+        elif score <= -1:
+            reasons.append("走勢疲軟偏弱，建議持股汰弱留強")
+        else:
+            reasons.append("目前處於箱型整理區間，建議觀望靜待量能突破")
+
+    # --- 3. 狀態映射 ---
+    status_map = {
+        3: ("🚀 強力買入", "#FF3131"), 
+        2: ("🚀 強力買入", "#FF3131"), 
+        1: ("📈 偏多操作", "#FF7A7A"), 
+        0: ("⚖️ 觀望中性", "#FFFF00"), 
+        -1: ("📉 偏空警戒", "#00FF41"), 
+        -2: ("📉 偏空警戒", "#00FF41")
+    }
     res = status_map.get(max(-2, min(3, int(score))), ("⚖️ 觀望中性", "#FFFF00"))
     
-    adv = {k: {"buy": m * (1 - f_vol * v_comp * f * sens), "sell": m * (1 + f_vol * v_comp * f * sens)} for k, (m, f) in {"5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), "20日波段建議": (last['MA20'], 1.5)}.items()}
+    # --- 4. 買賣建議區間計算 ---
+    adv = {
+        k: {
+            "buy": m * (1 - f_vol * v_comp * f * sens), 
+            "sell": m * (1 + f_vol * v_comp * f * sens)
+        } for k, (m, f) in {
+            "5日極短線建議": (df['Close'].rolling(5).mean().iloc[-1], 0.8), 
+            "10日短線建議": (df['Close'].rolling(10).mean().iloc[-1], 1.1), 
+            "20日波段建議": (last['MA20'], 1.5)
+        }.items()
+    }
+    
+    # --- 5. 乖離率數據準備 ---
     b_sum = {p: (curr_p - df['Close'].rolling(p).mean().iloc[-1]) / (df['Close'].rolling(p).mean().iloc[-1] + 1e-5) for p in [5, 10, 20, 30]}
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, (res[0], " | ".join(reasons), res[1], next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), b_sum)
@@ -669,4 +721,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
