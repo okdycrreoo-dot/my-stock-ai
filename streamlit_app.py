@@ -242,12 +242,11 @@ def auto_sync_feedback(ws_p, f_id, insight):
         return f"🎯 系統同步中...", []
 
 
-# --- [3-4 段] 修正版：對齊試算表 A-G 欄位順序 ---
+# --- [3-4 段] 批次引擎：確保 A-G 欄位純淨 ---
 def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
     all_watchlist = pd.DataFrame(ws_w.get_all_records())
     if all_watchlist.empty: return
     
-    # 這裡必須即時抓取最新 predictions 內容以防重複寫入
     existing_p = pd.DataFrame(ws_p.get_all_records())
     today_str = datetime.now().strftime("%Y-%m-%d")
     unique_stocks = all_watchlist['stock_symbol'].unique()
@@ -264,21 +263,18 @@ def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
             f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
             _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
             
-            # --- 精確對位寫入 ---
-            # A:date, B:symbol, C:pred_close, D:range_low, E:range_high, F:actual_close, G:error_pct
+            # 對齊 A:date, B:symbol, C:pred, D:low, E:high, F:actual, G:error
             ws_p.append_row([
-                today_str,                   # A: 日期
-                symbol,                      # B: 代號
-                round(float(insight[3]), 2), # C: 預估收盤 (insight[3])
-                round(float(insight[5]), 2), # D: 區間低   (insight[5])
-                round(float(insight[4]), 2), # E: 區間高   (insight[4])
-                "待更新",                    # F: Actual_Close (這裡填文字，避免文字擠掉數值欄位)
-                ""                           # G: Error_Pct (留空供對帳)
+                today_str,                   # A
+                symbol,                      # B
+                round(float(insight[3]), 2), # C
+                round(float(insight[5]), 2), # D
+                round(float(insight[4]), 2), # E
+                "待收盤更新",                # F: 這裡填文字佔位，不要放診斷
+                ""                           # G
             ])
-            # 注意：若您試算表有 H 欄，可再加一項 insight[1]
-            
         except Exception as e:
-            print(f"寫入錯誤 {symbol}: {e}")
+            print(f"寫入失敗 {symbol}: {e}")
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -773,41 +769,39 @@ def main():
 
     # -------------------------------------------------------------
     # --- [7-4 段] 批次引擎觸發點 ---
-    # 當使用者進入此區塊，表示已登入，立即執行背景檢查
+    # -------------------------------------------------------------
     with st.spinner("同步全球 AI 預測數據中..."):
         run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl)
 
-        預防重複添加：增加了 if final_s in u_stocks 的檢查，避免同一個帳號重複存入相同的股票。
+    # -------------------------------------------------------------
+    # [段落 7-5] 核心運算對接：先運算數據 -> 後渲染介面
+    # -------------------------------------------------------------
+    # A. 抓取當前標的之綜合數據
+    df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
+    
+    if df is not None:
+        # B. 啟動 AI 參數微調引擎
+        f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
         
-        # ---------------------------------------------------------
-        # [段落 7-6] 核心運算對接：先運算數據 -> 後渲染介面
-        # ---------------------------------------------------------
-        # A. 抓取當前標的之綜合數據 (含 API 快取機制)
-        df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
+        # C. 執行 AI 核心運算 (生成關鍵變數 insight)
+        curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
+            df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
+        )
         
-        if df is not None:
-            # B. 啟動 AI 參數微調引擎 (獲取動態權重與乖離漂移)
-            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, p_days, tw_val, v_comp)
-            
-            # C. 執行 AI 核心運算 (生成關鍵變數 `insight` 供第六章使用)
-            curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
-                df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
-            )
-            
-            # D. 同步歷史預測命中率數據
-            stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
-            
-            # E. 最終渲染：呼叫第六章介面函數進行視覺化展示
-            render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
-        else:
-            st.error("數據獲取異常，請稍後再試或檢查代號。")
+        # D. 同步歷史預測命中率數據 (生成 stock_accuracy)
+        stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
+        
+        # E. 最終渲染：請務必將運算出的變數傳入渲染函數
+        # 這裡增加了 insight 和 stock_accuracy 等必要參數的傳遞
+        render_terminal(
+            df, target, p_days, cp, tw_val, api_ttl, v_comp, 
+            ws_p, insight, stock_accuracy, curr_p, curr_v
+        )
+    else:
+        st.error("數據獲取異常，請稍後再試或檢查代號。")
 
 # -----------------------------------------------------------------
-# [段落 7-7] 程式進入點
+# [段落 7-6] 程式進入點
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
-
-
-
-
