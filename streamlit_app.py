@@ -443,20 +443,28 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, res_bundle
 # =================================================================
-# 第六章：終端渲染引擎 (Render Terminal) - 欄位與 Google Sheets 完美對齊版
+# 第六章：終端渲染引擎 (Render Terminal) - 欄位對齊與視覺回歸版
 # =================================================================
 
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # --- [6-1] 數據計算與 AI 引擎連動 ---
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
-    if df is None: 
-        st.error(f"❌ 讀取 {symbol} 失敗"); return
+    if df is None: return
 
-    # 強制補齊所有指標，防止 KDJ 少線
+    # 強制補齊所有技術指標，防止 KDJ/MACD 報錯或缺線
     df['MA5'] = df['Close'].rolling(5).mean()
     df['MA10'] = df['Close'].rolling(10).mean()
     df['MA20'] = df['Close'].rolling(20).mean()
-    # ... (省略其他指標計算以節省空間，請保留您原本的計算邏輯)
+    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = exp1 - exp2
+    df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    low_l = df['Low'].rolling(9).min()
+    high_l = df['High'].rolling(9).max()
+    rsv = (df['Close'] - low_l) / (high_l - low_l) * 100
+    df['K'] = rsv.ewm(com=2).mean()
+    df['D'] = df['K'].ewm(com=2).mean()
+    df['J'] = 3 * df['K'] - 2 * df['D']
 
     # 執行 AI 核心運算
     f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df)
@@ -465,12 +473,10 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     )
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 💡 數據同步：根據您提供的欄位清單 (res_5d, buy_5d 等)
+    # 💡 數據同步：從 predictions 分頁抓取對應欄位 (res_5d, buy_5d 等)
     latest_pred = {}
     try:
-        # 讀取 predictions 分頁數據
         all_p_data = ws_p.get_all_records()
-        # 匹配 symbol (過濾掉 .TW 等後綴)
         p_rows = [r for r in all_p_data if str(symbol).split('.')[0] in str(r.get('symbol', ''))]
         if p_rows: latest_pred = p_rows[-1]
     except: pass
@@ -479,55 +485,132 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         try: return float(val) if val not in [None, '', 'N/A'] else 0.0
         except: return 0.0
 
-    # --- [6-2] 標題與視覺風格 ---
+    # --- [6-2] 標題與準確率看板 (舊版樣式) ---
     st.title(f"📊 {f_id} 台股 AI 決策終端")
-    st.markdown(f"<div class='confidence-tag'>{stock_accuracy}</div>", unsafe_allow_html=True)
+    if acc_history:
+        acc_cols = st.columns(len(acc_history[-10:]))
+        for i, item in enumerate(acc_history[-10:]):
+            with acc_cols[i]:
+                st.markdown(f"<div style='text-align:center; border:1px solid #333; border-radius:8px; background:#111; padding:5px;'><div style='font-size:0.7rem; color:#888;'>{item['date']}</div><div style='font-size:0.9rem; color:{item['color']}; font-weight:900;'>{item['acc_val']}</div></div>", unsafe_allow_html=True)
 
-    # --- [6-4] 買賣點診斷區 (完全對齊您的欄位：buy_X, sell_X, res_X) ---
-    st.write("### 🤖 多週期 AI 買賣建議與壓力位")
+    st.markdown(f"<div class='confidence-tag' style='margin-top:15px;'>{stock_accuracy}</div>", unsafe_allow_html=True)
+
+    # --- [6-3] 核心指標五格看板 ---
+    c_col = "#FF3131" if change_pct >= 0 else "#00FF41"
+    m_cols = st.columns(5)
+    metrics = [("昨日收盤", prev_c), ("今日開盤", open_p), ("當前價格", curr_p), ("今日漲跌", change_pct), ("成交(張)", curr_v/1000)]
+    for i, (lab, val) in enumerate(metrics):
+        with m_cols[i]:
+            v_str = f"{val:+.2f}%" if i == 3 else f"{val:,.2f}"
+            st.markdown(f"<div class='info-box'><small style='color:#888;'>{lab}</small><br><b style='color:{c_col if i>=2 else '#FFF'}; font-size:1.6rem;'>{v_str}</b></div>", unsafe_allow_html=True)
+
+    # --- [6-4] 買賣點與壓力位 (對應 5, 10, 20, 30日) ---
+    st.write("### 🤖 多週期 AI 買賣策略與壓力監測")
+    s_cols = st.columns(4)
+    strat_map = [("5日建議", "5d"), ("10日建議", "10d"), ("20日建議", "20d"), ("30日建議", "30d")]
     
-    # 定義要顯示的週期 (根據您試算表的 5, 10, 15, 20, 25, 30)
-    periods = [("5日", "5d"), ("10日", "10d"), ("20日", "20d"), ("30日", "30d")]
-    cols = st.columns(len(periods))
-    
-    for i, (label, key) in enumerate(periods):
-        # 從試算表直接抓取數值 (buy_5d, sell_5d, res_5d...)
+    for i, (label, key) in enumerate(strat_map):
+        # 精確對齊試算表欄位名稱: buy_5d, sell_5d, res_5d
         b_val = safe_f(latest_pred.get(f'buy_{key}', 0))
         s_val = safe_f(latest_pred.get(f'sell_{key}', 0))
         r_val = safe_f(latest_pred.get(f'res_{key}', 0))
         
-        # 如果試算表數值為 0，則顯示 AI 即時計算的建議 (ai_recs) 作為備案
-        if b_val == 0: 
-            b_val = ai_recs.get('short' if key=='5d' else 'mid' if key=='10d' else 'long', {}).get('buy', 0)
-        
-        with cols[i]:
+        with s_cols[i]:
             st.markdown(f"""
                 <div class='diag-box'>
-                    <b style='font-size:1rem;'>{label} 決策</b><hr style='border:0.1px solid #444; margin:8px 0;'>
-                    <div style='color:#FF3131; font-size:0.9rem;'>買入: <b>{b_val:.2f}</b></div>
-                    <div style='color:#00FF41; font-size:0.9rem;'>賣出: <b>{s_val:.2f}</b></div>
-                    <div style='margin-top:8px; padding-top:5px; border-top:1px dashed #333; color:#888; font-size:0.8rem;'>
-                        壓力價格: <span style='color:#FFF;'>{r_val:.2f}</span>
+                    <b style='font-size:1.1rem;'>{label}</b><hr style='border:0.1px solid #444; margin:10px 0;'>
+                    <div style='color:#FF3131;'>買入建議: <b>{b_val:.2f}</b></div>
+                    <div style='color:#00FF41;'>賣出建議: <b>{s_val:.2f}</b></div>
+                    <div style='margin-top:10px; padding-top:5px; border-top:1px dashed #333; color:#888; font-size:0.85rem;'>
+                        壓力線: <span style='color:#FFF;'>{r_val:.2f}</span>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- [6-5] Plotly 技術圖表 (標籤對齊子圖) ---
+    # --- [6-5] Plotly 四層子圖 (標籤與線型修正) ---
     p_df = df.tail(100)
     fig = make_subplots(
         rows=4, cols=1, shared_xaxes=True, 
-        row_heights=[0.5, 0.1, 0.2, 0.2], vertical_spacing=0.04,
-        subplot_titles=("■ 價格與 AI 軌跡", "■ 成交張數", "■ MACD 指標", "■ KDJ 擺動指標")
+        row_heights=[0.45, 0.1, 0.2, 0.25], vertical_spacing=0.04,
+        subplot_titles=("■ 價格走勢 (MA5/10/20)", "■ 成交量 (張)", "■ MACD DIF/DEA", "■ KDJ (K/D/J)")
     )
 
-    # ... (此處保留上一版本中完整的圖表繪製邏輯，確保 J 線存在)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name="J線", line=dict(color='#FF00FF', width=1.2)), 4, 1)
+    # 1. K線層
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name="K線"), 1, 1)
+    for ma, clr in zip(['MA5', 'MA10', 'MA20'], ['#FFD700', '#00FF41', '#FF00FF']):
+        fig.add_trace(go.Scatter(x=p_df.index, y=p_df[ma], name=ma, line=dict(color=clr, width=1.2)), 1, 1)
+    
+    # AI 預測軌跡
+    f_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, len(pred_line)+1)]
+    fig.add_trace(go.Scatter(x=[p_df.index[-1]] + f_dates, y=[p_df['Close'].iloc[-1]] + list(pred_line), 
+                             line=dict(color='#FF3131', width=3, dash='dash'), name="AI預測"), 1, 1)
 
-    fig.update_layout(template="plotly_dark", height=1000, paper_bgcolor='#000', plot_bgcolor='#000', showlegend=True)
+    # 2. 成交量層
+    v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_colors, name="成交量"), 2, 1)
+
+    # 3. MACD 層
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['MACD']-p_df['Signal'], name="MACD柱"), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MACD'], name="DIF", line=dict(color='white')), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['Signal'], name="DEA", line=dict(color='yellow')), 3, 1)
+
+    # 4. KDJ 層 (三線補齊)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name="K", line=dict(color='#00F5FF')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name="D", line=dict(color='#FFFF00')), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name="J", line=dict(color='#FF00FF', width=1.2)), 4, 1)
+
+    # 佈局美化
+    fig.update_layout(
+        template="plotly_dark", height=1000, paper_bgcolor="#000", plot_bgcolor="#000",
+        showlegend=True, xaxis_rangeslider_visible=False,
+        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- [6-6] 底部 AI 診斷盒 ---
+    # --- [6-6] 底部 AI 診斷 HTML 盒 (回歸) ---
     render_ai_diagnostic_box(insight, curr_p, stock_accuracy)
+
+# =================================================================
+# 輔助函數：AI 診斷盒渲染 (舊版完整邏輯)
+# =================================================================
+def render_ai_diagnostic_box(insight, curr_p, stock_accuracy):
+    if not insight or len(insight) < 6:
+        st.info("💡 AI 引擎正在生成深度診斷報告..."); return
+
+    tw_tz = pytz.timezone('Asia/Taipei')
+    next_day = datetime.now(tw_tz) + timedelta(days=1)
+    while next_day.weekday() >= 5: next_day += timedelta(days=1)
+    
+    pred_val = insight[3]
+    est_color = "#FF3131" if pred_val > curr_p else "#00FF41"
+    
+    # 乖離率 BIAS 循環顯示
+    bias_html = ""
+    if len(insight) > 6 and isinstance(insight[6], dict):
+        bias_items = [f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()]
+        bias_html = " | ".join(bias_items)
+
+    html_content = f"""
+    <div style="background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div style="background: #FF3131; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;">{stock_accuracy}</div>
+            <div style="font-size: 24px; color: {insight[2]}; font-weight: 900;">{insight[0]}</div>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
+        <p style="margin-bottom: 12px; font-size: 16px;"><b>AI 診斷分析：</b> {insight[1]}</p>
+        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前乖離率參考：{bias_html}</p>
+        <div style="background-color: #161b22; padding: 18px; border-radius: 10px; border: 1px solid #30363d;">
+            <div style="margin-bottom: 10px;">
+                <div style="font-size: 14px; color: #8b949e;">預估 {next_day.strftime('%m/%d')} 收盤展望</div>
+                <div style="font-size: 38px; color: {est_color}; font-weight: 900;">{pred_val:.2f}</div>
+            </div>
+            <div style="font-size: 15px; color: #c9d1d9;">
+                壓力區間：<span style="color: #ff3131; font-weight: bold;">{insight[4]:.2f}</span> | 支撐區間：<span style="color: #00ff41; font-weight: bold;">{insight[5]:.2f}</span>
+            </div>
+        </div>
+    </div>
+    """
+    components.html(html_content, height=420)
 # =================================================================
 # 第七章：主程式邏輯與權限控管 (2026 最終正確版 - 修復登入邏輯)
 # =================================================================
@@ -750,6 +833,7 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
 
