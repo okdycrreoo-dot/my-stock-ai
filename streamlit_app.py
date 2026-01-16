@@ -750,17 +750,33 @@ def main():
             except Exception as e:
                 st.error(f"⚠️ 同步異常: {e}")
 
-    # --- [7-6] 管理面板 ---
+    # --- [7-6] 管理面板：自選股維護 ---
     with st.expander("⚙️ 清單管理與系統設定", expanded=False):
-        all_w_df = pd.DataFrame(ws_w.get_all_records())
-        u_stocks = all_w_df[all_w_df['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w_df.empty else []
+        # 讀取 watchlist 資料
+        raw_w_data = ws_w.get_all_records()
+        if raw_w_data:
+            all_w_df = pd.DataFrame(raw_w_data)
+            
+            # 💡 [關鍵修正] 自動辨識欄位名稱 (適應你的試算表標頭)
+            # 判斷是否有 'stock_symbol'，沒有就改用 'symbol'
+            s_col = 'stock_symbol' if 'stock_symbol' in all_w_df.columns else 'symbol'
+            u_col = 'username' # 你的試算表目前是 username，這沒問題
+            
+            # 根據登入帳號篩選股票
+            u_stocks = all_w_df[all_w_df[u_col] == st.session_state.user][s_col].tolist()
+        else:
+            u_stocks = []
+            s_col = 'symbol' # 預設值
+            
         s_count = len(u_stocks)
         
+        # 20 支上限變色提醒
         s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
         st.markdown(f"**自選股狀態：** <span style='color:{s_color}; font-weight:bold;'>{s_count} / 20</span>", unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         with col1:
+            # 避免清單為空時報錯
             target = st.selectbox("分析標的", u_stocks if u_stocks else ["2330.TW"])
             ns = st.text_input("➕ 新增代號")
             if st.button("加入追蹤"):
@@ -770,14 +786,20 @@ def main():
                     raw_s = ns.upper().strip()
                     final_s = raw_s if "." in raw_s else (f"{raw_s}.TWO" if raw_s.startswith(('3','5','6','8')) else f"{raw_s}.TW")
                     if final_s not in u_stocks:
+                        # 💡 寫回試算表時使用對應的標頭名稱
                         ws_w.append_row([st.session_state.user, final_s])
                         st.rerun()
         with col2:
             p_days = st.number_input("AI 預測天數", 1, 30, 7)
+            if st.button("🗑️ 移除目前標的"):
+                # 這裡也要根據篩選出的 s_col 移除
+                row = all_w_df[(all_w_df[u_col] == st.session_state.user) & (all_w_df[s_col] == target)]
+                if not row.empty:
+                    ws_w.delete_rows(int(row.index[0]) + 2)
+                    st.rerun()
             if st.button("🚪 安全登出"):
                 st.session_state.clear()
                 st.rerun()
-
     # --- [7-7] 渲染介面 ---
     render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
@@ -795,5 +817,6 @@ if __name__ == "__main__":
         </style>
     """, unsafe_allow_html=True)
     main()
+
 
 
