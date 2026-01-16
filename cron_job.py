@@ -276,7 +276,10 @@ def run_daily_sync():
         
         # --- [重點提醒：20支股票上限] ---
         if len(symbols_set) > 20:
-            print(f"⚠️ 系統提示：目前 Watchlist 共有 {len(symbols_set)} 支股票，已超過您設定的 20 支上限！")
+            print(f"\n" + "!"*30)
+            print(f"⚠️  Oracle 提醒：目前名單共有 {len(symbols_set)} 支標的")
+            print(f"已超出您的 20 支 Watchlist 上限，請考慮精簡名單。")
+            print("!"*30 + "\n")
         
         if not symbols_set:
             print("❌ 名單為空，終止同步。")
@@ -312,33 +315,22 @@ def run_daily_sync():
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
                 # --- [數據拼裝區：A-AK 共 37 欄位] ---
+                # --- 修改這一段以確保 100% 同步 ---
                 # A-F: 基本資訊 (6 欄)
-                col_A_F = [
-                    last_date, 
-                    final_id, 
-                    p_val, 
-                    round(p_val * 0.985, 2), 
-                    round(p_val * 1.015, 2), 
-                    "待收盤更新"
-                ]
-                
+                col_base = [last_date, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                 # G-X: 戰略水位 (18 欄)
-                col_G_X = p_levels 
-                
-                # Y-Z: 實際與誤差預留 (2 欄)
-                col_Y_Z = [0, 0] 
-                
-                # AA-AC: AI 預測字串與文本 (3 欄)
-                col_AA_AC = [p_path, p_diag, p_out]
-                
+                col_levels = p_levels 
+                # Y-Z: 實際與誤差 (2 欄) 
+                col_calib = [0, 0] 
+                # AA-AC: AI 文本 (3 欄)
+                col_ai_txt = [p_path, p_diag, p_out]
                 # AD-AG: 乖離率 (4 欄)
-                col_AD_AG = p_bias
-                
-                # AH-AK: 專家指標與情緒 (4 欄)
-                col_AH_AK = p_experts
-                
-                # 最終合併橫列：6 + 18 + 2 + 3 + 4 + 4 = 37 欄位
-                final_upload_row = col_A_F + col_G_X + col_Y_Z + col_AA_AC + col_AD_AG + col_AH_AK
+                col_bias = p_bias
+                # AH-AK: 專家指標 (4 欄)
+                col_expert = p_experts # 包含最後一欄 AK 的市場情緒
+
+                # 最終精準組合
+                final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 # 最終物理長度校驗
                 if len(final_upload_row) == 37:
