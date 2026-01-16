@@ -686,7 +686,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 狀態初始化與自動登出機制
+    # [段落 7-1] Session 狀態初始化與自動登出機制 (修正隔離版)
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
@@ -698,6 +698,16 @@ def main():
         st.session_state.user = None
         st.warning("會話已過時，請重新登入")
     st.session_state.last_active = time.time()
+
+    # --- 【關鍵修正：權限檢查閘門】 ---
+    # 如果 user 尚未登入，僅顯示登入介面並立即中斷執行
+    if st.session_state.user is None:
+        # 這裡呼叫您的登入/註冊渲染函數
+        # 假設您的函數名稱是 render_login_ui()
+        render_login_ui() 
+        
+        # 阻斷點：確保後面的 [7-2] 到 [7-6] 段代碼不會被執行
+        return
     
     # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
@@ -841,4 +851,5 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
