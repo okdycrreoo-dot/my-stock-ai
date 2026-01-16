@@ -703,7 +703,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     components.html(html_content, height=450)
 
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (嚴格編號順序版)
+# 第七章：主程式邏輯與權限控管 (完整修復整合版)
 # =================================================================
 
 def main():
@@ -715,9 +715,14 @@ def main():
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
+    # 💡 補強：若未登入，清空快取以防 Quota 報錯與數據殘留
+    if st.session_state.user is None:
+        st.cache_data.clear()
+    
     # 1小時自動登出邏輯
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
-        st.session_state.user = None
+        # 💡 補強：自動登出時徹底清空狀態
+        st.session_state.clear()
         st.rerun()
     st.session_state.last_active = time.time()
 
@@ -776,7 +781,7 @@ def main():
             if "gcp_service_account" in st.secrets:
                 sc = st.secrets["gcp_service_account"]
             else:
-                # 兼容 7-2 段落的巢狀結構
+                # 兼容巢狀結構
                 sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
                 
             creds = Credentials.from_service_account_info(sc, scopes=[
@@ -784,7 +789,7 @@ def main():
                 "https://www.googleapis.com/auth/drive"
             ])
             
-            # 💡 確保這裡的 URL 指向正確的試算表
+            # 💡 確保 URL 指向正確的試算表
             target_url = st.secrets.get("spreadsheet_url") or st.secrets["connections"]["gsheets"]["spreadsheet"]
             sh_conn = gspread.authorize(creds).open_by_url(target_url)
             
@@ -835,7 +840,7 @@ def main():
             target = st.selectbox("選取分析標的", u_stocks if u_stocks else ["2330.TW"])
             ns = st.text_input("➕ 新增代號")
             
-            # 檢查 20 支上限 [cite: 2026-01-15]
+            # 檢查 20 支上限
             if st.button("確認加入追蹤"):
                 if s_count >= 20:
                     st.error("🚫 提醒：自選股已達 20 支上限！請先刪除舊標的。")
@@ -853,8 +858,10 @@ def main():
                 if not row.empty:
                     ws_w.delete_rows(int(row.index[0]) + 2)
                     st.rerun()
+            
+            # 💡 補強：登出時徹底洗掉所有 Session 狀態，解決畫面殘留
             if st.button("🚪 安全登出系統"):
-                st.session_state.user = None
+                st.session_state.clear()
                 st.rerun()
 
     # -------------------------------------------------------------
@@ -878,4 +885,5 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
