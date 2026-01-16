@@ -132,15 +132,28 @@ def main_app(db):
         else:
             # 展示數據
             row = stock_data.iloc[0]
-            m1, m2 = st.columns(2)
-            m1.metric("預測價", f"${row['pred_close']}")
-            m2.metric("盈虧比", row['rr_ratio'])
             
-            st.success(f"🤖 **AI 診斷：**\n\n{row['ai_insight']}")
+            # --- 頂部數據卡片 ---
+            st.subheader(f"📊 {target} 核心指標")
+            c1, c2, c3 = st.columns(3)
             
-            # 簡易圖表
+            # 根據盈虧比決定顏色
+            rr = float(row['rr_ratio'])
+            rr_color = "normal" if rr > 1.5 else "inverse"
+            
+            c1.metric("🔮 預測目標價", f"${row['pred_close']}")
+            c2.metric("⚖️ 盈虧比 (R/R)", f"{rr}", delta="優質" if rr > 2 else "風險", delta_color=rr_color)
+            c3.metric("🎯 5D 支撐位", f"${row['buy_level_5d'] if 'buy_level_5d' in row else 'N/A'}")
+
+            # --- AI 診斷區塊 ---
+            with st.expander("🤖 查看 AI 深度診斷報告", expanded=True):
+                st.markdown(f"**診斷摘要：**")
+                st.success(row['ai_insight'])
+                
+            # --- 預測路徑圖表 ---
+            st.subheader("📈 未來 7 日 AI 模擬軌跡")
             path_vals = [float(x) for x in str(row['pred_path']).split(',')]
-            st.line_chart(path_vals)
+            st.area_chart(path_vals, color="#29b5e8")
 
 # =================================================================
 # 段落 5：主入口
@@ -155,6 +168,7 @@ if __name__ == "__main__":
             auth_section(db_con)
         else:
             main_app(db_con)
+
 
 
 
