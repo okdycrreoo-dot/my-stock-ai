@@ -686,18 +686,29 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 狀態初始化與自動登出機制 (修正隔離版)
+    # [段落 7-1] Session 狀態初始化與權限隔離 (最終修正版)
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 檢查是否超過 1 小時未活動，若是則強制登出
+    # 自動登出檢查 (1 小時)
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
-        st.warning("會話已過時，請重新登入")
+        st.rerun() # 強制刷新回到登入頁
     st.session_state.last_active = time.time()
+
+    # --- 【權限檢查閘門】 ---
+    if st.session_state.user is None:
+        # 使用 try-except 預防 NameError: render_login_ui
+        try:
+            render_login_ui() 
+        except NameError:
+            st.error("系統錯誤：找不到登入介面組件 (render_login_ui)。請確認該函數已正確定義。")
+        
+        # 關鍵阻斷點：未登入狀態下，強制在此結束，不畫後方的 2330 面板
+        return
 
     # --- 【關鍵修正：權限檢查閘門】 ---
     # 如果 user 尚未登入，僅顯示登入介面並立即中斷執行
@@ -851,5 +862,6 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
