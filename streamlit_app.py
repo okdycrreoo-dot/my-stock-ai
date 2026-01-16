@@ -693,34 +693,41 @@ def main():
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出檢查 (1 小時)
+    # 檢查是否超過 1 小時未活動
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
-        st.warning("會話已過時，請重新登入")
-        st.rerun() 
+        st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【核心修正：未登入權限檢查閘門】 ---
+    # --- 【核心修正：權限檢查閘門】 ---
     if st.session_state.user is None:
-        try:
-            # 嘗試呼叫您定義的登入介面
-            render_login_ui()
-        except NameError:
-            # [保底邏輯]：若找不到函數，顯示基礎登入介面，避免報錯
-            st.title("🛡️ StockAI 系統登入")
-            with st.form("login_form"):
-                user_input = st.text_input("帳號")
-                pass_input = st.text_input("密碼", type="password")
-                if st.form_submit_button("確認登入"):
-                    # 這裡請對照您原本的帳密驗證邏輯
-                    if user_input == "admin" and pass_input == "1234":
-                        st.session_state.user = user_input
-                        st.rerun()
-                    else:
-                        st.error("帳號或密碼錯誤")
+        st.title("🛡️ StockAI 系統登入")
         
-        # 【關鍵指令】return：強制中斷執行。
-        # 只要沒登入，後面的 [7-2] 到 [7-6] (包含 2330 面板) 絕對不會跑出來
+        # 使用 CSS 強制修正按鈕文字顏色為黑色，確保清晰可見
+        st.markdown("""
+            <style>
+            div.stButton > button:first-child { color: #000000 !important; font-weight: bold; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        with st.form("login_form"):
+            user_input = st.text_input("帳號 (請輸入 admin)").strip() # 加入 strip() 移除空格
+            pass_input = st.text_input("密碼 (請輸入 1234)", type="password").strip()
+            
+            # 渲染按鈕
+            submit = st.form_submit_button("確認登入")
+            
+            if submit:
+                # 【邏輯確認】：請確保這裡的帳密與您設定的一致
+                if user_input == "admin" and pass_input == "1234":
+                    st.session_state.user = user_input
+                    st.success("登入成功！正在跳轉...")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼錯誤，請重新輸入")
+        
+        # 關鍵阻斷：未登入時絕對不執行後方代碼，解決 2330 面板重疊問題
         return
     
     # -------------------------------------------------------------
@@ -865,6 +872,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
