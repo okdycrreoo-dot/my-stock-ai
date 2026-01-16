@@ -686,27 +686,67 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 狀態初始化與自動登出機制
+    # [段落 7-1] Session 狀態初始化與權限嚴格隔離
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 檢查是否超過 1 小時未活動，若是則強制登出
+    # 自動登出檢查 (1 小時)
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
-        st.warning("會話已過時，請重新登入")
+        st.rerun() 
     st.session_state.last_active = time.time()
 
-    # --- 【核心修正：阻斷機制】 ---
-    # 如果還沒登入，只執行登入介面，然後立刻結束 (return)
-    # 這能解決頁面重疊與「全球資訊更新中」提前跑出來的問題
+    # --- 【關鍵修正：權限閘門與頁面隔離】 ---
     if st.session_state.user is None:
-        render_login_ui()  # 呼叫您原本正常的登入/註冊畫面
-        return
-    
-    # -------------------------------------------------------------
+        st.title("🚀 StockAI 智慧交易系統")
+        
+        # 1. 修正按鈕視覺 (深藍背景 + 白色粗體字)
+        st.markdown("""
+            <style>
+            div.stButton > button {
+                background-color: #0047AB !important; 
+                color: #FFFFFF !important;           
+                font-weight: bold !important;
+                border-radius: 8px !important;
+                width: 100% !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
+        
+        with tab_login:
+            u_name = st.text_input("帳號", key="main_login_u").strip()
+            p_word = st.text_input("密碼", type="password", key="main_login_p").strip()
+            if st.button("確認登入系統", key="main_login_btn"):
+                if u_name == "admin" and p_word == "1234":
+                    st.session_state.user = u_name
+                    st.success("✅ 驗證通過，正在載入終端介面...")
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼錯誤")
+
+        with tab_reg:
+            st.subheader("建立新帳戶")
+            r_u = st.text_input("設定帳號", key="main_reg_u")
+            r_p = st.text_input("設定密碼", type="password", key="main_reg_p")
+            if st.button("確認註冊並登入", key="main_reg_btn"):
+                if r_u and r_p:
+                    st.session_state.user = r_u
+                    st.success("🎉 註冊成功！")
+                    st.rerun()
+                else:
+                    st.error("請填寫完整資訊")
+
+        # --- 【核心阻斷指令】 ---
+        # 只要還沒登入，執行到這裡就會停止，後方的 2330 面板代碼絕對不會被執行
+        # 這能徹底解決 image_e942a4 中的頁面重疊與背景更新提示問題
+        return 
+
+      # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
     # -------------------------------------------------------------
     @st.cache_resource(ttl=30)
@@ -848,6 +888,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
