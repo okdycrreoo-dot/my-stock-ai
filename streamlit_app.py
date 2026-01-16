@@ -442,15 +442,6 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     res_bundle = (final_status, " | ".join(reasons), "#FFFFFF", next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), {})
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, res_bundle
-# =================================================================
-# 第六章：終端渲染引擎 (Render Terminal) - 2026 最終完整版
-# =================================================================
-import streamlit.components.v1 as components
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
-import pytz
-
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # --- [6-1] 數據獲取與 AI 運算連動 ---
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
@@ -463,7 +454,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     )
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 💡 數據橋接：從雲端撈取 GitHub 機器人存入的 5/10/20 日指標
+    # 💡 關鍵修正：解決 NameError，先從 Google Sheets 撈取資料
     try:
         all_p_data = ws_p.get_all_records()
         p_rows = [r for r in all_p_data if str(r.get('symbol', '')) == str(symbol)]
@@ -471,7 +462,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     except:
         latest_pred = {}
 
-    # --- [6-2] 頂部標題與 10 日準確率看板 ---
+    # --- [6-2] 頂部標題與 10 日準確率看板 (恢復原本樣式) ---
     st.title(f"📊 {f_id} 台股 AI 決策終端")
     
     if acc_history:
@@ -488,7 +479,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     st.markdown(f"<div class='confidence-tag' style='margin-top:15px;'>{stock_accuracy}</div>", unsafe_allow_html=True)
     st.caption(f"✨ AI 大腦：籌碼動能 | 環境共振 | 技術乖離修正 (2026 核心版)")
 
-    # --- [6-3] 核心指標看板 (Metrics) ---
+    # --- [6-3] 核心指標看板 (Metrics - 恢復 info-box 樣式) ---
     c_col = "#FF3131" if change_pct >= 0 else "#00FF41"
     m_cols = st.columns(5)
     metrics_list = [
@@ -502,46 +493,51 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         with m_cols[i]:
             st.markdown(f"<div class='info-box'><span style='color:#888;font-size:0.9rem;'>{lab}</span><br><b style='color:{col}; font-size:1.8rem;'>{val}</b></div>", unsafe_allow_html=True)
 
-    # --- [6-4] 新增功能：5/10/20 日 AI 買賣建議與支撐壓力 ---
-    st.markdown("### 🤖 多維度 AI 策略建議")
-    
-    # 買賣建議排
-    st.write("📊 **AI 預測買賣價格**")
-    buy_cols = st.columns(3)
-    intervals = [("5 日", "5d"), ("10 日", "10d"), ("20 日", "20d")]
-    for i, (label, key) in enumerate(intervals):
-        with buy_cols[i]:
-            st.info(f"📅 **{label}建議**")
-            b_val = float(latest_pred.get(f'buy_{key}', 0))
-            s_val = float(latest_pred.get(f'sell_{key}', 0))
-            st.metric("買入", f"{b_val:.2f}")
-            st.metric("賣出", f"{s_val:.2f}")
-
-    # 支撐壓力排
-    st.write("🛡️ **技術面支撐與壓力**")
-    sup_res_cols = st.columns(3)
-    for i, (label, key) in enumerate(intervals):
-        with sup_res_cols[i]:
+    # --- [6-4] 買賣點診斷區 (恢復 diag-box 樣式) ---
+    st.write(""); s_cols = st.columns(3)
+    for i, (label, p) in enumerate(ai_recs.items()):
+        with s_cols[i]: 
             st.markdown(f"""
-                <div style='background-color:#1E1E1E; padding:10px; border-radius:5px; border-left: 5px solid #00F5FF;'>
-                    <p style='color:#888; margin:0; font-size:12px;'>{label}區間</p>
-                    <p style='color:#FF3131; margin:0; font-weight:bold;'>壓: {latest_pred.get(f'resistance_{key}', 'N/A')}</p>
-                    <p style='color:#00F5FF; margin:0; font-weight:bold;'>支: {latest_pred.get(f'support_{key}', 'N/A')}</p>
+                <div class='diag-box'>
+                    <b style='font-size:1.2rem; color:#FFFFFF;'>{label}</b>
+                    <hr style='border:0.5px solid #444; margin:10px 0;'>
+                    <div style='color:#CCC;'>買入: <span style='color:#FF3131; font-weight:900; font-size:1.4rem;'>{p['buy']:.2f}</span></div>
+                    <div style='color:#CCC;'>賣出: <span style='color:#00FF41; font-weight:900; font-size:1.4rem;'>{p['sell']:.2f}</span></div>
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- [6-5] Plotly 四層子圖 (K線、量能、MACD、KDJ) ---
+    # --- [6-5] 新增：5/10/20 日技術位區塊 (保持專業感) ---
+    st.markdown("### 🛡️ AI 支撐壓力位 (5/10/20日)")
+    sup_res_cols = st.columns(3)
+    intervals = [("5 日", "5d"), ("10 日", "10d"), ("20 日", "20d")]
+    for i, (label, key) in enumerate(intervals):
+        with sup_res_cols[i]:
+            # 💡 增加 try-except 避免 float 轉換錯誤
+            try:
+                res = f"{float(latest_pred.get(f'resistance_{key}', 0)):.2f}"
+                sup = f"{float(latest_pred.get(f'support_{key}', 0)):.2f}"
+            except:
+                res, sup = "N/A", "N/A"
+            st.markdown(f"""
+                <div style='background-color:#1E1E1E; padding:10px; border-radius:10px; border-left: 5px solid #00F5FF;'>
+                    <p style='color:#888; margin:0; font-size:12px;'>{label}預估區間</p>
+                    <p style='color:#FF3131; margin:0; font-weight:bold;'>壓力線: {res}</p>
+                    <p style='color:#00F5FF; margin:0; font-weight:bold;'>支撐線: {sup}</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+    # --- [6-6] Plotly 四層子圖 (K線、量能、MACD、KDJ - 完整恢復) ---
     p_df = df.tail(100)
     fig = make_subplots(
         rows=4, cols=1, shared_xaxes=True, 
         row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04,
         subplot_titles=("■ 價格與 AI 預測軌跡", "■ 成交量 (張)", "■ MACD 指標", "■ KDJ 擺動指標")
     )
-
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name="實時K線"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], line=dict(color='#FFD700', width=1.5), name="5MA"), 1, 1)
     fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], line=dict(color='#FF00FF', width=2), name="20MA"), 1, 1)
     
+    # AI 預測軌跡
     last_date = p_df.index[-1]
     last_close = p_df['Close'].iloc[-1]
     future_dates = []
@@ -549,13 +545,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     while len(future_dates) < p_days:
         current_d += timedelta(days=1)
         if current_d.weekday() < 5: future_dates.append(current_d)
-            
-    fig.add_trace(go.Scatter(
-        x=[last_date] + future_dates, 
-        y=[last_close] + list(pred_line), 
-        line=dict(color='#FF3131', width=3, dash='dash'), 
-        name="AI預估軌跡"
-    ), 1, 1)
+    fig.add_trace(go.Scatter(x=[last_date] + future_dates, y=[last_close] + list(pred_line), line=dict(color='#FF3131', width=3, dash='dash'), name="AI預估軌跡"), 1, 1)
 
     v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
     fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_colors), 2, 1)
@@ -566,7 +556,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     fig.update_layout(template="plotly_dark", height=900, xaxis_rangeslider_visible=False, showlegend=False, paper_bgcolor='#000', plot_bgcolor='#000', margin=dict(l=10, r=10, t=40, b=40))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- [6-6] 底部 AI 診斷 HTML 盒 ---
+    # --- [6-7] 底部 AI 診斷 HTML 盒 (完整恢復) ---
     render_ai_diagnostic_box(insight, curr_p, stock_accuracy)
 # =================================================================
 # 第七章：主程式邏輯與權限控管 (2026 最終正確版 - 修復登入邏輯)
