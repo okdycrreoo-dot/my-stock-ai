@@ -703,8 +703,11 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     components.html(html_content, height=450)
 
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (完整修復整合版)
+# 第七章：主程式邏輯與權限控管 (收盤門禁 + 去重寫入版)
 # =================================================================
+import datetime
+import pytz
+import time
 
 def main():
     # -------------------------------------------------------------
@@ -715,13 +718,12 @@ def main():
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 💡 補強：若未登入，清空快取以防 Quota 報錯與數據殘留
+    # 💡 核心補強：若未登入，清空快取以防數據殘留與 429 報錯
     if st.session_state.user is None:
         st.cache_data.clear()
     
     # 1小時自動登出邏輯
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
-        # 💡 補強：自動登出時徹底清空狀態
         st.session_state.clear()
         st.rerun()
     st.session_state.last_active = time.time()
@@ -733,7 +735,6 @@ def main():
         st.title("🚀 StockAI 智慧交易系統")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
-        # 💡 安全讀取全域連線物件
         current_ws = globals().get('ws_user')
         user_dict = {}
         if current_ws:
@@ -768,7 +769,6 @@ def main():
                 else:
                     st.warning("帳號密碼不可為空")
         
-        # 🛑 未登入攔截：確保後續 7-3 到 7-6 不會執行
         return 
 
     # -------------------------------------------------------------
@@ -777,19 +777,15 @@ def main():
     @st.cache_resource(ttl=30)
     def get_gsheets_connection():
         try:
-            # 💡 確保這裡的 key 與您 1-6 段使用的完全一致
             if "gcp_service_account" in st.secrets:
                 sc = st.secrets["gcp_service_account"]
             else:
-                # 兼容巢狀結構
                 sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
-                
+            
             creds = Credentials.from_service_account_info(sc, scopes=[
                 "https://www.googleapis.com/auth/spreadsheets", 
                 "https://www.googleapis.com/auth/drive"
             ])
-            
-            # 💡 確保 URL 指向正確的試算表
             target_url = st.secrets.get("spreadsheet_url") or st.secrets["connections"]["gsheets"]["spreadsheet"]
             sh_conn = gspread.authorize(creds).open_by_url(target_url)
             
@@ -807,7 +803,6 @@ def main():
     if not sheets: return
     ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
 
-    # 讀取全局設定
     try:
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
         cp = int(s_map.get('global_precision', 55))
@@ -818,23 +813,24 @@ def main():
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
     # -------------------------------------------------------------
-    # [段落 7-4] 批次引擎觸發點 (14:30後執行 + 跨用戶去重)
+    # [段落 7-4] 批次引擎觸發點 (盤後寫入 + 跨使用者去重)
     # -------------------------------------------------------------
-    # 1. 取得台灣目前小時與分鐘
-    now = datetime.datetime.now(pytz.timezone('Asia/Taipei'))
-    
-    # 2. 判斷是否過 14:30 (收盤後)
-    if now.time() >= datetime.time(14, 30):
-        with st.spinner("🌙 執行收盤全清單去重同步..."):
-            # 💡 核心：獲取所有清單內容並「去重」
-            data = ws_w.get_all_records()
-            unique_list = list(set([str(r['stock_symbol']) for r in data])) if data else []
-            
-            # 💡 執行引擎 (僅針對不重複清單)
-            if unique_list:
-                run_batch_predict_engine(unique_list, ws_p, cp, tw_val, v_comp, api_ttl)
+    # 💡 台灣時區檢查
+    tw_tz = pytz.timezone('Asia/Taipei')
+    now_tw = datetime.datetime.now(tw_tz)
+    market_close = datetime.time(14, 30)
+
+    # 💡 只有在 14:30 之後才執行掃描全清單並寫入試算表
+    if now_tw.time() >= market_close:
+        with st.spinner("🌙 偵測到已收盤，執行全清單去重同步..."):
+            all_records = ws_w.get_all_records()
+            if all_records:
+                # 💡 核心：將所有使用者的股票提取出來並去重 (set)
+                unique_stocks = list(set([str(r['stock_symbol']) for r in all_records]))
+                # 💡 呼叫引擎執行 (確保傳入的是去重後的清單)
+                run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
     else:
-        st.info(f"☀️ 盤中時間 ({now.strftime('%H:%M')}) 僅提供即時分析，14:30 後產出正式報告。")
+        st.info(f"☀️ 盤中時間 ({now_tw.strftime('%H:%M')}) 僅提供即時分析，正式報告於 14:30 收盤後產出。")
 
     # -------------------------------------------------------------
     # [段落 7-5] 管理面板：自選股維護 (含 20 支上限邏輯)
@@ -853,7 +849,6 @@ def main():
             target = st.selectbox("選取分析標的", u_stocks if u_stocks else ["2330.TW"])
             ns = st.text_input("➕ 新增代號")
             
-            # 檢查 20 支上限
             if st.button("確認加入追蹤"):
                 if s_count >= 20:
                     st.error("🚫 提醒：自選股已達 20 支上限！請先刪除舊標的。")
@@ -872,7 +867,6 @@ def main():
                     ws_w.delete_rows(int(row.index[0]) + 2)
                     st.rerun()
             
-            # 💡 補強：登出時徹底洗掉所有 Session 狀態，解決畫面殘留
             if st.button("🚪 安全登出系統"):
                 st.session_state.clear()
                 st.rerun()
@@ -886,18 +880,14 @@ def main():
         curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
             df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
         )
-        stock_accuracy, accuracy_history = auto_sync_feedback(ws_p, f_id, insight)
-        
-        # 執行第六章終端介面渲染
+        auto_sync_feedback(ws_p, f_id, insight)
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
     else:
-        st.error("數據獲取異常，請檢查網路或代號。")
+        st.error("數據獲取異常，請檢查代號。")
 
 # -----------------------------------------------------------------
 # [段落 7-7] 程式進入點
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
-
-
 
