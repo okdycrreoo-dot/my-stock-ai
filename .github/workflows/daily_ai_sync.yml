@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 這裡改用 google-auth，並加上與 Streamlit 一致的套件
+          # 確保包含 yfinance, gspread, google-auth, pytz
           pip install yfinance pandas numpy gspread google-auth pytz
 
       - name: Run AI Oracle Engine
