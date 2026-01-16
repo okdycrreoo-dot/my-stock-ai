@@ -686,39 +686,45 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] 內部強制連線與 Session 初始化
+    # [段落 7-1] 核心初始化與 Google Sheets 連線修復
     # -------------------------------------------------------------
-    # 1. 在函數內部建立連線，確保絕對不會報 NameError
-    try:
-        # 假設您的全域 sh 物件是存在的，直接在這裡定義 ws_user
-        # 如果 sh 也不存在，請確保程式上方有 sh = client.open(...)
-        ws_user_internal = sh.worksheet("users")
-    except Exception as e:
-        st.error(f"連線至 users 工作表失敗，請檢查名稱是否正確：{e}")
-        return
-
-    # 2. Session 狀態初始化
+    # 1. 初始化 Session 狀態，確保 UI 不會消失
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出檢查
+    # 2. 自動登出檢查
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
         st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【權限閘門：未登入則阻斷】 ---
+    # --- 【關鍵修復：嘗試從全域獲取連線，失敗則顯示錯誤】 ---
+    try:
+        # 強制引用全域變數，解決 image_eaa385 的報錯
+        global sh, ws_user
+        # 如果 sh 存在但 ws_user 消失，則重新獲取
+        if 'ws_user' not in globals() or ws_user is None:
+            ws_user = sh.worksheet("users")
+    except NameError:
+        st.error("❌ 系統連線完全中斷：請確認程式碼最上方有定義 sh = client.open(...)")
+        return # 終止執行，防止後續報錯導致 UI 消失
+    except Exception as e:
+        st.error(f"❌ 工作表連線失敗：{e}")
+        return
+
+    # --- 【權限檢查閘門：未登入則顯示登入/註冊 UI】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
+        # 恢復輸入框樣式
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
-        # 讀取最新名單
+        # 獲取最新帳號名單
         user_dict = {}
         try:
-            user_data = ws_user_internal.get_all_records()
+            user_data = ws_user.get_all_records()
             user_dict = {str(row['username']): str(row['password']) for row in user_data}
         except:
             pass
@@ -726,7 +732,7 @@ def main():
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
-            if st.button("立即進入系統"):
+            if st.button("立即登入系統", key="btn_login_main"):
                 if u_name in user_dict and str(user_dict[u_name]) == p_word:
                     st.session_state.user = u_name
                     st.success(f"✅ 歡迎回來，{u_name}")
@@ -739,22 +745,22 @@ def main():
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             
-            if st.button("確認註冊並同步試算表"):
+            if st.button("確認註冊並同步試算表", key="btn_reg_main"):
                 if not new_u or not new_p:
                     st.warning("帳號與密碼不能為空")
                 elif new_u in user_dict:
                     st.error(f"❌ 帳號 '{new_u}' 已存在。")
                 else:
-                    # --- 【核心修正：直接執行寫入】 ---
                     try:
-                        ws_user_internal.append_row([new_u, new_p], value_input_option='RAW')
+                        # 執行寫入動作
+                        ws_user.append_row([new_u, new_p], value_input_option='RAW')
                         st.balloons() 
-                        st.success(f"🎉 註冊成功！資料已同步至試算表。")
-                        st.info("💡 請切換至『系統登入』分頁進行登入。")
+                        st.success(f"🎉 註冊成功！帳號 '{new_u}' 已寫入試算表。")
+                        st.info("💡 請切換到『系統登入』分頁進行登入。")
                     except Exception as e:
                         st.error(f"寫入失敗：{e}")
 
-        # 核心阻斷：未登入前不執行下方 2330 面板
+        # 核心隔離：解決 image_e942a4 的重疊問題，未登入則不執行下方內容
         return 
 
     # -------------------------------------------------------------
@@ -899,5 +905,6 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
