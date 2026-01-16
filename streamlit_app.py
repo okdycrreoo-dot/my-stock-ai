@@ -78,19 +78,17 @@ st.markdown("""
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # 💡 改用 st.secrets，安全性最高且不會有找不到檔案的問題
+    # 💡 直接從 Streamlit Secrets 讀取，解決找不到 your_key.json 的問題
     if "gcp_service_account" in st.secrets:
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"], 
-            scopes=scope
-        )
+        gcp_info = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(gcp_info, scopes=scope)
     else:
-        # 如果是本地端，才找 json 檔
+        # 如果 Secrets 沒設定，才去抓本地檔案
         creds = Credentials.from_service_account_file("your_key.json", scopes=scope)
         
     client = gspread.authorize(creds)
     
-    # 💡 這裡請務必確認您的試算表名稱「完全正確」
+    # 💡 這裡請改為您 Google Drive 上試算表的真正標題
     sh = client.open("您的試算表名稱") 
     ws_user = sh.worksheet("users")
     
@@ -917,6 +915,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main() # 不要傳參數
+
 
 
 
