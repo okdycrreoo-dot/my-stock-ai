@@ -1,11 +1,7 @@
-streamlit>=1.30.0
-st-gsheets-connection
+streamlit
 pandas
 numpy
-tensorflow-cpu>=2.16.1
-scikit-learn
-yfinance>=0.2.40
+yfinance
 gspread
 google-auth
-plotly
-
+pytz
