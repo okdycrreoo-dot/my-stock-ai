@@ -729,7 +729,7 @@ def main():
                     st.success(f"✅ 歡迎回來，{u_name}！")
                     st.rerun()
                 else:
-                    st.error("❌ 帳號或密碼不正確 (請對照試算表資料)")
+                    st.error("❌ 帳號或密碼不正確 ")
 
         with tab_reg:
             st.subheader("新用戶註冊")
@@ -888,6 +888,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
