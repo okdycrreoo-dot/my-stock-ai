@@ -703,11 +703,16 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     components.html(html_content, height=450)
 
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (收盤門禁 + 去重寫入版)
+# 第七章：主程式邏輯與權限控管 (正式對齊版 - 2026-01-16)
 # =================================================================
-import datetime
+import datetime as dt_module
 import pytz
 import time
+import json
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+import streamlit as st
 
 def main():
     # -------------------------------------------------------------
@@ -718,7 +723,7 @@ def main():
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 💡 核心補強：若未登入，清空快取以防數據殘留與 429 報錯
+    # 未登入時清空快取以防 API 報錯
     if st.session_state.user is None:
         st.cache_data.clear()
     
@@ -729,7 +734,7 @@ def main():
     st.session_state.last_active = time.time()
 
     # -------------------------------------------------------------
-    # [段落 7-2] 使用者身分驗證 UI (權限攔截閘門)
+    # [段落 7-2] 使用者身分驗證 UI
     # -------------------------------------------------------------
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
@@ -759,33 +764,29 @@ def main():
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             if st.button("確認註冊並寫入系統", use_container_width=True):
                 if not current_ws:
-                    st.error("❌ 系統連線未建立，請檢查 [第一章]")
+                    st.error("❌ 系統連線未建立")
                 elif new_u in user_dict:
                     st.error(f"❌ 帳號 '{new_u}' 已存在")
                 elif new_u and new_p:
                     current_ws.append_row([new_u, new_p])
                     st.balloons()
-                    st.success(f"🎉 註冊成功！請切換至登入頁面。")
+                    st.success(f"🎉 註冊成功！請登入。")
                 else:
                     st.warning("帳號密碼不可為空")
-        
         return 
 
     # -------------------------------------------------------------
-    # [段落 7-3] Google Sheets 資料庫連線與全局參數讀取
+    # [段落 7-3] 資料庫連線與全局參數
     # -------------------------------------------------------------
     @st.cache_resource(ttl=30)
-    def get_gsheets_connection():
+    def get_gs_connection():
         try:
             if "gcp_service_account" in st.secrets:
                 sc = st.secrets["gcp_service_account"]
             else:
                 sc = json.loads(st.secrets["connections"]["gsheets"]["service_account"])
             
-            creds = Credentials.from_service_account_info(sc, scopes=[
-                "https://www.googleapis.com/auth/spreadsheets", 
-                "https://www.googleapis.com/auth/drive"
-            ])
+            creds = Credentials.from_service_account_info(sc, scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
             target_url = st.secrets.get("spreadsheet_url") or st.secrets["connections"]["gsheets"]["spreadsheet"]
             sh_conn = gspread.authorize(creds).open_by_url(target_url)
             
@@ -795,84 +796,72 @@ def main():
                 "settings": sh_conn.worksheet("settings"),
                 "predictions": sh_conn.worksheet("predictions")
             }
-        except Exception as e:
-            st.error(f"❌ 深度連線失敗: {e}")
-            return None
+        except: return None
 
-    sheets = get_gsheets_connection()
+    sheets = get_gs_connection()
     if not sheets: return
     ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
 
     try:
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
-        cp = int(s_map.get('global_precision', 55))
-        api_ttl = int(s_map.get('api_ttl_min', 1))
-        tw_val = float(s_map.get('trend_weight', 1.0))
-        v_comp = float(s_map.get('vol_comp', 1.5))
+        cp, api_ttl, tw_val, v_comp = int(s_map.get('global_precision', 55)), int(s_map.get('api_ttl_min', 1)), float(s_map.get('trend_weight', 1.0)), float(s_map.get('vol_comp', 1.5))
     except:
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
     # -------------------------------------------------------------
-    # [段落 7-4] 批次引擎觸發點 (盤後寫入 + 跨使用者去重)
+    # [段落 7-4] 批次引擎：14:30 收盤門禁 + 跨使用者去重
     # -------------------------------------------------------------
-    # 💡 台灣時區檢查
     tw_tz = pytz.timezone('Asia/Taipei')
-    now_tw = datetime.datetime.now(tw_tz)
-    market_close = datetime.time(14, 30)
+    now_tw = dt_module.datetime.now(tw_tz)
+    market_close = dt_module.time(14, 30)
 
-    # 💡 只有在 14:30 之後才執行掃描全清單並寫入試算表
     if now_tw.time() >= market_close:
-        with st.spinner("🌙 偵測到已收盤，執行全清單去重同步..."):
-            all_records = ws_w.get_all_records()
-            if all_records:
-                # 💡 核心：將所有使用者的股票提取出來並去重 (set)
-                unique_stocks = list(set([str(r['stock_symbol']) for r in all_records]))
-                # 💡 呼叫引擎執行 (確保傳入的是去重後的清單)
+        with st.spinner("🌙 執行收盤全清單去重同步..."):
+            all_w_data = ws_w.get_all_records()
+            if all_w_data:
+                # 💡 去重邏輯：即便多人追蹤台積電，今日也只計算並寫入一次
+                unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
                 run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
     else:
-        st.info(f"☀️ 盤中時間 ({now_tw.strftime('%H:%M')}) 僅提供即時分析，正式報告於 14:30 收盤後產出。")
+        st.info(f"☀️ 盤中時間 ({now_tw.strftime('%H:%M')}) 僅提供即時分析，14:30 後產出正式報告。")
 
     # -------------------------------------------------------------
     # [段落 7-5] 管理面板：自選股維護 (含 20 支上限邏輯)
     # -------------------------------------------------------------
     with st.expander("⚙️ 管理自選股清單", expanded=False):
-        all_w = pd.DataFrame(ws_w.get_all_records())
-        u_stocks = all_w[all_w['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w.empty else []
+        all_w_df = pd.DataFrame(ws_w.get_all_records())
+        u_stocks = all_w_df[all_w_df['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w_df.empty else []
         s_count = len(u_stocks)
         
         m1, m2 = st.columns(2)
         with m1:
-            # 💡 [2026-01-15] 實作：上限提醒與變色
+            # 💡 [2026-01-15] 實作：上限 20 支變色提醒
             s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
             st.markdown(f"### 持股額度：<span style='color:{s_color}'>{s_count} / 20</span>", unsafe_allow_html=True)
-            
             target = st.selectbox("選取分析標的", u_stocks if u_stocks else ["2330.TW"])
             ns = st.text_input("➕ 新增代號")
-            
             if st.button("確認加入追蹤"):
                 if s_count >= 20:
-                    st.error("🚫 提醒：自選股已達 20 支上限！請先刪除舊標的。")
+                    st.error("🚫 提醒：自選股已達 20 支上限！")
                 elif ns:
                     raw_s = ns.upper().strip()
                     final_s = raw_s if "." in raw_s else (f"{raw_s}.TWO" if raw_s.startswith(('3','5','6','8')) else f"{raw_s}.TW")
                     if final_s not in u_stocks:
                         ws_w.append_row([st.session_state.user, final_s])
-                        st.success(f"✅ {final_s} 已成功加入")
                         st.rerun()
         with m2:
             p_days = st.number_input("AI 預估天數", 1, 30, 7)
-            if st.button("🗑️ 刪除目前選中標的"):
-                row = all_w[(all_w['username'] == st.session_state.user) & (all_w['stock_symbol'] == target)]
+            if st.button("🗑️ 刪除目前標的"):
+                row = all_w_df[(all_w_df['username'] == st.session_state.user) & (all_w_df['stock_symbol'] == target)]
                 if not row.empty:
                     ws_w.delete_rows(int(row.index[0]) + 2)
                     st.rerun()
-            
             if st.button("🚪 安全登出系統"):
                 st.session_state.clear()
                 st.rerun()
 
     # -------------------------------------------------------------
-    # [段落 7-6] 核心運算對接與介面渲染
+    # [段落 7-6] 核心運算對接與介面渲染 (恢復 AI 診斷輸出)
     # -------------------------------------------------------------
     df, f_id = fetch_comprehensive_data(target, api_ttl * 60)
     if df is not None:
@@ -880,14 +869,11 @@ def main():
         curr_p, open_p, last_p, change, curr_v, ma_vals, acc_cols, insight = perform_ai_engine(
             df, p_days, f_p, f_tw, f_v, bias, f_vol, b_drift
         )
+        # 💡 同步反饋與診斷介面渲染
         auto_sync_feedback(ws_p, f_id, insight)
         render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
     else:
         st.error("數據獲取異常，請檢查代號。")
 
-# -----------------------------------------------------------------
-# [段落 7-7] 程式進入點
-# -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
-
