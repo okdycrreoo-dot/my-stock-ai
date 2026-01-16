@@ -686,7 +686,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] 核心初始化與強制連線修正
+    # [段落 7-1] 核心初始化與自主連線機制 (解決 NameError)
     # -------------------------------------------------------------
     # 1. 初始化 Session 狀態
     if 'user' not in st.session_state:
@@ -694,47 +694,47 @@ def main():
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出檢查
+    # 2. 自動登出檢查
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
         st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【關鍵修復：動態獲取試算表物件】 ---
+    # --- 【核心修復：在 main 內部重新取得連線】 ---
     try:
-        # 直接從全域尋找 sh 物件，避免傳參失敗
+        # 💡 如果全域找不到 sh，我們直接從 st.connection 或全域字典強制獲取
+        # 這裡假設您的連線物件名稱為 'sh'，並強制建立 ws_user
         if 'sh' in globals():
-            global ws_user
             ws_user = globals()['sh'].worksheet("users")
         else:
-            # 如果連 sh 都找不到，提示檢查程式碼最上方的連線段落
-            st.error("❌ 找不到試算表主物件 'sh'，請確認程式碼頂端已正確連線 Google Sheets。")
-            return
+            # 這是最後的保險：如果外部變數抓不到，顯示引導訊息
+            st.error("❌ 系統偵測不到試算表連線 (sh)。請確保程式碼最上方已執行 sh = client.open(...)")
+            st.stop() # 停止執行以防 UI 崩潰
     except Exception as e:
-        st.error(f"❌ 無法連接到 'users' 工作表：{e}")
-        return
+        st.error(f"❌ 無法讀取 'users' 工作表：{e}")
+        st.stop()
 
-    # --- 【權限閘門：未登入則顯示登入/註冊 UI】 ---
+    # --- 【權限檢查閘門：未登入則顯示 UI】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
-        # 讀取名單用於驗證
+        # 預先讀取最新名單
         user_dict = {}
         try:
             user_data = ws_user.get_all_records()
             user_dict = {str(row['username']): str(row['password']) for row in user_data}
         except:
-            pass
+            pass # 允許空名單進行第一次註冊
 
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
-            if st.button("立即進入系統"):
+            if st.button("立即登入系統", key="btn_login_final"):
                 if u_name in user_dict and str(user_dict[u_name]) == p_word:
                     st.session_state.user = u_name
-                    st.success(f"✅ 歡迎回來，{u_name}")
+                    st.success(f"✅ 登入成功！歡迎 {u_name}")
                     st.rerun()
                 else:
                     st.error("❌ 帳號或密碼錯誤")
@@ -744,13 +744,13 @@ def main():
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             
-            if st.button("確認註冊並同步試算表"):
+            if st.button("確認註冊並寫入系統", key="btn_reg_final"):
                 if not new_u or not new_p:
                     st.warning("帳號與密碼不能為空")
                 elif new_u in user_dict:
                     st.error(f"❌ 帳號 '{new_u}' 已存在。")
                 else:
-                    # --- 【執行寫入動作：這行成功就會寫入試算表】 ---
+                    # --- 【執行寫入動作：這行會解決您提到的「註冊成功卻沒寫入」】 ---
                     try:
                         ws_user.append_row([new_u, new_p], value_input_option='RAW')
                         st.balloons() 
@@ -759,8 +759,12 @@ def main():
                     except Exception as e:
                         st.error(f"寫入失敗：{e}")
 
-        # 核心隔離：未登入則絕對不執行下方的 2330 預測面板
+        # 核心隔離：解決畫面重疊問題
         return 
+
+    # -------------------------------------------------------------
+    # [段落 7-2] 之後的代碼開始 (隔離區)
+    # -------------------------------------------------------------
 
     # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
@@ -904,6 +908,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main() # 不要傳參數
+
 
 
 
