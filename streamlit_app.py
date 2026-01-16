@@ -1,46 +1,43 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import json
-import gspread
 import yfinance as yf
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
-import pytz
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 import time
 
 # =================================================================
-# 1. 系統設定與極致黑 CSS
+# 1. 高對比度與亮色視覺設定
 # =================================================================
 st.set_page_config(layout="wide", page_title="Oracle AI Terminal")
 
 st.markdown("""
     <style>
     .stApp { background-color: #000000; color: #FFFFFF; }
-    [data-testid="stSidebar"] { background-color: #0A0A0A; border-right: 1px solid #333; }
-    .price-up { color: #FF3131 !important; font-weight: bold; } 
-    .price-down { color: #00FF00 !important; font-weight: bold; } 
-    .metric-card {
-        background-color: #111111;
-        padding: 15px;
-        border-radius: 5px;
-        border: 1px solid #222;
-        text-align: center;
-    }
-    .ai-box {
+    /* 強制所有文字變亮白色 */
+    p, span, label, .stMetric label { color: #FFFFFF !important; font-weight: 500 !important; }
+    .stMetric [data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 28px !important; }
+    
+    /* 漲跌標示 */
+    .price-up { color: #FF4B4B !important; font-weight: bold; font-size: 24px; } 
+    .price-down { color: #00E676 !important; font-weight: bold; font-size: 24px; } 
+    
+    /* 區塊容器 */
+    .ai-card {
+        background-color: #1A1A1A;
         padding: 20px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        border: 1px solid #333;
-        background-color: #0A0A0A;
+        border-radius: 12px;
+        border: 1px solid #444;
+        margin-bottom: 15px;
     }
+    .stButton>button { width: 100%; border-radius: 8px; background-color: #333; color: white; border: 1px solid #666; }
     </style>
     """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. 資料庫連線
+# 2. 資料庫連線 (保持原邏輯)
 # =================================================================
 @st.cache_resource
 def get_db():
@@ -57,185 +54,150 @@ def get_db():
             "watch_ws": sh.worksheet("watchlist"),
             "pred_ws": sh.worksheet("predictions")
         }
-    except Exception as e:
-        st.error(f"資料庫連線失敗: {e}")
-        return None
+    except: return None
 
 # =================================================================
-# 3. 主程式介面 (對齊 37 欄位與 20 支限制)
+# 3. 無側邊欄主程式 (手機優先)
 # =================================================================
 def main_app(db):
-    # --- 側邊欄：管理與 20 支限制 ---
-    all_watch = db["watch_ws"].get_all_records()
-    my_stocks = [r['symbol'] for r in all_watch if str(r['username']) == st.session_state['user']]
+    # --- 頂部管理區 (取代側邊欄) ---
+    st.markdown("<h2 style='text-align:center; color:#FF4B4B;'>🔮 ORACLE AI 終端</h2>", unsafe_allow_html=True)
     
-    with st.sidebar:
-        st.markdown("<h2 style='color:#FF3131;'>🔮 Oracle AI 終端</h2>", unsafe_allow_html=True)
-        st.write(f"👤 用戶: {st.session_state['user']}")
-        
-        # 執行 20 支限制
-        count = len(my_stocks)
-        if count >= 20:
-            st.error(f"🛑 監控清單已滿 ({count}/20)")
-            new_s = st.text_input("新增代碼 (已達上限)", disabled=True)
-        else:
-            st.info(f"📈 清單額度: {count}/20")
-            new_s = st.text_input("新增代碼 (例: 2330)").strip().upper()
-            if st.button("確認新增"):
-                if new_s and new_s not in my_stocks:
-                    db["watch_ws"].append_row([st.session_state['user'], new_s])
-                    st.success(f"{new_s} 已加入")
-                    time.sleep(1)
-                    st.rerun()
+    # 用戶資訊與登出
+    top_c1, top_c2 = st.columns([3, 1])
+    top_c1.write(f"👤 用戶: **{st.session_state['user']}**")
+    if top_c2.button("🚪 登出"):
+        st.session_state["logged_in"] = False
+        st.rerun()
 
-        st.divider()
-        target = st.selectbox("🎯 選擇觀測個股", ["請選擇"] + my_stocks)
-        if st.button("🚪 登出"):
-            st.session_state["logged_in"] = False
-            st.rerun()
+    # 清單管理
+    watch_data = db["watch_ws"].get_all_values()
+    my_stocks = [r[1] for r in watch_data if r[0] == st.session_state['user']]
+    
+    # 20 支限制與新增
+    st.markdown(f"**📈 監控清單 ({len(my_stocks)}/20)**")
+    add_col1, add_col2 = st.columns([3, 1])
+    
+    if len(my_stocks) < 20:
+        new_s = add_col1.text_input("輸入新代碼 (例: 2330.TW)", key="new_s").strip().upper()
+        if add_col2.button("✚ 新增"):
+            if new_s and new_s not in my_stocks:
+                db["watch_ws"].append_row([st.session_state['user'], new_s])
+                st.rerun()
+    else:
+        st.warning("⚠️ 清單已達 20 支上限")
 
+    # 選擇股票
+    target = st.selectbox("🎯 選擇觀測標的", ["請選擇"] + my_stocks, label_visibility="collapsed")
+    
     if target == "請選擇":
-        st.title("歡迎回到 Oracle AI")
-        st.write("請從左側選單選擇個股。")
+        st.info("請選擇上方股票開始分析")
         return
-
-    # --- 獲取數據與 37 欄位對齊 ---
-    df_p = pd.DataFrame(db["pred_ws"].get_all_records())
-    stock_pred = df_p[df_p['symbol'] == target].tail(1)
-    
-    with st.spinner("讀取市場數據中..."):
-        ticker = yf.Ticker(target)
-        hist = ticker.history(period="60d")
-        if hist.empty:
-            st.error("無法獲取行情")
-            return
-        
-        curr_price = hist['Close'].iloc[-1]
-        prev_close = hist['Close'].iloc[-2]
-        change = curr_price - prev_close
-        pct_change = (change / prev_close) * 100
-
-    # (A) 即時報價區
-    color_class = "price-up" if change >= 0 else "price-down"
-    c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
-    c1.metric("昨日收盤", f"{prev_close:.2f}")
-    c2.metric("即時價格", f"{curr_price:.2f}")
-    c3.markdown(f"漲跌幅 <br><span class='{color_class}' style='font-size:24px;'>{change:+.2f} ({pct_change:+.2f}%)</span>", unsafe_allow_html=True)
-    
-    # AK 欄位：市場情緒
-    if not stock_pred.empty:
-        sentiment = stock_pred.iloc[0].get('market_sentiment', '穩定')
-        c4.metric("AI 市場情緒 (AK)", sentiment)
 
     st.divider()
 
-    # (B) AI 神之大腦核心 (37 欄位展現)
+    # --- 數據讀取與格式容錯 (解決 KeyError) ---
+    raw_preds = db["pred_ws"].get_all_values()
+    if len(raw_preds) > 1:
+        # 強制轉小寫標題並搜尋
+        headers = [h.strip().lower() for h in raw_preds[0]]
+        df_p = pd.DataFrame(raw_preds[1:], columns=headers)
+        # 匹配 symbol 欄位 (支援大小寫容錯)
+        stock_pred = df_p[df_p['symbol'].str.upper() == target.upper()].tail(1)
+    else:
+        stock_pred = pd.DataFrame()
+
+    # 抓取即時報價
+    with st.spinner("同步市場報價..."):
+        tk = yf.Ticker(target)
+        h = tk.history(period="5d")
+        if h.empty:
+            st.error("找不到市場數據，請確認代碼 (台股需含 .TW)")
+            return
+        curr = h['Close'].iloc[-1]
+        diff = curr - h['Close'].iloc[-2]
+        pct = (diff / h['Close'].iloc[-2]) * 100
+
+    # 報價看板
+    c_up = diff >= 0
+    st.markdown(f"""
+        <div style='text-align:center; padding:10px;'>
+            <div style='font-size:16px;'>{target} 當前報價</div>
+            <div class="{'price-up' if c_up else 'price-down'}">{curr:.2f} ({diff:+.2f} / {pct:+.2f}%)</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # --- 核心顯示區 ---
     if not stock_pred.empty:
-        row = stock_pred.iloc[0]
+        row = stock_pred.iloc[0].to_dict()
         
-        # 診斷與展望 (AB, AC 欄位)
-        a_col1, a_col2 = st.columns(2)
-        with a_col1:
-            st.markdown(f"<div class='ai-box' style='border-left: 5px solid #FF3131;'><h4>🔍 Oracle 診斷 (AB)</h4><p style='color:#FFD700;'>{row.get('ai_insight', '分析中...')}</p></div>", unsafe_allow_html=True)
-        with a_col2:
-            st.markdown(f"<div class='ai-box' style='border-left: 5px solid #00FFFF;'><h4>🔮 AI 展望 (AC)</h4><p style='color:#00FFFF;'>{row.get('forecast_outlook', '計算中...')}</p></div>", unsafe_allow_html=True)
+        # 1. AI 診斷 (AB, AC)
+        st.markdown(f"<div class='ai-card' style='border-left: 5px solid #FF4B4B;'><b>🔍 AI 診斷 (AB)</b><br>{row.get('ai_insight', '資料庫欄位缺失')}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='ai-card' style='border-left: 5px solid #00E676;'><b>🔮 展望目標 (AC)</b><br>{row.get('forecast_outlook', '資料庫欄位缺失')}</div>", unsafe_allow_html=True)
+        
+        # 2. 戰略水位矩陣
+        st.markdown("### 🛡️ 戰略水位 (G-X)")
+        l1, l2, l3 = st.columns(3)
+        l1.metric("支撐位", row.get('buy_level_5d', '--'))
+        l2.metric("目標價", row.get('sell_level_5d', '--'))
+        l3.metric("強壓位", row.get('resist_level_5d', '--'))
 
-        # 戰略水位矩陣 (G-X 欄位)
-        st.markdown("### 🛡️ 戰略水位 (G-X 18 欄位精確對齊)")
-        t1, t2, t3 = st.columns(3)
-        t1.markdown(f"**【支撐買點 (Buy)】**<br>5D: {row.get('buy_level_5d','--')}<br>10D: {row.get('buy_level_10d','--')}<br>20D: {row.get('buy_level_20d','--')}", unsafe_allow_html=True)
-        t2.markdown(f"**【壓力賣點 (Sell)】**<br>5D: {row.get('sell_level_5d','--')}<br>10D: {row.get('sell_level_10d','--')}<br>20D: {row.get('sell_level_20d','--')}", unsafe_allow_html=True)
-        t3.markdown(f"**【強力反轉 (Resist)】**<br>5D: {row.get('resist_level_5d','--')}<br>10D: {row.get('resist_level_10d','--')}<br>20D: {row.get('resist_level_20d','--')}", unsafe_allow_html=True)
-
-        # 專家指標 (AH-AJ)
-        st.markdown("---")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("ATR 波動 (AH)", row.get('atr_val', '--'))
-        m2.metric("量比 (AI)", row.get('volume_ratio', '--'))
-        m3.metric("盈虧比 (AJ)", row.get('risk_reward', '--'))
-        m4.metric("5D 乖離 (AD)", f"{row.get('bias_5d', '--')}%")
-
-    # (C) 專業技術圖表 (K線 + AI 7D 預測路徑 AA)
-    st.markdown("### 📈 終端技術指標全圖 (對齊 AA 預測路徑)")
-    
-    # 計算指標
-    hist['MA5'] = hist['Close'].rolling(5).mean()
-    hist['MA20'] = hist['Close'].rolling(20).mean()
-    ema12 = hist['Close'].ewm(span=12, adjust=False).mean()
-    ema26 = hist['Close'].ewm(span=26, adjust=False).mean()
-    dif = ema12 - ema26
-    dea = dif.ewm(span=9, adjust=False).mean()
-    macd_hist = dif - dea
-
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.6, 0.2, 0.2])
-
-    # K線
-    fig.add_trace(go.Candlestick(x=hist.index, open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name="K線"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=hist.index, y=hist['MA5'], name="MA5", line=dict(color='#FFD700')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=hist.index, y=hist['MA20'], name="MA20", line=dict(color='#00FFFF')), row=1, col=1)
-
-    # AA 欄位：AI 7日預測延伸
-    if not stock_pred.empty and row.get('pred_path'):
-        try:
-            pp = [float(x) for x in str(row['pred_path']).split(',')]
-            p_dates = [hist.index[-1] + timedelta(days=i) for i in range(1, 8)]
-            fig.add_trace(go.Scatter(x=p_dates, y=pp, name="AI 7D 預測", line=dict(color='#FF3131', dash='dash')), row=1, col=1)
-        except: pass
-
-    # 成交量
-    fig.add_trace(go.Bar(x=hist.index, y=hist['Volume'], name="成交量", marker_color='#333333'), row=2, col=1)
-    # MACD
-    fig.add_trace(go.Bar(x=hist.index, y=macd_hist, name="MACD"), row=3, col=1)
-
-    fig.update_layout(template="plotly_dark", height=800, paper_bgcolor='black', plot_bgcolor='black', xaxis_rangeslider_visible=False)
-    st.plotly_chart(fig, use_container_width=True)
+        # 3. 手動更新按鈕 (即便有資料，也放在下方供隨時手動分析)
+        if st.button("🔄 立即重新執行 AI 深度分析"):
+            run_manual_analysis(target, db)
+    else:
+        # --- 沒資料時顯示手動按鈕 ---
+        st.warning(f"⚠️ 標的 {target} 目前尚無預測資料")
+        if st.button("🚀 啟動 Oracle AI 進行首次分析"):
+            run_manual_analysis(target, db)
 
 # =================================================================
-# 4. 認證系統 (強力匹配版) - 解決「明明對卻報錯」的問題
+# 4. 手動分析執行 (與 cron_job 對接)
+# =================================================================
+def run_manual_analysis(symbol, db):
+    with st.spinner(f"Oracle AI 正在為 {symbol} 進行 800 次模擬運算..."):
+        try:
+            from cron_job import fetch_comprehensive_data, god_mode_engine, fetch_market_context
+            # 抓取大腦所需資料
+            df, final_id = fetch_comprehensive_data(symbol)
+            mkt = fetch_market_context()
+            # 運算
+            p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(df, final_id, mkt)
+            
+            # 打包 37 欄位寫入 (確保欄位順序對齊 A-AK)
+            row_to_add = [datetime.now().strftime("%Y-%m-%d"), final_id, p_val, 0, 0, "手動更新"] + p_levels + [0, 0, p_path, p_diag, p_out] + p_bias + p_experts
+            db["pred_ws"].append_row(row_to_add)
+            
+            st.success("分析完成！")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error(f"分析失敗: {e}")
+
+# =================================================================
+# 5. 認證與入口 (保持原邏輯但優化顏色)
 # =================================================================
 def auth_section(db):
-    st.markdown("<h1 style='text-align: center; color: #FF3131;'>🔮 ORACLE AI SYSTEM</h1>", unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["登入系統", "註冊帳號"])
-    
-    # 這裡改用 get_all_values() 避開標題解析問題，並確保讀到的是原始字串
-    raw_data = db["user_ws"].get_all_values()
-    if len(raw_data) <= 1:
-        users = []
-    else:
-        # 將資料轉為字典清單，並強制去除所有空格
-        header = [h.strip().lower() for h in raw_data[0]]
-        users = [dict(zip(header, [str(v).strip() for v in row])) for row in raw_data[1:]]
-    
-    with tab1:
-        u = st.text_input("帳號", key="login_u").strip()
-        p = st.text_input("密碼", type="password", key="login_p").strip()
-        
-        if st.button("啟動終端"):
-            # 增加 zfill(6) 邏輯：如果密碼是全數字，自動補齊 6 位數（針對您的 000000 案例）
-            # 並且強制將兩邊都當作字串比對
-            p_alt = p.zfill(6) if p.isdigit() else p
-            
-            found = next((row for row in users if 
-                          str(row.get('username', '')).strip() == u and 
-                          (str(row.get('password', '')).strip() == p or 
-                           str(row.get('password', '')).strip() == p_alt)), None)
-            
-            if found:
-                st.session_state["logged_in"] = True
-                st.session_state["user"] = u
-                st.success("🎯 驗證成功，正在同步 AI 大腦...")
-                time.sleep(1)
-                st.rerun()
-            else: 
-                st.error("認證失敗：請檢查帳號密碼，或確認試算表格式。")
+    st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>🔮 ORACLE AI LOGIN</h1>", unsafe_allow_html=True)
+    u = st.text_input("帳號 (Username)").strip()
+    p = st.text_input("密碼 (Password)", type="password").strip()
+    if st.button("解鎖終端"):
+        raw_users = db["user_ws"].get_all_values()
+        # 兼容標題列檢查
+        users = raw_users[1:] if len(raw_users) > 0 else []
+        found = next((r for r in users if r[0] == u and r[1] == p), None)
+        if found:
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = u
+            st.rerun()
+        else:
+            st.error("認證失敗：帳號或密碼不匹配")
+
 if __name__ == "__main__":
-    db = get_db()
-    if db:
+    db_conn = get_db()
+    if db_conn:
         if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
         if not st.session_state["logged_in"]:
-            auth_section(db)
+            auth_section(db_conn)
         else:
-            main_app(db)
-
-
-
+            main_app(db_conn)
