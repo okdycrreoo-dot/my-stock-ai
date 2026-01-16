@@ -74,25 +74,30 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- [1-6 段] Google Sheets API 連線初始化 ---
+# --- [1-6 段] Google Sheets API 連線初始化 (雲端加密版) ---
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # 💡 這裡定義全域變數，確保第 7 章的 main() 找得到它們
-    # 請將 "您的試算表名稱" 改為您實際的名稱
-    # 請確保 your_key.json 與此程式檔在同一目錄下
-    creds = Credentials.from_service_account_file("your_key.json", scopes=scope)
+    # 💡 改用 st.secrets，安全性最高且不會有找不到檔案的問題
+    if "gcp_service_account" in st.secrets:
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], 
+            scopes=scope
+        )
+    else:
+        # 如果是本地端，才找 json 檔
+        creds = Credentials.from_service_account_file("your_key.json", scopes=scope)
+        
     client = gspread.authorize(creds)
     
+    # 💡 這裡請務必確認您的試算表名稱「完全正確」
     sh = client.open("您的試算表名稱") 
     ws_user = sh.worksheet("users")
     
 except Exception as e:
-    # 報錯診斷，這能幫您檢查為什麼 UI 會消失
-    st.error(f"❌ [1-6 段] 連線失敗。請確認試算表名稱或金鑰檔：{e}")
+    st.error(f"❌ [1-6 段] 連線失敗：{e}")
     sh = None
     ws_user = None
-
 # =================================================================
 # 第二章：數據引擎 (Data Engine)
 # =================================================================
@@ -912,6 +917,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main() # 不要傳參數
+
 
 
 
