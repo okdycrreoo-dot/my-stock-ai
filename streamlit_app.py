@@ -191,48 +191,53 @@ def main_app(db):
     st.plotly_chart(fig, use_container_width=True)
 
 # =================================================================
-# 4. 認證系統 (入口) - 已補強重複註冊阻擋
+# 4. 認證系統 (強力匹配版) - 解決「明明對卻報錯」的問題
 # =================================================================
 def auth_section(db):
     st.markdown("<h1 style='text-align: center; color: #FF3131;'>🔮 ORACLE AI SYSTEM</h1>", unsafe_allow_html=True)
     tab1, tab2 = st.tabs(["登入系統", "註冊帳號"])
     
-    # 獲取最新用戶清單以便檢查
+    # 獲取最新用戶清單
     users = db["user_ws"].get_all_records()
     
     with tab1:
-        u = st.text_input("帳號", key="login_u")
-        p = st.text_input("密碼", type="password", key="login_p")
+        # 使用 .strip() 確保使用者輸入時不小心按到的空格會被自動刪除
+        u = st.text_input("帳號", key="login_u").strip()
+        p = st.text_input("密碼", type="password", key="login_p").strip()
+        
         if st.button("啟動終端"):
-            found = next((row for row in users if str(row['username'])==u and str(row['password'])==p), None)
+            # 核心修正：強制將資料庫與輸入值都轉為 String 且去除空格後比對
+            found = next((row for row in users if 
+                          str(row.get('username', '')).strip() == u and 
+                          str(row.get('password', '')).strip() == p), None)
+            
             if found:
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = u
+                st.success("驗證通過，正在解鎖終端...")
+                time.sleep(1)
                 st.rerun()
             else: 
-                st.error("認證失敗：帳號或密碼錯誤")
+                st.error("認證失敗：帳號或密碼不匹配 (請檢查大小寫或空格)")
+                # 偵錯小工具：如果您是開發者，可以取消下行註釋查看資料庫內容
+                # st.write(users) 
             
     with tab2:
-        new_u = st.text_input("新帳號", key="reg_u")
-        new_p = st.text_input("新密碼", type="password", key="reg_p")
+        new_u = st.text_input("新帳號", key="reg_u").strip()
+        new_p = st.text_input("新密碼", type="password", key="reg_p").strip()
         
         if st.button("建立權限"):
             if not new_u or not new_p:
-                st.warning("請輸入完整的帳號與密碼")
+                st.warning("請輸入帳號與密碼")
             else:
-                # --- 新增：重複帳號阻擋邏輯 ---
-                is_duplicate = any(str(row['username']) == new_u for row in users)
+                # 檢查重複時同樣使用強制字串化
+                is_duplicate = any(str(row.get('username', '')).strip() == new_u for row in users)
                 
                 if is_duplicate:
-                    st.error(f"❌ 註冊失敗：帳號 '{new_u}' 已被使用，請更換一個名稱。")
+                    st.error(f"❌ 註冊失敗：帳號 '{new_u}' 已存在。")
                 else:
-                    # 無重複，准予註冊
-                    try:
-                        db["user_ws"].append_row([new_u, new_p])
-                        st.success("🎉 註冊成功！請切換至「登入系統」頁面進行登入。")
-                    except Exception as e:
-                        st.error(f"寫入資料庫時發生錯誤: {e}")
-
+                    db["user_ws"].append_row([new_u, new_p])
+                    st.success("🎉 註冊成功！請切換至登入頁面。")
 if __name__ == "__main__":
     db = get_db()
     if db:
@@ -241,4 +246,5 @@ if __name__ == "__main__":
             auth_section(db)
         else:
             main_app(db)
+
 
