@@ -197,47 +197,37 @@ def auth_section(db):
     st.markdown("<h1 style='text-align: center; color: #FF3131;'>🔮 ORACLE AI SYSTEM</h1>", unsafe_allow_html=True)
     tab1, tab2 = st.tabs(["登入系統", "註冊帳號"])
     
-    # 獲取最新用戶清單
-    users = db["user_ws"].get_all_records()
+    # 這裡改用 get_all_values() 避開標題解析問題，並確保讀到的是原始字串
+    raw_data = db["user_ws"].get_all_values()
+    if len(raw_data) <= 1:
+        users = []
+    else:
+        # 將資料轉為字典清單，並強制去除所有空格
+        header = [h.strip().lower() for h in raw_data[0]]
+        users = [dict(zip(header, [str(v).strip() for v in row])) for row in raw_data[1:]]
     
     with tab1:
-        # 使用 .strip() 確保使用者輸入時不小心按到的空格會被自動刪除
         u = st.text_input("帳號", key="login_u").strip()
         p = st.text_input("密碼", type="password", key="login_p").strip()
         
         if st.button("啟動終端"):
-            # 核心修正：強制將資料庫與輸入值都轉為 String 且去除空格後比對
+            # 增加 zfill(6) 邏輯：如果密碼是全數字，自動補齊 6 位數（針對您的 000000 案例）
+            # 並且強制將兩邊都當作字串比對
+            p_alt = p.zfill(6) if p.isdigit() else p
+            
             found = next((row for row in users if 
                           str(row.get('username', '')).strip() == u and 
-                          str(row.get('password', '')).strip() == p), None)
+                          (str(row.get('password', '')).strip() == p or 
+                           str(row.get('password', '')).strip() == p_alt)), None)
             
             if found:
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = u
-                st.success("驗證通過，正在解鎖終端...")
+                st.success("🎯 驗證成功，正在同步 AI 大腦...")
                 time.sleep(1)
                 st.rerun()
             else: 
-                st.error("認證失敗：帳號或密碼不匹配 (請檢查大小寫或空格)")
-                # 偵錯小工具：如果您是開發者，可以取消下行註釋查看資料庫內容
-                # st.write(users) 
-            
-    with tab2:
-        new_u = st.text_input("新帳號", key="reg_u").strip()
-        new_p = st.text_input("新密碼", type="password", key="reg_p").strip()
-        
-        if st.button("建立權限"):
-            if not new_u or not new_p:
-                st.warning("請輸入帳號與密碼")
-            else:
-                # 檢查重複時同樣使用強制字串化
-                is_duplicate = any(str(row.get('username', '')).strip() == new_u for row in users)
-                
-                if is_duplicate:
-                    st.error(f"❌ 註冊失敗：帳號 '{new_u}' 已存在。")
-                else:
-                    db["user_ws"].append_row([new_u, new_p])
-                    st.success("🎉 註冊成功！請切換至登入頁面。")
+                st.error("認證失敗：請檢查帳號密碼，或確認試算表格式。")
 if __name__ == "__main__":
     db = get_db()
     if db:
@@ -246,5 +236,6 @@ if __name__ == "__main__":
             auth_section(db)
         else:
             main_app(db)
+
 
 
