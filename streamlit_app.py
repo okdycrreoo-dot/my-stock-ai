@@ -170,10 +170,10 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
                 continue
     return None, raw_s
 # =================================================================
-# 第三章：自動化對帳與批次引擎 (整合回溯功能)
+# 第三章：自動化對帳與批次引擎 (整合回溯與 20 支上限警示)
 # =================================================================
 
-# --- [3-1 ~ 3-3 段] UI 回饋與單筆處理 ---
+# --- [3-1 段] UI 初始化與基礎數據載入 ---
 def auto_sync_feedback(ws_p, f_id, insight):
     try:
         recs = ws_p.get_all_records()
@@ -182,32 +182,29 @@ def auto_sync_feedback(ws_p, f_id, insight):
         now = datetime.now(tw_tz)
         today_str = now.strftime("%Y-%m-%d")
         
-        # UI 命中率計算 (過濾掉文字佔位符，只算有數字的)
-        df_stock = df_p[(df_p['symbol'] == f_id) & (df_p['actual_close'] != "") & (df_p['actual_close'] != "待收盤更新")].copy()
+        # 初始變數宣告 (確保 UI 顯示不崩潰)
         accuracy_history = []
         hit_text = "🎯 數據累積中"
         
-# --- [3-2 段] 歷史對帳邏輯：以「次一交易日」收盤價進行精準對帳 ---
+        # 14:30 收盤判定與週末判定
+        is_after_market = (now.hour * 60 + now.minute) >= 870
+        is_weekend = now.weekday() >= 5
+
+# --- [3-2 段] 歷史對帳邏輯：以「次一交易日」補齊收盤價 ---
         if not df_p.empty:
             import time
-            tw_tz = pytz.timezone('Asia/Taipei')
-            # 取得台北今日日期 (1/16)
-            today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
-            
             for i, row in df_p.iterrows():
                 row_date = str(row.get('date', '')).strip()
                 act_val = str(row.get('actual_close', '')).strip()
                 err_val_str = str(row.get('error_pct', '')).strip()
                 
-                # 🚀 邏輯修正：只有日期「早於今天」的預測，今天才有收盤價可以對帳
-                # 例如：1/15 的預測列，在 1/16 執行時會進入對帳流程
+                # 🚀 邏輯：只有日期「早於今天」的預測，今天才有收盤價可以對帳
                 is_history = row_date < today_str
                 needs_repair = is_history and (act_val == "" or act_val == "待收盤更新" or err_val_str == "")
                 
                 if needs_repair:
                     try:
-                        # 🚀 關鍵偏移：預測日 (row_date) 的下一個交易日才是對帳日
-                        # 1/15 預測 -> 抓取 1/16 的收盤價
+                        # 偏移：預測日 (1/15) 的下一個交易日 (1/16) 才是對帳日
                         check_date = (pd.to_datetime(row_date) + timedelta(days=1)).strftime("%Y-%m-%d")
                         end_fetch = (pd.to_datetime(check_date) + timedelta(days=1)).strftime("%Y-%m-%d")
                         
@@ -218,18 +215,16 @@ def auto_sync_feedback(ws_p, f_id, insight):
                             if isinstance(act_df.columns, pd.MultiIndex):
                                 act_df.columns = act_df.columns.get_level_values(0)
                             
-                            # 取得當前（例如 1/16）的收盤價
                             actual_price = float(act_df['Close'].iloc[-1])
                             pred_price = float(row['pred_close'])
                             
-                            # 計算精準誤差：(實際 - 預測) / 預測
+                            # 計算精準誤差 (1 - ABS)
                             err_val = (actual_price - pred_price) / (pred_price + 1e-9)
                             err_str = f"{err_val:.2%}"
                             
-                            # 寫入 F 欄：實際價 (1/16 的 1360)
+                            # 寫入 F 欄與 G 欄
                             ws_p.update_cell(i + 2, 6, round(actual_price, 2))
                             time.sleep(0.5) 
-                            # 寫入 G 欄：精準誤差率
                             ws_p.update_cell(i + 2, 7, err_str)
                             
                             print(f"✅ {row['symbol']} 已用 {check_date} 收盤價補齊 {row_date} 的預測")
@@ -237,25 +232,19 @@ def auto_sync_feedback(ws_p, f_id, insight):
                         print(f"⚠️ {row['symbol']} 對帳失敗: {e}")
                         continue
 
-# --- [3-3 段] UI 平均準確率計算 (捨棄區間命中，改用點對點比對) ---
-        # 處理 14:30 後的自動預測佔位
+# --- [3-3 段] UI 準確率計算與 14:30 自動預測佔位 ---
+        # 1. 處理 14:30 後的自動預測佔位
         if is_after_market and not is_weekend:
-            next_bus_day = now + timedelta(days=1)
-            while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
-            next_day_str = next_bus_day.strftime("%Y-%m-%d")
-
-            is_exists = any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs)
+            # 檢查今天是否已寫入預測
+            is_exists = any((str(r.get('date')) == today_str and r.get('symbol') == f_id) for r in recs)
             if not is_exists:
-                new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "待收盤更新", ""]
+                new_row = [today_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "待收盤更新", ""]
                 ws_p.append_row(new_row)
         
-        # 重新讀取數據計算 UI 顯示
+        # 2. 重新讀取數據計算點對點準確率
         recs_latest = ws_p.get_all_records()
         df_latest = pd.DataFrame(recs_latest)
         df_stock = df_latest[(df_latest['symbol'] == f_id) & (df_latest['actual_close'] != "") & (df_latest['actual_close'] != "待收盤更新")].copy()
-        
-        accuracy_history = []
-        avg_acc_text = "🎯 數據累積中"
         
         if not df_stock.empty:
             df_recent = df_stock.tail(10)
@@ -264,7 +253,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
                 try:
                     act = float(row['actual_close'])
                     pred = float(row['pred_close'])
-                    # 🚀 準確率定義：1 - ABS(誤差率)
+                    # 準確率定義：1 - ABS(誤差率)
                     acc_val = (1 - abs(act - pred) / (pred + 1e-9)) * 100
                     acc_val = max(0, min(100, acc_val)) 
                     total_acc += acc_val
@@ -276,50 +265,55 @@ def auto_sync_feedback(ws_p, f_id, insight):
                     })
                 except: continue
             
-            # 🚀 修正：改為顯示「平均準確率」，這才是 AI 進化的指標
             if len(accuracy_history) > 0:
                 avg_acc = total_acc / len(accuracy_history)
-                avg_acc_text = f"🎯 此股近期平均準確率: {avg_acc:.1f}%"
+                hit_text = f"🎯 此股近期平均準確率: {avg_acc:.1f}%"
         
-        return avg_acc_text, accuracy_history
+        return hit_text, accuracy_history
 
     except Exception as e:
+        print(f"⚠️ UI 同步失敗: {e}")
         return f"🎯 系統同步中...", []
 
-# --- [3-4 段] 批次引擎：寫入 1/16 時自動補齊 1/15 舊數 ---
+# --- [3-4 段] 批次引擎：整合 20 支上限提示與歷史補洞 ---
 def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl, ws_w):
     try:
-        # 重新獲取最新紀錄
+        # 🚀 [個人化要求] 20 支股票上限提醒
+        if len(unique_stocks) > 20:
+            print(f"⚠️ 【系統提醒】目前名單共 {len(unique_stocks)} 支股票，已超過您設定的 20 支上限。")
+
         recs = ws_p.get_all_records()
         df_p = pd.DataFrame(recs)
         tw_tz = pytz.timezone('Asia/Taipei')
         today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
 
-        # 🚀 步驟 1: 先補洞 (對帳)
+        # 1. 批次補歷史漏洞 (確保舊資料不留白)
         if not df_p.empty:
-            print("🔍 啟動自動對帳掃描...")
+            print("🔍 啟動自動對帳補洞程序...")
             for i, row in df_p.iterrows():
-                # 如果是舊日期的「待收盤更新」，就補上收盤價
-                if str(row.get('actual_close', '')).strip() == "待收盤更新" and str(row.get('date', '')) <= today_str:
+                r_date = str(row.get('date', '')).strip()
+                if str(row.get('actual_close', '')).strip() == "待收盤更新" and r_date < today_str:
                     try:
-                        t_date = row['date']
-                        e_date = (pd.to_datetime(t_date) + timedelta(days=1)).strftime("%Y-%m-%d")
-                        h = yf.download(row['symbol'], start=t_date, end=e_date, progress=False)
+                        check_d = (pd.to_datetime(r_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+                        h = yf.download(row['symbol'], start=check_d, end=(pd.to_datetime(check_d)+timedelta(days=1)).strftime("%Y-%m-%d"), progress=False)
                         if not h.empty:
                             act_close = float(h['Close'].iloc[-1])
                             pred_close = float(row['pred_close'])
                             ws_p.update_cell(i + 2, 6, round(act_close, 2))
+                            time.sleep(0.5)
                             err_val = (act_close - pred_close) / (pred_close + 1e-9)
                             ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+                            print(f"✅ 補齊 {row['symbol']} ({r_date}) 的實際價")
                     except: continue
 
-        # 🚀 步驟 2: 寫入今日新預測
+        # 2. 執行今日數據預測
         for symbol in unique_stocks:
             if not df_p.empty and 'symbol' in df_p.columns:
                 if not df_p[(df_p['symbol'] == symbol) & (df_p['date'] == today_str)].empty:
                     continue
             
             try:
+                # 🚀 完整的 AI 運算鏈，行數與原本完全對齊
                 df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
                 if df is None: continue
                 
@@ -328,9 +322,14 @@ def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl, w
                 
                 # A:date, B:symbol, C:pred, D:low, E:high, F:actual, G:error
                 ws_p.append_row([today_str, symbol, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "待收盤更新", ""])
-            except: continue
+                print(f"🚀 已完成 {symbol} ({today_str}) 預測寫入")
+                time.sleep(1)
+            except Exception as e:
+                print(f"⚠️ {symbol} 批次失敗: {e}")
+                continue
+                
     except Exception as e:
-        print(f"⚠️ 批次引擎異常: {e}")
+        print(f"⚠️ 批次引擎嚴重異常: {e}")
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -943,6 +942,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
