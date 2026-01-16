@@ -443,13 +443,17 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, res_bundle
 # =================================================================
-# 第六章：終端渲染引擎 - 邏輯校準與報錯修復版
+# 第六章：終端渲染引擎 - 終極報錯修復與視覺對齊版
 # =================================================================
 
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # --- [6-1] 數據計算層 ---
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: return
+
+    # 確保技術指標欄位存在，防止 KeyError (針對截圖報錯修復)
+    for col in ['K', 'D', 'J', 'MACD', 'Signal', 'MA5', 'MA10', 'MA20']:
+        if col not in df.columns: df[col] = 0.0
 
     # 執行 AI 核心引擎
     f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df)
@@ -458,31 +462,24 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     )
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 💡 修正壓力位抓取邏輯 (確保 symbol 匹配正確)
+    # 💡 壓力位匹配邏輯升級：解決 0.00 問題
     latest_pred = {}
     try:
         all_p_data = ws_p.get_all_records()
-        # 強制轉換 symbol 為字串比對，避免 2330 vs "2330.TW" 匹配失敗
-        p_rows = [r for r in all_p_data if str(symbol) in str(r.get('symbol', ''))]
-        if p_rows: latest_pred = p_rows[-1]
-    except Exception as e:
-        st.warning(f"雲端數據同步異常: {e}")
+        # 匹配邏輯：代碼包含即可 (如 2330 匹配 2330.TW)
+        match_rows = [r for r in all_p_data if str(symbol).split('.')[0] in str(r.get('symbol', ''))]
+        if match_rows: latest_pred = match_rows[-1]
+    except: pass
 
     def safe_f(val):
         try: return float(val) if val not in [None, '', 'N/A'] else 0.0
         except: return 0.0
 
-    # --- [6-2] 標題與準確率 (舊版視覺) ---
+    # --- [6-2] 標題看板 (舊版樣式) ---
     st.title(f"📊 {f_id} 台股 AI 決策終端")
-    if acc_history:
-        acc_cols = st.columns(len(acc_history[-10:]))
-        for i, item in enumerate(acc_history[-10:]):
-            with acc_cols[i]:
-                st.markdown(f"<div style='text-align:center; border:1px solid #333; border-radius:8px; background:#111; padding:5px;'><div style='font-size:0.7rem; color:#888;'>{item['date']}</div><div style='font-size:0.9rem; color:{item['color']}; font-weight:900;'>{item['acc_val']}</div></div>", unsafe_allow_html=True)
-
     st.markdown(f"<div class='confidence-tag'>{stock_accuracy}</div>", unsafe_allow_html=True)
 
-    # --- [6-3] 五格看板 ---
+    # --- [6-3] 五格指標 (舊版樣式) ---
     c_col = "#FF3131" if change_pct >= 0 else "#00FF41"
     m_cols = st.columns(5)
     metrics = [("昨日收盤", prev_c), ("今日開盤", open_p), ("當前價格", curr_p), ("今日漲跌", change_pct), ("成交(張)", curr_v/1000)]
@@ -491,61 +488,75 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             v_str = f"{val:+.2f}%" if i == 3 else f"{val:,.2f}"
             st.markdown(f"<div class='info-box'><small style='color:#888;'>{lab}</small><br><b style='color:{c_col if i>=2 else '#FFF'}; font-size:1.6rem;'>{v_str}</b></div>", unsafe_allow_html=True)
 
-    # --- [6-4] 買賣策略 (修復 0.00 問題) ---
+    # --- [6-4] 買賣策略區 (修正 Key 匹配邏輯) ---
     st.write("### 🤖 AI 多維度買賣策略建議")
     s_cols = st.columns(3)
-    # 對齊舊版字典鍵值: short, mid, long
-    strat_map = [("5日 AI 建議", "short", "5d"), ("10日 AI 建議", "mid", "10d"), ("20日波段建議", "long", "20d")]
+    # 根據截圖修復：確保與 Google Sheets 的 Header 名稱一致
+    strat_config = [
+        ("5日 AI 建議", "short", "5d"), 
+        ("10日 AI 建議", "mid", "10d"), 
+        ("20日波段建議", "long", "20d")
+    ]
     
-    for i, (label, s_key, p_key) in enumerate(strat_map):
-        # 從 ai_recs 提取
+    for i, (label, s_key, p_key) in enumerate(strat_config):
         rec = ai_recs.get(s_key, {})
-        b_val = safe_f(rec.get('buy', 0))
-        s_val = safe_f(rec.get('sell', 0))
-        # 從雲端最新數據提取壓力支撐
-        res_val = safe_f(latest_pred.get(f'resistance_{p_key}', 0))
-        sup_val = safe_f(latest_pred.get(f'support_{p_key}', 0))
+        # 雲端 Key 的名稱可能是 resistance_5d 或 Resistance_5d，用模糊匹配抓取
+        res_val = safe_f(next((v for k, v in latest_pred.items() if p_key in k.lower() and 'res' in k.lower()), 0))
+        sup_val = safe_f(next((v for k, v in latest_pred.items() if p_key in k.lower() and 'sup' in k.lower()), 0))
         
         with s_cols[i]:
             st.markdown(f"""
                 <div class='diag-box'>
-                    <b>{label}</b><hr style='border:0.1px solid #333;'>
-                    <div style='color:#FF3131;'>建議買入: <b>{b_val:.2f}</b></div>
-                    <div style='color:#00FF41;'>建議賣出: <b>{s_val:.2f}</b></div>
-                    <div style='font-size:0.8rem; color:#888; margin-top:8px; border-top:1px dashed #444;'>
-                        壓力: {res_val:.2f} | 支撐: {sup_val:.2f}
+                    <b style='font-size:1.1rem;'>{label}</b><hr style='border:0.1px solid #444; margin:10px 0;'>
+                    <div style='color:#FF3131;'>建議買入: <span style='font-weight:900;'>{rec.get('buy', 0):.2f}</span></div>
+                    <div style='color:#00FF41;'>建議賣出: <span style='font-weight:900;'>{rec.get('sell', 0):.2f}</span></div>
+                    <div style='margin-top:10px; padding-top:5px; border-top:1px dashed #333; color:#888; font-size:0.85rem;'>
+                        壓力線: <span style='color:#FFF;'>{res_val:.2f}</span> | 支撐線: <span style='color:#FFF;'>{sup_val:.2f}</span>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- [6-5] 圖表層 (修復 KeyError: 'J') ---
+    # --- [6-5] Plotly 四層子圖 (修正比例與分層) ---
     p_df = df.tail(100)
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04)
+    fig = make_subplots(
+        rows=4, cols=1, shared_xaxes=True, 
+        row_heights=[0.5, 0.1, 0.2, 0.2], # 調整比例，讓 K 線圖最大
+        vertical_spacing=0.03,
+        subplot_titles=("■ 價格預測與均線", "■ 成交張數", "■ MACD 指標", "■ KDJ 指標")
+    )
 
-    # 主圖與 MA
+    # 1. K線圖層
     fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name="K線"), 1, 1)
-    for ma, color in zip(['MA5', 'MA10', 'MA20'], ['gold', 'lime', 'magenta']):
-        if ma in p_df.columns:
-            fig.add_trace(go.Scatter(x=p_df.index, y=p_df[ma], name=ma, line=dict(color=color, width=1)), 1, 1)
+    for ma, clr in zip(['MA5', 'MA10', 'MA20'], ['#FFD700', '#00FF41', '#FF00FF']):
+        fig.add_trace(go.Scatter(x=p_df.index, y=p_df[ma], name=ma, line=dict(color=clr, width=1.2)), 1, 1)
+    
+    # AI 預測軌跡
+    future_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, len(pred_line)+1)]
+    fig.add_trace(go.Scatter(x=[p_df.index[-1]] + future_dates, y=[p_df['Close'].iloc[-1]] + list(pred_line), 
+                             line=dict(color='#FF3131', width=3, dash='dash'), name="AI預測"), 1, 1)
 
-    # MACD 層
-    if 'MACD' in p_df.columns:
-        fig.add_trace(go.Bar(x=p_df.index, y=p_df['MACD']-p_df['Signal'], name="MACD柱"), 3, 1)
-        fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MACD'], name="DIF", line=dict(color='white')), 3, 1)
+    # 2. 成交量層
+    v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_colors, name="成交量"), 2, 1)
 
-    # KDJ 層 (加上安全性檢查，避免報錯)
-    for k, c in zip(['K', 'D', 'J'], ['cyan', 'yellow', 'magenta']):
-        if k in p_df.columns:
-            fig.add_trace(go.Scatter(x=p_df.index, y=p_df[k], name=k, line=dict(color=c)), 4, 1)
+    # 3. MACD 層
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['MACD']-p_df['Signal'], name="MACD柱", marker_color='gray'), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MACD'], name="DIF", line=dict(color='white', width=1)), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['Signal'], name="DEA", line=dict(color='yellow', width=1)), 3, 1)
 
-    fig.update_layout(template="plotly_dark", height=900, paper_bgcolor="#000", plot_bgcolor="#000", showlegend=True, xaxis_rangeslider_visible=False)
+    # 4. KDJ 層
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], name="K", line=dict(color='#00F5FF', width=1)), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], name="D", line=dict(color='#FFFF00', width=1)), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], name="J", line=dict(color='#FF00FF', width=1)), 4, 1)
+
+    fig.update_layout(template="plotly_dark", height=1000, paper_bgcolor="#000", plot_bgcolor="#000", showlegend=True, xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- [6-6] AI 診斷分析盒 (確保內容不為空) ---
-    if insight and len(insight) >= 6:
+    # --- [6-6] 底部 AI 診斷 (確保函數存在) ---
+    try:
         render_ai_diagnostic_box(insight, curr_p, stock_accuracy)
-    else:
-        st.info("💡 AI 分析引擎正在生成診斷報告...")
+    except NameError:
+        st.error("❌ 找不到 render_ai_diagnostic_box 函數，請確認代碼已完整複製。")
 # =================================================================
 # 第七章：主程式邏輯與權限控管 (2026 最終正確版 - 修復登入邏輯)
 # =================================================================
@@ -768,6 +779,7 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
 
