@@ -665,15 +665,22 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- [6-5 段] 底部 AI 診斷建議盒 (隔離渲染修正版) ---
+   # --- [6-5 段] 底部 AI 診斷建議盒 (新增預估價動態變色邏輯) ---
     import streamlit.components.v1 as components
+    from datetime import datetime, timedelta # 確保導入
+    
     now = datetime.now()
     today_label = now.strftime("%m/%d")
     next_day = now + timedelta(days=1)
     while next_day.weekday() >= 5: next_day += timedelta(days=1)
     next_day_label = next_day.strftime("%m/%d")
 
-    b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
+    # 💡 [2026-01-16 新增] 判斷預估價顏色：高於現價用紅(#FF3131)，低於用綠(#00F5FF)
+    # insight[3] 是預估收盤價, curr_p 是當前收盤價
+    pred_val = insight[3]
+    est_color = "#FF3131" if pred_val > curr_p else "#00F5FF"
+
+    b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00F5FF'}'>{v:.2%}</span>" for k, v in insight[6].items()])
     acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中"
 
     html_content = f"""
@@ -692,7 +699,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
             </div>
             <div style="margin-bottom: 10px;">
                 <div style="font-size: 14px; color: #8b949e;">預估 {next_day_label} 收盤價</div>
-                <div style="font-size: 38px; color: #e3b341; font-weight: 900;">{insight[3]:.2f}</div>
+                <div style="font-size: 38px; color: {est_color}; font-weight: 900;">{pred_val:.2f}</div>
             </div>
             <div style="font-size: 15px; color: #c9d1d9;">
                 預估價格區間：<span style="color: #ff7b72; font-weight: bold;">{insight[5]:.2f}</span> ~ <span style="color: #ff7b72; font-weight: bold;">{insight[4]:.2f}</span>
@@ -701,7 +708,6 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     </div>
     """
     components.html(html_content, height=450)
-
 # =================================================================
 # 第七章：主程式邏輯與權限控管 (正式對齊版 - 2026-01-16)
 # =================================================================
@@ -877,4 +883,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
