@@ -661,36 +661,59 @@ def main():
     if not sheets: return
     ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
 
-    # --- [7-3] 使用者身分驗證 UI ---
+    # --- [7-3] 使用者身分驗證 UI (含側邊欄徹底隱藏邏輯) ---
     if st.session_state.user is None:
+        # 💡 [關鍵修正] 在登入畫面就強制隱藏側邊欄 CSS
+        st.markdown("""
+            <style>
+                [data-testid="stSidebar"] { display: none !important; }
+                [data-testid="stSidebarNav"] { display: none !important; }
+            </style>
+        """, unsafe_allow_html=True)
+
         st.title("🚀 StockAI 台股決策終端")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         
         try:
+            # 💡 [關鍵修正] 讀取時強制將所有欄位轉為字串，避免 000000 變成 0
             user_data = ws_u.get_all_records()
-            user_dict = {str(row['username']): str(row['password']) for row in user_data}
-        except: user_dict = {}
+            user_dict = {str(row['username']).strip(): str(row['password']).strip() for row in user_data}
+        except: 
+            user_dict = {}
 
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
+            
             if st.button("進入 AI 系統", use_container_width=True):
-                if u_name in user_dict and str(user_dict[u_name]).strip() == str(p_word).strip():
+                # 取得儲存的密碼，若帳號不存在則回傳空字串
+                stored_p = user_dict.get(u_name)
+                
+                # 💡 [強化比對] 排除掉 .0 的干擾（針對 Google Sheets 數字格式）
+                input_p = str(p_word).strip()
+                if stored_p and (stored_p == input_p or stored_p.replace(".0", "") == input_p):
                     st.session_state.user = u_name
-                    st.cache_data.clear()
+                    st.cache_data.clear() # 登入成功立即刷新快取
                     st.rerun()
-                else: st.error("❌ 帳號或密碼錯誤")
+                else: 
+                    st.error("❌ 帳號或密碼錯誤")
+                    # 調試用 (選用)：若還是失敗，可以取消下面註解看是什麼字串對不上
+                    # st.write(f"DEBUG: 儲存值='{stored_p}', 輸入值='{input_p}'")
 
         with tab_reg:
+            st.subheader("建立新帳戶")
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             if st.button("確認註冊", use_container_width=True):
-                if new_u in user_dict: st.error("❌ 帳號已存在")
+                if new_u in user_dict: 
+                    st.error("❌ 帳號已存在")
                 elif new_u and new_p:
-                    ws_u.append_row([new_u, new_p])
+                    # 💡 註冊時就在前面加個單引號，強制 Google Sheets 存成文字
+                    ws_u.append_row([str(new_u), str(new_p)])
                     st.success("🎉 註冊成功，請切換至登入頁籤。")
-        return 
-
+                else:
+                    st.warning("帳號密碼不可為空")
+        return
     # --- [7-4] 全域參數載入 ---
     try:
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
@@ -783,5 +806,6 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
