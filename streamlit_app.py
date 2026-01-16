@@ -442,8 +442,11 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
     res_bundle = (final_status, " | ".join(reasons), "#FFFFFF", next_close, next_close + (std_val * 1.5), next_close - (std_val * 1.5), {})
     
     return pred_prices, adv, curr_p, float(last['Open']), prev_c, curr_v, change_pct, res_bundle
+# =================================================================
+# 第六章：終端渲染引擎 (Render Terminal) - 完美視覺恢復版
+# =================================================================
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
-    # --- [6-1] 數據獲取與 AI 運算連動 ---
+    # --- [6-1] 核心數據獲取與 AI 引擎連動 ---
     df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
     if df is None: 
         st.error(f"❌ 讀取 {symbol} 失敗"); return
@@ -454,7 +457,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     )
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # 💡 關鍵修正：解決 NameError，先從 Google Sheets 撈取資料
+    # 💡 數據橋接：從雲端撈取 GitHub 機器人資料 (確保不報錯)
     try:
         all_p_data = ws_p.get_all_records()
         p_rows = [r for r in all_p_data if str(r.get('symbol', '')) == str(symbol)]
@@ -462,9 +465,8 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     except:
         latest_pred = {}
 
-    # --- [6-2] 頂部標題與 10 日準確率看板 (恢復原本樣式) ---
+    # --- [6-2] 恢復：AI 最新 10 筆預測準確率看板 ---
     st.title(f"📊 {f_id} 台股 AI 決策終端")
-    
     if acc_history:
         acc_cols = st.columns(len(acc_history[-10:]))
         for i, item in enumerate(acc_history[-10:]):
@@ -479,7 +481,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     st.markdown(f"<div class='confidence-tag' style='margin-top:15px;'>{stock_accuracy}</div>", unsafe_allow_html=True)
     st.caption(f"✨ AI 大腦：籌碼動能 | 環境共振 | 技術乖離修正 (2026 核心版)")
 
-    # --- [6-3] 核心指標看板 (Metrics - 恢復 info-box 樣式) ---
+    # --- [6-3] 恢復：核心指標看板 (info-box 五個格子) ---
     c_col = "#FF3131" if change_pct >= 0 else "#00FF41"
     m_cols = st.columns(5)
     metrics_list = [
@@ -493,71 +495,97 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         with m_cols[i]:
             st.markdown(f"<div class='info-box'><span style='color:#888;font-size:0.9rem;'>{lab}</span><br><b style='color:{col}; font-size:1.8rem;'>{val}</b></div>", unsafe_allow_html=True)
 
-    # --- [6-4] 買賣點診斷區 (恢復 diag-box 樣式) ---
-    st.write(""); s_cols = st.columns(3)
-    for i, (label, p) in enumerate(ai_recs.items()):
-        with s_cols[i]: 
+    # --- [6-4] 恢復：5/10/20日 AI 最佳買賣價建議 (diag-box 樣式) ---
+    st.write("📊 **AI 最佳交易策略 (5D / 10D / 20D)**")
+    s_cols = st.columns(3)
+    # 這裡我們合併原本的 ai_recs (5D, 20D) 並補上 10D
+    display_intervals = [
+        ("5日建議", latest_pred.get('buy_5d', 0), latest_pred.get('sell_5d', 0)),
+        ("10日建議", latest_pred.get('buy_10d', 0), latest_pred.get('sell_10d', 0)),
+        ("20日波段", latest_pred.get('buy_20d', 0), latest_pred.get('sell_20d', 0))
+    ]
+    for i, (label, b_val, s_val) in enumerate(display_intervals):
+        with s_cols[i]:
             st.markdown(f"""
                 <div class='diag-box'>
                     <b style='font-size:1.2rem; color:#FFFFFF;'>{label}</b>
                     <hr style='border:0.5px solid #444; margin:10px 0;'>
-                    <div style='color:#CCC;'>買入: <span style='color:#FF3131; font-weight:900; font-size:1.4rem;'>{p['buy']:.2f}</span></div>
-                    <div style='color:#CCC;'>賣出: <span style='color:#00FF41; font-weight:900; font-size:1.4rem;'>{p['sell']:.2f}</span></div>
+                    <div style='color:#CCC;'>買入: <span style='color:#FF3131; font-weight:900; font-size:1.4rem;'>{float(b_val):.2f}</span></div>
+                    <div style='color:#CCC;'>賣出: <span style='color:#00FF41; font-weight:900; font-size:1.4rem;'>{float(s_val):.2f}</span></div>
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- [6-5] 新增：5/10/20 日技術位區塊 (保持專業感) ---
-    st.markdown("### 🛡️ AI 支撐壓力位 (5/10/20日)")
-    sup_res_cols = st.columns(3)
-    intervals = [("5 日", "5d"), ("10 日", "10d"), ("20 日", "20d")]
-    for i, (label, key) in enumerate(intervals):
-        with sup_res_cols[i]:
-            # 💡 增加 try-except 避免 float 轉換錯誤
-            try:
-                res = f"{float(latest_pred.get(f'resistance_{key}', 0)):.2f}"
-                sup = f"{float(latest_pred.get(f'support_{key}', 0)):.2f}"
-            except:
-                res, sup = "N/A", "N/A"
-            st.markdown(f"""
-                <div style='background-color:#1E1E1E; padding:10px; border-radius:10px; border-left: 5px solid #00F5FF;'>
-                    <p style='color:#888; margin:0; font-size:12px;'>{label}預估區間</p>
-                    <p style='color:#FF3131; margin:0; font-weight:bold;'>壓力線: {res}</p>
-                    <p style='color:#00F5FF; margin:0; font-weight:bold;'>支撐線: {sup}</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-    # --- [6-6] Plotly 四層子圖 (K線、量能、MACD、KDJ - 完整恢復) ---
+    # --- [6-5] 補強：支撐壓力與價格軌跡子圖 (解決標示與線型問題) ---
     p_df = df.tail(100)
     fig = make_subplots(
         rows=4, cols=1, shared_xaxes=True, 
         row_heights=[0.4, 0.15, 0.2, 0.25], vertical_spacing=0.04,
         subplot_titles=("■ 價格與 AI 預測軌跡", "■ 成交量 (張)", "■ MACD 指標", "■ KDJ 擺動指標")
     )
-    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], increasing_line_color='#FF3131', decreasing_line_color='#00FF41', name="實時K線"), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], line=dict(color='#FFD700', width=1.5), name="5MA"), 1, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], line=dict(color='#FF00FF', width=2), name="20MA"), 1, 1)
+
+    # 1. 主 K 線與均線 (恢復 5/10/20MA)
+    fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name="實時K線"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA5'], line=dict(color='#FFD700', width=1.2), name="5MA"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA10'], line=dict(color='#00FF41', width=1.2), name="10MA"), 1, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MA20'], line=dict(color='#FF00FF', width=1.5), name="20MA"), 1, 1)
     
-    # AI 預測軌跡
-    last_date = p_df.index[-1]
-    last_close = p_df['Close'].iloc[-1]
-    future_dates = []
-    current_d = last_date
-    while len(future_dates) < p_days:
-        current_d += timedelta(days=1)
-        if current_d.weekday() < 5: future_dates.append(current_d)
-    fig.add_trace(go.Scatter(x=[last_date] + future_dates, y=[last_close] + list(pred_line), line=dict(color='#FF3131', width=3, dash='dash'), name="AI預估軌跡"), 1, 1)
+    # 2. AI 預測線 (恢復紅色虛線)
+    future_dates = [p_df.index[-1] + timedelta(days=i) for i in range(1, len(pred_line)+1)]
+    fig.add_trace(go.Scatter(x=[p_df.index[-1]] + future_dates, y=[p_df['Close'].iloc[-1]] + list(pred_line), 
+                             line=dict(color='#FF3131', width=3, dash='dash'), name="AI預期趨勢"), 1, 1)
 
-    v_colors = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_colors), 2, 1)
-    fig.add_trace(go.Bar(x=p_df.index, y=p_df['MACD']-p_df['Signal'], marker_color=['#FF3131' if v >= 0 else '#00FF41' for v in (p_df['MACD']-p_df['Signal'])]), 3, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], line=dict(color='#00F5FF')), 4, 1)
-    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], line=dict(color='#FFFF00')), 4, 1)
+    # 3. 成交量
+    v_cols = ['#FF3131' if p_df['Close'].iloc[i] >= p_df['Open'].iloc[i] else '#00FF41' for i in range(len(p_df))]
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume']/1000, marker_color=v_cols, name="成交張數"), 2, 1)
 
-    fig.update_layout(template="plotly_dark", height=900, xaxis_rangeslider_visible=False, showlegend=False, paper_bgcolor='#000', plot_bgcolor='#000', margin=dict(l=10, r=10, t=40, b=40))
+    # 4. 恢復：MACD (柱狀圖 + DIF + DEA)
+    fig.add_trace(go.Bar(x=p_df.index, y=p_df['MACD']-p_df['Signal'], name="MACD柱"), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MACD'], line=dict(color='white', width=1), name="DIF"), 3, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['Signal'], line=dict(color='yellow', width=1), name="DEA"), 3, 1)
+
+    # 5. 恢復：KDJ (K + D + J 三條線)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['K'], line=dict(color='#00F5FF'), name="K"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['D'], line=dict(color='#FFFF00'), name="D"), 4, 1)
+    fig.add_trace(go.Scatter(x=p_df.index, y=p_df['J'], line=dict(color='#FF00FF'), name="J"), 4, 1)
+
+    fig.update_layout(template="plotly_dark", height=900, xaxis_rangeslider_visible=False, showlegend=True, 
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- [6-7] 底部 AI 診斷 HTML 盒 (完整恢復) ---
+    # --- [6-6] 恢復：AI 診斷與 AI 展望 (HTML 盒子) ---
     render_ai_diagnostic_box(insight, curr_p, stock_accuracy)
+
+# --- 💡 必須補上這個函數，否則會報 NameError ---
+def render_ai_diagnostic_box(insight, curr_p, stock_accuracy):
+    tw_tz = pytz.timezone('Asia/Taipei')
+    next_day = datetime.now(tw_tz) + timedelta(days=1)
+    while next_day.weekday() >= 5: next_day += timedelta(days=1)
+    
+    pred_val = insight[3]
+    est_color = "#FF3131" if pred_val > curr_p else "#00FF41"
+    b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00FF41'}'>{v:.2%}</span>" for k, v in insight[6].items()])
+
+    html_content = f"""
+    <div style="background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div style="background: #FF3131; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold;">{stock_accuracy}</div>
+            <div style="font-size: 24px; color: {insight[2]}; font-weight: 900;">{insight[0]}</div>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #30363d; margin: 15px 0;">
+        <p style="margin-bottom: 12px; font-size: 16px;"><b>AI 診斷分析：</b> {insight[1]}</p>
+        <p style="font-size: 14px; color: #8b949e; margin-bottom: 20px;">當前乖離率參考：{b_html}</p>
+        <div style="background-color: #161b22; padding: 18px; border-radius: 10px; border: 1px solid #30363d;">
+            <div style="margin-bottom: 10px;">
+                <div style="font-size: 14px; color: #8b949e;">預估 {next_day.strftime('%m/%d')} 收盤展望</div>
+                <div style="font-size: 38px; color: {est_color}; font-weight: 900;">{pred_val:.2f}</div>
+            </div>
+            <div style="font-size: 15px; color: #c9d1d9;">
+                壓力區間：<span style="color: #ff3131; font-weight: bold;">{insight[4]:.2f}</span> | 支撐區間：<span style="color: #00ff41; font-weight: bold;">{insight[5]:.2f}</span>
+            </div>
+        </div>
+    </div>
+    """
+    components.html(html_content, height=400)
 # =================================================================
 # 第七章：主程式邏輯與權限控管 (2026 最終正確版 - 修復登入邏輯)
 # =================================================================
@@ -780,6 +808,7 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
 
