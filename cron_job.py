@@ -228,4 +228,4 @@ def run_daily_sync():
         print(f"💥 核心邏輯發生異常: {e}")
 
 if __name__ == "__main__":
-    run_daily_sync()
+run_daily_sync()
