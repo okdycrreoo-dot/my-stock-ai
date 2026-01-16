@@ -185,10 +185,11 @@ def auto_sync_feedback(ws_p, f_id, insight):
         is_after_market = (now.hour * 60 + now.minute) >= 870
         is_weekend = now.weekday() >= 5
 
-# --- [3-2 段] 歷史對帳邏輯：僅針對「已過期」且「數據殘缺」的列進行補齊 ---
+# --- [3-2 段] 歷史對帳邏輯：精準對帳與寫入加固版 ---
         if not df_p.empty:
-            # 確保使用台北時區判定今日日期
+            import time # 確保函式內可使用延遲功能
             tw_tz = pytz.timezone('Asia/Taipei')
+            # 取得台北今日日期，用於判定「哪些是過去的交易日」
             today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
             
             for i, row in df_p.iterrows():
@@ -196,43 +197,45 @@ def auto_sync_feedback(ws_p, f_id, insight):
                 act_val = str(row.get('actual_close', '')).strip()
                 err_val_str = str(row.get('error_pct', '')).strip()
                 
-                # 🚀 修正 1：嚴格日期過濾 (使用 < 而非 <=)
-                # 只有日期「早於今天」的紀錄才符合對帳資格，這能防止 1/16 當天就去補 1/16 的數
+                # 🚀 修正 1：嚴格日期判定
+                # 只處理「今天以前」的日期。1/16 盤中執行時，1/16 不會被處理。
                 is_history = row_date < today_str
                 
-                # 🚀 修正 2：補洞判定
-                # 只要是歷史資料且 (實際價是空/佔位符 OR 誤差率是空的)，就啟動修復
+                # 🚀 修正 2：補洞判定 (包含處理空格與佔位符)
+                # 只要是歷史紀錄，且 (實際價沒填/是文字 OR 誤差率是空的)，就啟動修復
                 needs_repair = is_history and (act_val == "" or act_val == "待收盤更新" or err_val_str == "")
                 
                 if needs_repair:
-                    target_date = row_date
-                    # yfinance 的 end_date 需設為目標日的隔天
-                    end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
-                    
                     try:
-                        # 下載歷史收盤價
+                        target_date = row_date
+                        end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
                         h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
                         
                         if not h.empty:
                             act_df = h.copy()
-                            # 處理 yfinance 可能產生的 MultiIndex
                             if isinstance(act_df.columns, pd.MultiIndex):
                                 act_df.columns = act_df.columns.get_level_values(0)
                             
                             act_close = float(act_df['Close'].iloc[-1])
                             pred_close = float(row['pred_close'])
                             
-                            # 🚀 修正 3：原子化寫入 (確保 F 欄與 G 欄同步更新)
-                            # 先更新第 6 欄 (actual_close)
+                            # 🚀 修正 3：先計算，再連續寫入
+                            err_val = (act_close - pred_close) / (pred_close + 1e-9)
+                            err_str = f"{err_val:.2%}"
+                            
+                            # 寫入實際價 (F 欄)
                             ws_p.update_cell(i + 2, 6, round(act_close, 2))
                             
-                            # 緊接著計算並更新第 7 欄 (error_pct)，徹底解決空格問題
-                            err_val = (act_close - pred_close) / (pred_close + 1e-9)
-                            ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+                            # 💡 關鍵加固：暫停 0.5 秒，確保 Google API 完整接收指令
+                            # 這能解決「填了 F 欄卻漏了 G 欄」的空格問題
+                            time.sleep(0.5) 
                             
-                            print(f"✅ 已成功補齊歷史缺口：{row['symbol']} ({target_date})")
+                            # 寫入誤差率 (G 欄)
+                            ws_p.update_cell(i + 2, 7, err_str)
+                            
+                            print(f"✅ 已修正歷史數據：{row['symbol']} ({target_date})")
                     except Exception as e:
-                        print(f"⚠️ {row['symbol']} 對帳跳過: {e}")
+                        print(f"⚠️ {row['symbol']} 對帳失敗: {e}")
                         continue
 
 # --- [3-3 段] 單一標的預測回填與 UI 命中率計算 ---
@@ -951,6 +954,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
