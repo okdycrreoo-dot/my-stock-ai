@@ -691,65 +691,57 @@ def main():
     if 'user' not in st.session_state:
         st.session_state.user = None
     
-    # --- 【核心修正：視覺美化、功能還原與穩定驗證】 ---
+    # --- 【權限閘門：未登入則顯示 UI 並中斷】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
-        # 1. CSS 優化：按鈕深藍背景 + 白色文字 (提升美觀與清晰度)
+        # 1. CSS 優化：按鈕改為深藍色背景 + 白色粗體字
         st.markdown("""
             <style>
             div.stButton > button {
                 background-color: #0047AB !important; 
                 color: #FFFFFF !important;           
-                border-radius: 8px !important;
-                border: none !important;
-                font-size: 18px !important;
                 font-weight: bold !important;
+                border-radius: 8px !important;
                 height: 3em !important;
                 width: 100% !important;
-                box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
-            }
-            div.stButton > button:hover {
-                background-color: #0056D2 !important;
-                transform: translateY(-2px);
             }
             </style>
         """, unsafe_allow_html=True)
 
-        # 2. 功能分頁：登入與註冊完全獨立
-        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
+        # 2. 功能分頁：移除審核中提示，還原註冊功能
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
         with tab_login:
-            # 💡 使用 key 確保輸入值在按鈕點擊後依然保留
-            u_name = st.text_input("帳號", key="main_u_name").strip()
-            p_word = st.text_input("密碼", type="password", key="main_p_word").strip()
+            # 使用 key 確保輸入值在按鈕點擊時被鎖定
+            u_name = st.text_input("帳號", key="login_u").strip()
+            p_word = st.text_input("密碼", type="password", key="login_p").strip()
             
-            if st.button("立即進入終端系統", key="btn_login"):
-                # 再次核對帳密：admin / 1234
-                if u_name == "admin" and p_word == "1234":
-                    st.session_state.user = u_name
-                    st.success("✅ 驗證成功！正在啟動 AI 引擎...")
+            if st.button("立即進入終端系統"):
+                # 這裡改用 st.session_state 直接提取值，確保不被刷新影響
+                if st.session_state.login_u == "admin" and st.session_state.login_p == "1234":
+                    st.session_state.user = st.session_state.login_u
+                    st.success("✅ 登入成功，正在啟動 AI 引擎...")
                     st.rerun()
                 else:
-                    st.error("❌ 帳號或密碼不正確，請重新檢查。")
+                    st.error("❌ 帳號或密碼不正確，請檢查。")
         
         with tab_reg:
-            # --- 移除「審核中」文字，還原註冊介面 ---
-            st.subheader("建立新帳戶")
-            reg_user = st.text_input("設定帳號", key="reg_u_name")
-            reg_pass = st.text_input("設定密碼", type="password", key="reg_p_word")
-            reg_confirm = st.text_input("確認密碼", type="password", key="reg_p_confirm")
+            # --- 還原註冊介面 ---
+            st.subheader("建立您的交易帳號")
+            r_user = st.text_input("使用者名稱", key="reg_u")
+            r_pass = st.text_input("設定密碼", type="password", key="reg_p")
+            r_conf = st.text_input("再次確認密碼", type="password", key="reg_pc")
             
-            if st.button("確認註冊並登入", key="btn_reg"):
-                if reg_user and reg_pass == reg_confirm:
-                    # 這裡可以串接您的 Google Sheets 註冊邏輯
-                    st.session_state.user = reg_user
-                    st.success("🎉 註冊成功！歡迎加入系統")
+            if st.button("確認註冊"):
+                if r_user and r_pass == r_conf:
+                    st.session_state.user = r_user
+                    st.success(f"🎉 歡迎 {r_user}！註冊成功並已登入。")
                     st.rerun()
                 else:
-                    st.error("請檢查輸入資料是否完整，且兩次密碼需一致。")
+                    st.error("兩次密碼不一致或資料未填完整。")
         
-        # 阻斷點：未登入時不執行後方 2330 運算
+        # 3. 關鍵阻斷：未登入時絕對不執行後續代碼，解決頁面重疊問題
         return
     
     # -------------------------------------------------------------
@@ -894,6 +886,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
