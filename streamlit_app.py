@@ -698,6 +698,13 @@ def main():
         st.session_state.user = None
         st.warning("會話已過時，請重新登入")
     st.session_state.last_active = time.time()
+
+    # --- 【核心修正：阻斷機制】 ---
+    # 如果還沒登入，只執行登入介面，然後立刻結束 (return)
+    # 這能解決頁面重疊與「全球資訊更新中」提前跑出來的問題
+    if st.session_state.user is None:
+        render_login_ui()  # 呼叫您原本正常的登入/註冊畫面
+        return
     
     # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
@@ -841,6 +848,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
