@@ -579,7 +579,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 # --- [6-2 段] 頂部核心指標看板與 10 日精確準確率紀錄 ---
     # 渲染大標題
-    st.title(f"📊 {f_id} 台股AI預測系統")
+    st.title(f"📊 {f_id} 台股AI輔助系統")
     
     # 渲染橫向 10 日準確率數值紀錄
     if acc_history:
@@ -737,8 +737,8 @@ def main():
     # [段落 7-2] 使用者身分驗證 UI
     # -------------------------------------------------------------
     if st.session_state.user is None:
-        st.title("🚀 StockAI 智慧交易系統")
-        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
+        st.title("🚀 StockAI 台股AI分析系統")
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         
         current_ws = globals().get('ws_user')
         user_dict = {}
@@ -837,7 +837,7 @@ def main():
         with m1:
             # 💡 [2026-01-15] 實作：上限 20 支變色提醒
             s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
-            st.markdown(f"### 持股額度：<span style='color:{s_color}'>{s_count} / 20</span>", unsafe_allow_html=True)
+            st.markdown(f"### 自選股清單上限：<span style='color:{s_color}'>{s_count} / 20</span>", unsafe_allow_html=True)
             target = st.selectbox("選取分析標的", u_stocks if u_stocks else ["2330.TW"])
             ns = st.text_input("➕ 新增代號")
             if st.button("確認加入追蹤"):
@@ -877,3 +877,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
