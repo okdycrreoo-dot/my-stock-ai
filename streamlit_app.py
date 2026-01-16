@@ -688,25 +688,33 @@ def main():
     # -------------------------------------------------------------
     # [段落 7-1] Session 狀態初始化與權限嚴格隔離
     # -------------------------------------------------------------
-    # 💡 關鍵修正：強制聲明引用外部定義的 ws_user 物件
-    global ws_user 
-
+    # 1. 初始化狀態
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出檢查 (1 小時)
+    # 2. 自動登出機制
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
         st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【權限檢查閘門：未登入則阻斷後方代碼】 ---
+    # --- 【核心修正：強制重新獲取工作表物件，解決 NameError】 ---
+    # 這裡確保 main() 內部一定能讀取到試算表，請對照您的試算表名稱
+    try:
+        # 嘗試從全域獲取，若失敗則重新指定 (假設 sh 是您的試算表主物件)
+        if 'ws_user' not in globals():
+            global ws_user
+            ws_user = sh.worksheet("users") 
+    except Exception:
+        pass # 稍後在註冊邏輯中會進行第二次錯誤捕捉
+
+    # --- 【權限閘門：未登入則阻斷後方代碼】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
-        # 美化按鈕樣式
+        # 視覺樣式優化
         st.markdown("""
             <style>
             div.stButton > button {
@@ -719,7 +727,7 @@ def main():
 
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
-        # 預先讀取最新名單 (用於登入比對與註冊查重)
+        # 預先讀取最新名單
         user_dict = {}
         try:
             user_data = ws_user.get_all_records()
@@ -730,7 +738,7 @@ def main():
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
-            if st.button("立即進入系統"):
+            if st.button("立即登入系統"):
                 if u_name in user_dict and str(user_dict[u_name]) == p_word:
                     st.session_state.user = u_name
                     st.success(f"✅ 登入成功，歡迎 {u_name}")
@@ -751,16 +759,16 @@ def main():
                 else:
                     # --- 【核心修正：寫入試算表動作】 ---
                     try:
-                        # 將帳密寫入 Google Sheets
+                        # 將帳密寫入 Google Sheets 的最後一行
                         ws_user.append_row([new_u, new_p], value_input_option='RAW')
                         
-                        st.balloons() # 看到氣球代表 API 傳輸成功
+                        st.balloons() 
                         st.success(f"🎉 註冊成功！帳號 '{new_u}' 已寫入試算表。")
                         st.info("💡 請現在切換到『系統登入』分頁進行登入。")
                     except Exception as e:
-                        st.error(f"寫入失敗，請檢查權限：{e}")
+                        st.error(f"寫入失敗，請確認 ws_user 名稱是否正確：{e}")
 
-        # 核心隔離：解決 2330 面板與背景更新提示重疊問題
+        # 核心阻斷：未登入前絕對不執行下方 2330 預測面板
         return 
 
 
@@ -906,6 +914,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
