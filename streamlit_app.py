@@ -218,17 +218,20 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except Exception as e:
         return f"🎯 系統同步中...", []
 
-# --- [3-4 段] 批次引擎：整合 20 支上限提示 ---
+# =================================================================
+# 第3-4段：批次引擎核心 (修正版 - 確保不觸發側邊欄)
+# =================================================================
 def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl):
     """
-    用於 GitHub Actions 每完成一次自動化運行的核心函數
+    執行全清單 AI 預測同步，並回傳是否超過 20 支上限
     """
-    limit_warning = False
-    if len(unique_stocks) > 20:
-        limit_warning = True
-        print(f"⚠️ 【系統提醒】目前名單共 {len(unique_stocks)} 支股票，已超過設定的 20 支上限。")
-
+    limit_count = len(unique_stocks)
+    # 這裡我們不使用 st.sidebar，也不在函數內直接 print
+    # 僅做邏輯判斷，讓調用它的第七章決定在哪裡顯示
+    
     tw_tz = pytz.timezone('Asia/Taipei')
+    # 修正 datetime 引用，確保與您其他章節一致 (假設您 import datetime as dt)
+    from datetime import datetime
     today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
 
     for symbol in unique_stocks:
@@ -240,16 +243,30 @@ def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl):
             # 2. 執行第四章 (AI 微調)
             f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df)
             
-            # 3. 執行第五章 (AI 核心)
-            _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
+            # 3. 執行第五章 (AI 核心) - 預測天數固定為 7
+            _, _, _, _, _, _, _, insight = perform_ai_engine(
+                df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift
+            )
             
             # 4. 寫入 Google Sheets
-            ws_p.append_row([today_str, symbol, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "待收盤更新", ""])
-            time.sleep(1) # 避免 API 過熱
-        except Exception as e:
-            print(f"⚠️ {symbol} 處理失敗: {e}")
+            # 格式：[日期, 代號, 預測收盤, 支撐, 壓力, 實際收盤, 誤差]
+            ws_p.append_row([
+                today_str, 
+                symbol, 
+                round(insight[3], 2), 
+                round(insight[5], 2), 
+                round(insight[4], 2), 
+                "待收盤", 
+                ""
+            ])
+            time.sleep(1.2) # 稍微加長間隔，確保 Google API 穩定
             
-    return limit_warning
+        except Exception as e:
+            # 僅在終端機顯示，不干擾 Streamlit 前端
+            import logging
+            logging.error(f"Batch Error for {symbol}: {e}")
+            
+    return limit_count # 回傳總數，讓第七章主畫面去顯示警告
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -740,7 +757,7 @@ def main():
     render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 # -------------------------------------------------------------
-# [入口配置] 徹底禁用側邊欄
+# [第七章入口配置] 終極手段：用 CSS 徹底隱藏側邊欄
 # -------------------------------------------------------------
 if __name__ == "__main__":
     st.set_page_config(
@@ -748,11 +765,22 @@ if __name__ == "__main__":
         layout="wide", 
         initial_sidebar_state="collapsed" 
     )
+    
+    # 💡 這一段 CSS 會強行把左側邊欄的 HTML 節點隱藏，解決警告框框撐開的問題
+    st.markdown("""
+        <style>
+            [data-testid="stSidebar"] {
+                display: none;
+            }
+            [data-testid="stSidebarNav"] {
+                display: none;
+            }
+            .st-emotion-cache-16idsys p {
+                /* 隱藏可能的側邊欄切換按鈕 */
+                display: none;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
     main()
-
-
-
-
-
-
 
