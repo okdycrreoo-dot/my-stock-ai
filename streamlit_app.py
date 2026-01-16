@@ -695,53 +695,55 @@ def main():
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
-        # 1. CSS 優化：按鈕改為深藍色背景 + 白色粗體字
+        # 1. CSS 優化：深藍色背景按鈕 + 白色粗體字 (解決視覺問題)
         st.markdown("""
             <style>
             div.stButton > button {
                 background-color: #0047AB !important; 
                 color: #FFFFFF !important;           
-                font-weight: bold !important;
+                font-weight: 900 !important;
                 border-radius: 8px !important;
-                height: 3em !important;
+                height: 3.2em !important;
                 width: 100% !important;
+                border: none !important;
             }
             </style>
         """, unsafe_allow_html=True)
 
-        # 2. 功能分頁：移除審核中提示，還原註冊功能
+        # 2. 功能分頁：還原註冊功能，移除審核中文字
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
         with tab_login:
-            # 使用 key 確保輸入值在按鈕點擊時被鎖定
-            u_name = st.text_input("帳號", key="login_u").strip()
-            p_word = st.text_input("密碼", type="password", key="login_p").strip()
+            # 💡 關鍵：為輸入框設定穩定的 key
+            st.text_input("帳號", key="input_user")
+            st.text_input("密碼", type="password", key="input_pass")
             
-            if st.button("立即進入終端系統"):
-                # 這裡改用 st.session_state 直接提取值，確保不被刷新影響
-                if st.session_state.login_u == "admin" and st.session_state.login_p == "1234":
-                    st.session_state.user = st.session_state.login_u
-                    st.success("✅ 登入成功，正在啟動 AI 引擎...")
+            if st.button("立即進入終端系統", key="final_login_btn"):
+                # 直接比對 session_state 裡的值，確保資料不丟失
+                val_u = st.session_state.get("input_user", "").strip()
+                val_p = st.session_state.get("input_pass", "").strip()
+                
+                if val_u == "admin" and val_p == "1234":
+                    st.session_state.user = val_u
+                    st.success("✅ 驗證成功，正在載入預測面板...")
                     st.rerun()
                 else:
-                    st.error("❌ 帳號或密碼不正確，請檢查。")
+                    st.error(f"❌ 驗證失敗。請確認帳號為 admin 且密碼為 1234 (目前偵測到: {val_u}/{'***' if val_p else '空'})")
         
         with tab_reg:
-            # --- 還原註冊介面 ---
-            st.subheader("建立您的交易帳號")
-            r_user = st.text_input("使用者名稱", key="reg_u")
-            r_pass = st.text_input("設定密碼", type="password", key="reg_p")
-            r_conf = st.text_input("再次確認密碼", type="password", key="reg_pc")
-            
-            if st.button("確認註冊"):
-                if r_user and r_pass == r_conf:
-                    st.session_state.user = r_user
-                    st.success(f"🎉 歡迎 {r_user}！註冊成功並已登入。")
+            # 還原註冊介面
+            st.subheader("建立新帳號")
+            st.text_input("使用者名稱", key="new_u")
+            st.text_input("設定密碼", type="password", key="new_p")
+            if st.button("確認註冊並自動登入"):
+                if st.session_state.new_u and st.session_state.new_p:
+                    st.session_state.user = st.session_state.new_u
+                    st.success("🎉 註冊成功！")
                     st.rerun()
                 else:
-                    st.error("兩次密碼不一致或資料未填完整。")
+                    st.error("請填寫完整註冊資訊。")
         
-        # 3. 關鍵阻斷：未登入時絕對不執行後續代碼，解決頁面重疊問題
+        # 3. 關鍵阻斷：解決 2330 面板重疊問題
         return
     
     # -------------------------------------------------------------
@@ -886,6 +888,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
