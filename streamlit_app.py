@@ -468,16 +468,60 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     # 呼叫第三章：同步歷史數據
     stock_accuracy, acc_history = auto_sync_feedback(ws_p, f_id, insight)
 
-    # --- [6-2] 視覺樣式定義 ---
-    st.markdown("""
-        <style>
-        .stApp { background-color: #000000; }
-        .info-box { background: #0A0A0A; padding: 12px; border: 1px solid #333; border-radius: 10px; text-align: center; min-height: 90px; }
-        .diag-box { background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #444; text-align: center; }
-        .confidence-tag { background: #FF3131; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin-bottom: 10px; font-weight: 900; }
-        </style>
-    """, unsafe_allow_html=True)
+    # --- [6-2] 渲染核心數據指標 (恢復10日 + 新增5/10/20日支撐壓力) ---
+    st.markdown("### 🤖 AI 最佳交易策略與技術位")
 
+    # --- 第一部分：AI 買賣建議價格 ---
+    st.write("📊 **AI 預測買賣區間**")
+    buy_cols = st.columns(3)
+    
+    # 5日建議
+    with buy_cols[0]:
+        st.info("📅 **5 日建議**")
+        st.metric("買入", f"{latest_pred.get('buy_5d', 0):.2f}")
+        st.metric("賣出", f"{latest_pred.get('sell_5d', 0):.2f}")
+
+    # 10日建議 (恢復顯示)
+    with buy_cols[1]:
+        st.info("📅 **10 日建議**")
+        st.metric("買入", f"{latest_pred.get('buy_10d', 0):.2f}")
+        st.metric("賣出", f"{latest_pred.get('sell_10d', 0):.2f}")
+
+    # 20日建議
+    with buy_cols[2]:
+        st.info("📅 **20 日建議**")
+        st.metric("買入", f"{latest_pred.get('buy_20d', 0):.2f}")
+        st.metric("賣出", f"{latest_pred.get('sell_20d', 0):.2f}")
+
+    st.markdown("---")
+
+    # --- 第二部分：支撐與壓力位 (5, 10, 20日完整顯示) ---
+    st.write("🛡️ **技術面關鍵支撐與壓力**")
+    sup_res_cols = st.columns(3)
+
+    # 5日支撐/壓力
+    with sup_res_cols[0]:
+        st.markdown("<div style='background-color:#1E1E1E; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+        st.caption("5日支撐壓力")
+        st.error(f"壓: {latest_pred.get('resistance_5d', 'N/A')}")
+        st.success(f"支: {latest_pred.get('support_5d', 'N/A')}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # 10日支撐/壓力
+    with sup_res_cols[1]:
+        st.markdown("<div style='background-color:#1E1E1E; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+        st.caption("10日支撐壓力")
+        st.error(f"壓: {latest_pred.get('resistance_10d', 'N/A')}")
+        st.success(f"支: {latest_pred.get('support_10d', 'N/A')}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # 20日支撐/壓力
+    with sup_res_cols[2]:
+        st.markdown("<div style='background-color:#1E1E1E; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+        st.caption("20日支撐壓力")
+        st.error(f"壓: {latest_pred.get('resistance_20d', 'N/A')}")
+        st.success(f"支: {latest_pred.get('support_20d', 'N/A')}")
+        st.markdown("</div>", unsafe_allow_html=True)
     # --- [6-3] 頂部標題與 10 日準確率看板 ---
     st.title(f"📊 {f_id} 台股 AI 決策終端")
     
@@ -828,5 +872,6 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
