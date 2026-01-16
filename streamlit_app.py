@@ -735,7 +735,7 @@ def main():
     except:
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
-    # --- [7-5] 14:30 收盤自動化同步 ---
+    # --- [7-5] 14:30 收盤自動化同步 (同步修正欄位) ---
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
     
@@ -744,7 +744,11 @@ def main():
             try:
                 all_w_data = ws_w.get_all_records()
                 if all_w_data:
-                    unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
+                    # 💡 [同步修正] 自動偵測欄位名稱，避免 KeyError
+                    df_temp = pd.DataFrame(all_w_data)
+                    s_col_auto = 'symbol' if 'symbol' in df_temp.columns else 'stock_symbol'
+                    
+                    unique_stocks = list(set([str(r[s_col_auto]) for r in all_w_data]))
                     run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
                     status.update(label="✅ 今日收盤數據同步完成", state="complete", expanded=False)
             except Exception as e:
@@ -752,32 +756,24 @@ def main():
 
     # --- [7-6] 管理面板：自選股維護 ---
     with st.expander("⚙️ 清單管理與系統設定", expanded=False):
-        # 讀取 watchlist 資料
         raw_w_data = ws_w.get_all_records()
         if raw_w_data:
             all_w_df = pd.DataFrame(raw_w_data)
-            
-            # 💡 [關鍵修正] 自動辨識欄位名稱 (適應你的試算表標頭)
-            # 判斷是否有 'stock_symbol'，沒有就改用 'symbol'
-            s_col = 'stock_symbol' if 'stock_symbol' in all_w_df.columns else 'symbol'
-            u_col = 'username' # 你的試算表目前是 username，這沒問題
-            
-            # 根據登入帳號篩選股票
+            s_col = 'symbol' if 'symbol' in all_w_df.columns else 'stock_symbol'
+            u_col = 'username'
             u_stocks = all_w_df[all_w_df[u_col] == st.session_state.user][s_col].tolist()
         else:
             u_stocks = []
-            s_col = 'symbol' # 預設值
+            s_col = 'symbol'
             
         s_count = len(u_stocks)
-        
-        # 20 支上限變色提醒
         s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
         st.markdown(f"**自選股狀態：** <span style='color:{s_color}; font-weight:bold;'>{s_count} / 20</span>", unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         with col1:
-            # 避免清單為空時報錯
-            target = st.selectbox("分析標的", u_stocks if u_stocks else ["2330.TW"])
+            # 💡 防止 u_stocks 為空時 selectbox 報錯
+            target_stock = st.selectbox("分析標的", u_stocks if u_stocks else ["2330.TW"])
             ns = st.text_input("➕ 新增代號")
             if st.button("加入追蹤"):
                 if s_count >= 20:
@@ -786,22 +782,22 @@ def main():
                     raw_s = ns.upper().strip()
                     final_s = raw_s if "." in raw_s else (f"{raw_s}.TWO" if raw_s.startswith(('3','5','6','8')) else f"{raw_s}.TW")
                     if final_s not in u_stocks:
-                        # 💡 寫回試算表時使用對應的標頭名稱
                         ws_w.append_row([st.session_state.user, final_s])
                         st.rerun()
         with col2:
             p_days = st.number_input("AI 預測天數", 1, 30, 7)
             if st.button("🗑️ 移除目前標的"):
-                # 這裡也要根據篩選出的 s_col 移除
-                row = all_w_df[(all_w_df[u_col] == st.session_state.user) & (all_w_df[s_col] == target)]
+                row = all_w_df[(all_w_df[u_col] == st.session_state.user) & (all_w_df[s_col] == target_stock)]
                 if not row.empty:
                     ws_w.delete_rows(int(row.index[0]) + 2)
                     st.rerun()
             if st.button("🚪 安全登出"):
                 st.session_state.clear()
                 st.rerun()
+
     # --- [7-7] 渲染介面 ---
-    render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+    # 💡 傳入剛剛 selectbox 選定的 target_stock
+    render_terminal(target_stock, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
 if __name__ == "__main__":
     st.set_page_config(
@@ -809,7 +805,6 @@ if __name__ == "__main__":
         layout="wide", 
         initial_sidebar_state="collapsed" 
     )
-    # 💡 終極 CSS 徹底禁用側邊欄
     st.markdown("""
         <style>
             [data-testid="stSidebar"] { display: none !important; }
