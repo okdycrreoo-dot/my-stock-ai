@@ -31,7 +31,7 @@ st.markdown("""
 sys.path.append(os.path.dirname(__file__))
 
 try:
-    from cron_job import fetch_comprehensive_data, god_mode_engine, fetch_market_context
+from cron_job import fetch_comprehensive_data, god_mode_engine, fetch_market_context
 except ImportError as e:
     st.error(f"⚠️ 引擎加載失敗，請檢查 cron_job.py 是否在 GitHub 根目錄。錯誤: {e}")
 
@@ -162,3 +162,4 @@ if __name__ == "__main__":
             auth_section(db_con)
         else:
             main_app(db_con)
+
