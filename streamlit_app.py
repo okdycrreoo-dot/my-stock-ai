@@ -607,7 +607,7 @@ def render_ai_diagnostic_box(insight, curr_p, stock_accuracy):
     """
     components.html(html_content, height=400)
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (2026 最終正確版)
+# 第七章：主程式邏輯與權限控管 (2026 最終正確版 - 修復登入邏輯)
 # =================================================================
 import datetime as dt_module
 import pytz
@@ -661,29 +661,9 @@ def main():
     if not sheets: return
     ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
 
-    # --- [7-3] 使用者身分驗證 UI (含側邊欄徹底隱藏邏輯) ---
+    # --- [7-3] 使用者身分驗證 UI ---
     if st.session_state.user is None:
-        # 💡 [關鍵修正] 在登入畫面就強制隱藏側邊欄 CSS
-        st.markdown("""
-            <style>
-                [data-testid="stSidebar"] { display: none !important; }
-                [data-testid="stSidebarNav"] { display: none !important; }
-            </style>
-        """, unsafe_allow_html=True)
-
-        st.title("🚀 StockAI 台股決策終端")
-        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
-        
-        try:
-            # 💡 [關鍵修正] 讀取時強制將所有欄位轉為字串，避免 000000 變成 0
-            user_data = ws_u.get_all_records()
-            user_dict = {str(row['username']).strip(): str(row['password']).strip() for row in user_data}
-        except: 
-            user_dict = {}
-
-        # --- [7-3] 使用者身分驗證 UI (偵錯 + 強制比對版) ---
-    if st.session_state.user is None:
-        # 強力 CSS：徹底隱藏側邊欄，不留任何縫隙
+        # 強力 CSS：徹底隱藏側邊欄
         st.markdown("""
             <style>
                 [data-testid="stSidebar"] { display: none !important; }
@@ -695,13 +675,11 @@ def main():
         st.title("🚀 StockAI 台股決策終端")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         
-        # 💡 強制不使用快取，直接從雲端抓取最新資料
         try:
             user_data = ws_u.get_all_records()
-            # 統一轉成字串並去除空白
+            # 確保讀取時強制轉字串並去空格
             user_dict = {str(row['username']).strip(): str(row['password']).strip() for row in user_data}
-        except Exception as e:
-            st.error(f"資料讀取失敗: {e}")
+        except: 
             user_dict = {}
 
         with tab_login:
@@ -713,32 +691,29 @@ def main():
                 stored_p = user_dict.get(u_name)
 
                 if stored_p:
-                    # 💡 偵錯顯示：如果失敗，這行會告訴你原因
-                    # 比對邏輯：1.完全匹配 2.去掉.0後匹配 3.轉為純整數後匹配
+                    # 💡 偵錯用：萬一還是失敗，你會看到系統到底抓到什麼
                     clean_stored = stored_p.replace(".0", "")
                     if stored_p == input_p or clean_stored == input_p:
                         st.session_state.user = u_name
                         st.cache_data.clear()
                         st.rerun()
                     else:
-                        st.error(f"❌ 密碼不符！(系統存的是: {stored_p}，長度 {len(stored_p)})")
-                        st.info("💡 提示：請檢查試算表密碼格左上角是否有綠色小三角形。")
+                        st.error(f"❌ 密碼不符！(提示：長度應為 {len(input_p)}，系統存的是 {len(stored_p)})")
                 else:
-                    st.error(f"❌ 找不到帳號 '{u_name}'，請確認拼字或先註冊。")
+                    st.error(f"❌ 找不到帳號 '{u_name}'")
 
         with tab_reg:
-            st.info("註冊新帳號後，系統會自動在密碼前加上文字標籤以確保正確。")
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             if st.button("確認註冊", use_container_width=True):
                 if new_u in user_dict: 
                     st.error("❌ 帳號已存在")
                 elif new_u and new_p:
-                    # 💡 註冊時強制存入文字格式
                     ws_u.append_row([str(new_u), str(new_p)])
                     st.success("🎉 註冊成功！請切換到登入頁籤。")
-                    st.cache_data.clear() # 註冊完立刻重整快取
-        return
+                    st.cache_data.clear()
+        return # 這裡 return 是正確的，因為未登入不需要執行下面內容
+
     # --- [7-4] 全域參數載入 ---
     try:
         s_map = {r['setting_name']: r['value'] for r in ws_s.get_all_records()}
@@ -749,7 +724,7 @@ def main():
     except:
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
-    # --- [7-5] 14:30 收盤自動化同步 (全寬頁面顯示) ---
+    # --- [7-5] 14:30 收盤自動化同步 ---
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
     
@@ -760,20 +735,16 @@ def main():
                 if all_w_data:
                     unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
                     run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
-                    st.write(f"✅ 同步完成：共計 {len(unique_stocks)} 檔標的")
                     status.update(label="✅ 今日收盤數據同步完成", state="complete", expanded=False)
             except Exception as e:
                 st.error(f"⚠️ 同步異常: {e}")
-    elif now_tw.weekday() < 5:
-        st.info(f"☀️ 盤中即時模式 ({now_tw.strftime('%H:%M')})，14:30 後執行批次對帳。")
 
-    # --- [7-6] 管理面板：自選股維護 (20 支上限邏輯) ---
+    # --- [7-6] 管理面板 ---
     with st.expander("⚙️ 清單管理與系統設定", expanded=False):
         all_w_df = pd.DataFrame(ws_w.get_all_records())
         u_stocks = all_w_df[all_w_df['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w_df.empty else []
         s_count = len(u_stocks)
         
-        # 💡 [2026-01-15] 實作：上限 20 支變色提醒
         s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
         st.markdown(f"**自選股狀態：** <span style='color:{s_color}; font-weight:bold;'>{s_count} / 20</span>", unsafe_allow_html=True)
         
@@ -792,47 +763,25 @@ def main():
                         st.rerun()
         with col2:
             p_days = st.number_input("AI 預測天數", 1, 30, 7)
-            if st.button("🗑️ 移除目前標的"):
-                row = all_w_df[(all_w_df['username'] == st.session_state.user) & (all_w_df['stock_symbol'] == target)]
-                if not row.empty:
-                    ws_w.delete_rows(int(row.index[0]) + 2)
-                    st.rerun()
             if st.button("🚪 安全登出"):
                 st.session_state.clear()
                 st.rerun()
 
-    # --- [7-7] 核心運算對接與介面渲染 ---
+    # --- [7-7] 渲染介面 ---
     render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
-# -------------------------------------------------------------
-# [第七章入口配置] 終極手段：用 CSS 徹底隱藏側邊欄
-# -------------------------------------------------------------
 if __name__ == "__main__":
     st.set_page_config(
         page_title="AI Stock Terminal", 
         layout="wide", 
         initial_sidebar_state="collapsed" 
     )
-    
-    # 💡 這一段 CSS 會強行把左側邊欄的 HTML 節點隱藏，解決警告框框撐開的問題
+    # 💡 終極 CSS 徹底禁用側邊欄
     st.markdown("""
         <style>
-            [data-testid="stSidebar"] {
-                display: none;
-            }
-            [data-testid="stSidebarNav"] {
-                display: none;
-            }
-            .st-emotion-cache-16idsys p {
-                /* 隱藏可能的側邊欄切換按鈕 */
-                display: none;
-            }
+            [data-testid="stSidebar"] { display: none !important; }
+            [data-testid="stSidebarNav"] { display: none !important; }
         </style>
     """, unsafe_allow_html=True)
-    
     main()
-
-
-
-
 
