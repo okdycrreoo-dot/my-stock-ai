@@ -590,7 +590,7 @@ def render_ai_diagnostic_box(insight, curr_p, stock_accuracy):
     """
     components.html(html_content, height=400)
 # =================================================================
-# 第七章：主程式邏輯與權限控管 (2026 整合版)
+# 第七章：主程式邏輯與權限控管 (2026 最終正確版)
 # =================================================================
 import datetime as dt_module
 import pytz
@@ -618,7 +618,6 @@ def main():
     @st.cache_resource(ttl=60)
     def get_gs_connection():
         try:
-            # 優先讀取單一 secret 格式，相容 Streamlit Cloud
             if "gcp_service_account" in st.secrets:
                 sc = st.secrets["gcp_service_account"]
             else:
@@ -645,7 +644,7 @@ def main():
     if not sheets: return
     ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
 
-    # --- [7-3] 身分驗證模組 ---
+    # --- [7-3] 使用者身分驗證 UI ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 台股決策終端")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
@@ -661,7 +660,7 @@ def main():
             if st.button("進入 AI 系統", use_container_width=True):
                 if u_name in user_dict and str(user_dict[u_name]) == p_word:
                     st.session_state.user = u_name
-                    st.cache_data.clear() # 登入時清空快取
+                    st.cache_data.clear()
                     st.rerun()
                 else: st.error("❌ 帳號或密碼錯誤")
 
@@ -685,17 +684,23 @@ def main():
     except:
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
-    # --- [7-5] 14:30 收盤自動化同步 ---
+    # --- [7-5] 14:30 收盤自動化同步 (全寬頁面顯示) ---
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
-    if now_tw.time() >= dt_module.time(14, 30):
-        with st.status("🌙 正在同步收盤預測...", expanded=False):
-            all_w_data = ws_w.get_all_records()
-            if all_w_data:
-                unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
-                # 呼叫第三章批次引擎
-                run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
-                st.write(f"✅ 已完成 {len(unique_stocks)} 檔同步")
+    
+    if now_tw.time() >= dt_module.time(14, 30) and now_tw.weekday() < 5:
+        with st.status("🌙 正在啟動收盤批次預測引擎...", expanded=False) as status:
+            try:
+                all_w_data = ws_w.get_all_records()
+                if all_w_data:
+                    unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
+                    run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
+                    st.write(f"✅ 同步完成：共計 {len(unique_stocks)} 檔標的")
+                    status.update(label="✅ 今日收盤數據同步完成", state="complete", expanded=False)
+            except Exception as e:
+                st.error(f"⚠️ 同步異常: {e}")
+    elif now_tw.weekday() < 5:
+        st.info(f"☀️ 盤中即時模式 ({now_tw.strftime('%H:%M')})，14:30 後執行批次對帳。")
 
     # --- [7-6] 管理面板：自選股維護 (20 支上限邏輯) ---
     with st.expander("⚙️ 清單管理與系統設定", expanded=False):
@@ -703,17 +708,17 @@ def main():
         u_stocks = all_w_df[all_w_df['username'] == st.session_state.user]['stock_symbol'].tolist() if not all_w_df.empty else []
         s_count = len(u_stocks)
         
-        # 💡 個人化提醒邏輯
+        # 💡 [2026-01-15] 實作：上限 20 支變色提醒
         s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
         st.markdown(f"**自選股狀態：** <span style='color:{s_color}; font-weight:bold;'>{s_count} / 20</span>", unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         with col1:
             target = st.selectbox("分析標的", u_stocks if u_stocks else ["2330.TW"])
-            ns = st.text_input("➕ 新增代號 (例: 2317)")
+            ns = st.text_input("➕ 新增代號")
             if st.button("加入追蹤"):
                 if s_count >= 20:
-                    st.error("🚫 已達 20 支上限，請先刪除舊標的。")
+                    st.error("🚫 提醒：自選股已達 20 支上限！")
                 elif ns:
                     raw_s = ns.upper().strip()
                     final_s = raw_s if "." in raw_s else (f"{raw_s}.TWO" if raw_s.startswith(('3','5','6','8')) else f"{raw_s}.TW")
@@ -731,11 +736,18 @@ def main():
                 st.session_state.clear()
                 st.rerun()
 
-    # --- [7-7] 渲染最終終端 (連接第六章) ---
+    # --- [7-7] 核心運算對接與介面渲染 ---
     render_terminal(target, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
 
+# -------------------------------------------------------------
+# [入口配置] 徹底禁用側邊欄
+# -------------------------------------------------------------
 if __name__ == "__main__":
-    st.set_page_config(page_title="AI Stock Terminal", layout="wide")
+    st.set_page_config(
+        page_title="AI Stock Terminal", 
+        layout="wide", 
+        initial_sidebar_state="collapsed" 
+    )
     main()
 
 
