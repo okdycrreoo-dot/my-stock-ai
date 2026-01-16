@@ -735,77 +735,92 @@ def main():
     except:
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
-    # --- [7-5] 14:30 收盤自動化同步 (統一使用 symbol) ---
+    # --- [7-5] 14:30 收盤自動化同步 (統一 symbol) ---
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
     
-    # 💡 只有在開盤日的 14:30 後才觸發引擎
     if now_tw.time() >= dt_module.time(14, 30) and now_tw.weekday() < 5:
-        with st.status("🌙 正在啟動收盤批次預測引擎...", expanded=False) as status:
-            try:
-                all_w_data = ws_w.get_all_records()
-                if all_w_data:
-                    # 💡 直接指定使用 'symbol' 欄位
-                    unique_stocks = list(set([str(r['symbol']) for r in all_w_data if 'symbol' in r]))
-                    
-                    if unique_stocks:
-                        run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
-                        status.update(label=f"✅ 今日數據同步完成 (共 {len(unique_stocks)} 檔)", state="complete", expanded=False)
-                    else:
-                        status.update(label="⚠️ 警告：試算表找不到 'symbol' 欄位標題", state="error")
-            except Exception as e:
-                st.error(f"⚠️ 同步異常: {e}")
+        try:
+            all_w_data = ws_w.get_all_records()
+            if all_w_data:
+                # 統一使用 'symbol'
+                unique_stocks = list(set([str(r['symbol']) for r in all_w_data if 'symbol' in r]))
+                if unique_stocks:
+                    run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
+        except:
+            pass # 避免同步異常卡死主畫面
 
     # --- [7-6] 管理面板：自選股維護 ---
     with st.expander("⚙️ 清單管理與系統設定", expanded=False):
-        raw_w_data = ws_w.get_all_records()
-        if raw_w_data:
-            all_w_df = pd.DataFrame(raw_w_data)
-            # 💡 統一指定欄位
-            s_col = 'symbol' 
-            u_col = 'username'
-            u_stocks = all_w_df[all_w_df[u_col] == st.session_state.user][s_col].tolist() if u_col in all_w_df.columns else []
-        else:
-            u_stocks = []
-            s_col = 'symbol'
-            
+        raw_w = ws_w.get_all_records()
+        all_w_df = pd.DataFrame(raw_w) if raw_w else pd.DataFrame(columns=['username', 'symbol'])
+        
+        # 💡 統一欄位名稱
+        s_col, u_col = 'symbol', 'username'
+        u_stocks = all_w_df[all_w_df[u_col] == st.session_state.user][s_col].tolist() if not all_w_df.empty else []
+        
         s_count = len(u_stocks)
-        
-        # 💡 [2026-01-15 需求實作] 20 支上限變色提醒邏輯
         s_color = "#FF3131" if s_count >= 20 else "#00F5FF"
-        st.markdown(f"**目前自選股數量：** <span style='color:{s_color}; font-weight:bold; font-size:18px;'>{s_count} / 20</span>", unsafe_allow_html=True)
+        st.markdown(f"**自選股狀態：** <span style='color:{s_color}; font-weight:bold;'>{s_count} / 20</span>", unsafe_allow_html=True)
         
+        # 💡 [2026-01-15 需求] 20支提醒
         if s_count >= 20:
-            st.warning("🚨 提醒：您的自選股已達 20 支上限。若要新增標的，請先移除舊有項目。")
+            st.error("⚠️ 已達 20 支股票上限，請移除部分標的後再新增。")
 
         col1, col2 = st.columns(2)
         with col1:
-            # 防止清單為空時報錯，預設顯示台積電
-            target_stock = st.selectbox("切換分析標的", u_stocks if u_stocks else ["2330.TW"])
-            ns = st.text_input("➕ 新增股票 (例: 2454)")
-            if st.button("確認加入"):
+            target_stock = st.selectbox("分析標的", u_stocks if u_stocks else ["2330.TW"])
+            ns = st.text_input("➕ 新增代號")
+            if st.button("加入追蹤"):
                 if s_count >= 20:
-                    st.error("🚫 操作攔截：已達 20 支上限，無法再加入。")
+                    st.warning("🚫 已達上限！")
                 elif ns:
                     raw_s = ns.upper().strip()
                     final_s = raw_s if "." in raw_s else (f"{raw_s}.TWO" if raw_s.startswith(('3','5','6','8')) else f"{raw_s}.TW")
-                    if final_s not in u_stocks:
-                        ws_w.append_row([st.session_state.user, final_s])
-                        st.cache_data.clear() # 加入後強制清除快取刷新
-                        st.rerun()
+                    ws_w.append_row([st.session_state.user, final_s])
+                    st.rerun()
         with col2:
-            p_days = st.number_input("AI 預測展望天數", 1, 30, 7)
-            if st.button("🗑️ 移除此標的"):
-                # 根據 username 與 symbol 進行刪除
-                row = all_w_df[(all_w_df['username'] == st.session_state.user) & (all_w_df['symbol'] == target_stock)]
+            p_days = st.number_input("AI 預測天數", 1, 30, 7)
+            if st.button("🗑️ 移除標的"):
+                row = all_w_df[(all_w_df[u_col] == st.session_state.user) & (all_w_df[s_col] == target_stock)]
                 if not row.empty:
                     ws_w.delete_rows(int(row.index[0]) + 2)
-                    st.cache_data.clear()
                     st.rerun()
-            if st.button("🚪 安全登出系統"):
+            if st.button("🚪 安全登出"):
                 st.session_state.clear()
                 st.rerun()
 
     # --- [7-7] 渲染介面 ---
-    # 💡 呼叫渲染引擎，帶入剛剛選定的 target_stock
+    # 確保不管怎樣都會跑渲染，避免黑屏
     render_terminal(target_stock, p_days, cp, tw_val, api_ttl, v_comp, ws_p)
+
+# --- 終極配置區 ---
+if __name__ == "__main__":
+    st.set_page_config(
+        page_title="AI Stock Terminal", 
+        layout="wide", # 💡 確保開啟全寬模式
+        initial_sidebar_state="collapsed" 
+    )
+    
+    # 💡 這裡使用最高等級的 CSS 覆蓋，徹底消滅側邊欄空隙
+    st.markdown("""
+        <style>
+            /* 隱藏側邊欄容器 */
+            [data-testid="stSidebar"], section[data-testid="stSidebar"] {
+                display: none !important;
+                width: 0px !important;
+            }
+            /* 調整主內容區域填滿 100% 寬度 */
+            .stMain, .main .block-container {
+                max-width: 100% !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+                margin-left: 0px !important;
+            }
+            /* 隱藏左上角折疊按鈕 */
+            button[kind="headerNoPadding"] { display: none !important; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    main()
+
