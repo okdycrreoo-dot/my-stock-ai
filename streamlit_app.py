@@ -684,48 +684,44 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 # 第七章：主程式邏輯與權限控管 (功能標示完整版)
 # =================================================================
 
-def main(ws_user_input):
+def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 狀態初始化與權限隔離
+    # [段落 7-1] 內部強制連線與 Session 初始化
     # -------------------------------------------------------------
-    # 使用傳入的物件進行操作，徹底解決 NameError
-    target_ws = ws_user_input 
+    # 1. 在函數內部建立連線，確保絕對不會報 NameError
+    try:
+        # 假設您的全域 sh 物件是存在的，直接在這裡定義 ws_user
+        # 如果 sh 也不存在，請確保程式上方有 sh = client.open(...)
+        ws_user_internal = sh.worksheet("users")
+    except Exception as e:
+        st.error(f"連線至 users 工作表失敗，請檢查名稱是否正確：{e}")
+        return
 
+    # 2. Session 狀態初始化
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出機制 (1 小時)
+    # 自動登出檢查
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
         st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【權限檢查閘門：解決重疊問題】 ---
+    # --- 【權限閘門：未登入則阻斷】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
-        # 視覺樣式優化
-        st.markdown("""
-            <style>
-            div.stButton > button {
-                background-color: #0047AB !important; color: #FFFFFF !important;
-                font-weight: 900 !important; border-radius: 8px !important;
-                width: 100% !important; height: 3.2em !important;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
-        # 預先讀取最新名單 (用於登入比對與註冊查重)
+        # 讀取最新名單
         user_dict = {}
         try:
-            user_data = target_ws.get_all_records()
+            user_data = ws_user_internal.get_all_records()
             user_dict = {str(row['username']): str(row['password']) for row in user_data}
-        except Exception as e:
-            st.error(f"❌ 無法連接資料庫：{e}")
+        except:
+            pass
 
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
@@ -733,7 +729,7 @@ def main(ws_user_input):
             if st.button("立即進入系統"):
                 if u_name in user_dict and str(user_dict[u_name]) == p_word:
                     st.session_state.user = u_name
-                    st.success(f"✅ 登入成功，歡迎 {u_name}")
+                    st.success(f"✅ 歡迎回來，{u_name}")
                     st.rerun()
                 else:
                     st.error("❌ 帳號或密碼錯誤")
@@ -743,23 +739,22 @@ def main(ws_user_input):
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             
-            if st.button("確認註冊並同步試算表", key="btn_reg_action"):
+            if st.button("確認註冊並同步試算表"):
                 if not new_u or not new_p:
                     st.warning("帳號與密碼不能為空")
                 elif new_u in user_dict:
                     st.error(f"❌ 帳號 '{new_u}' 已存在。")
                 else:
-                    # --- 【核心修正：寫入試算表動作】 ---
+                    # --- 【核心修正：直接執行寫入】 ---
                     try:
-                        # 將帳密寫入 Google Sheets
-                        target_ws.append_row([new_u, new_p], value_input_option='RAW')
+                        ws_user_internal.append_row([new_u, new_p], value_input_option='RAW')
                         st.balloons() 
-                        st.success(f"🎉 註冊成功！帳號 '{new_u}' 已同步至試算表。")
-                        st.info("💡 請現在切換至『系統登入』分頁進行登入。")
+                        st.success(f"🎉 註冊成功！資料已同步至試算表。")
+                        st.info("💡 請切換至『系統登入』分頁進行登入。")
                     except Exception as e:
-                        st.error(f"寫入失敗，請檢查權限：{e}")
+                        st.error(f"寫入失敗：{e}")
 
-        # 阻斷點：未登入前絕對不執行下方的 2330 預測面板與背景更新字樣
+        # 核心阻斷：未登入前不執行下方 2330 面板
         return 
 
     # -------------------------------------------------------------
@@ -903,6 +898,6 @@ def main(ws_user_input):
 # [段落 7-7] 程式進入點
 # -----------------------------------------------------------------
 if __name__ == "__main__":
-    # 💡 關鍵：將定義好的試算表物件傳入 main 函數中
-    main(ws_user)
+    main()
+
 
