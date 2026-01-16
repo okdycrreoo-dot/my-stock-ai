@@ -686,24 +686,24 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 狀態初始化與權限嚴格隔離
+    # [段落 7-1] Session 初始化與權限嚴格隔離
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出檢查 (1 小時未活動)
+    # 自動登出檢查
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
         st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【核心阻斷閘門：解決頁面重疊問題】 ---
+    # --- 【權限閘門：阻斷未登入渲染】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
-        # 1. 美化介面：深藍色專業按鈕
+        # 視覺樣式優化
         st.markdown("""
             <style>
             div.stButton > button {
@@ -717,35 +717,43 @@ def main():
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
         with tab_login:
-            # 💡 請對照您的 Google Sheets 輸入帳密 (例如 admin / 654321)
-            u_name = st.text_input("帳號", key="login_user").strip()
-            p_word = st.text_input("密碼", type="password", key="login_pass").strip()
-            
-            if st.button("立即進入系統", key="login_btn"):
-                # 此處建議串接您的 Google Sheets 讀取邏輯
-                # 暫時以 admin/654321 作為手動修正驗證
-                if (u_name == "admin" and p_word == "654321") or (u_name == "okdycrreoo" and p_word == "123456"):
+            u_name = st.text_input("帳號", key="login_u").strip()
+            p_word = st.text_input("密碼", type="password", key="login_p").strip()
+            if st.button("立即登入"):
+                # 💡 這裡應該呼叫您比對 Google Sheets 的函數 (假設為 check_login)
+                # 這裡暫以您的試算表數據作為範例比對
+                if (u_name == "admin" and p_word == "654321") or \
+                   (u_name == "okdycrreoo" and p_word == "123456"):
                     st.session_state.user = u_name
-                    st.success(f"✅ 歡迎回來，{u_name}！")
+                    st.success(f"✅ 登入成功，歡迎 {u_name}")
                     st.rerun()
                 else:
-                    st.error("❌ 帳號或密碼不正確 ")
+                    st.error("❌ 帳號或密碼錯誤，或帳號尚未註冊")
 
         with tab_reg:
-            st.subheader("新用戶註冊")
-            new_u = st.text_input("設定帳號", key="reg_u")
-            new_p = st.text_input("設定密碼", type="password", key="reg_p")
-            if st.button("提交註冊"):
-                if new_u and new_p:
-                    # 註冊後直接登入
-                    st.session_state.user = new_u
-                    st.success("🎉 註冊成功！")
-                    st.rerun()
+            st.subheader("建立新帳戶")
+            new_u = st.text_input("設定帳號", key="reg_u").strip()
+            new_p = st.text_input("設定密碼", type="password", key="reg_p").strip()
+            
+            if st.button("確認註冊"):
+                # --- 【關鍵修正：註冊異常檢查】 ---
+                # 1. 檢查是否留空
+                if not new_u or not new_p:
+                    st.warning("帳號與密碼不能為空")
+                # 2. 檢查帳號是否已存在 (對比試算表已有的帳號)
+                elif new_u in ["admin", "okdycrreoo"]: # 💡 這裡應從 ws_user 讀取清單比對
+                    st.error(f"❌ 帳號 '{new_u}' 已被註冊，請直接登入或更換帳號")
+                else:
+                    # 3. 執行註冊寫入邏輯 (將資料寫入 Google Sheets)
+                    try:
+                        # 這裡放您的寫入試算表代碼，例如: ws_user.append_row([new_u, new_p])
+                        st.success("🎉 註冊成功！請切換至登入頁面進行登入")
+                        # 註冊完不應自動登入，強制使用者手動登入一次以確保驗證
+                    except Exception as e:
+                        st.error(f"註冊失敗：{e}")
 
-        # --- 【關鍵阻斷】 ---
-        # 只要未登入，程式執行到此為止，絕對不會跑出下方的 2330 面板
-        return 
-
+        # 核心阻斷：未登入時絕對不執行後方 2330 面板代碼
+        return
     # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
     # -------------------------------------------------------------
@@ -888,6 +896,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
