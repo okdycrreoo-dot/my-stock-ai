@@ -748,7 +748,7 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
     est_color = "#FF3131" if pred_val > curr_p else "#00F5FF"
 
     b_html = " | ".join([f"{k}D: <span style='color:{'#FF3131' if v >= 0 else '#00F5FF'}'>{v:.2%}</span>" for k, v in insight[6].items()])
-    acc_val_display = stock_accuracy.split(':')[-1].strip() if '命中率' in stock_accuracy else "計算中"
+    acc_val_display = stock_accuracy.split(':')[-1].strip()
 
     html_content = f"""
     <div style="background-color: #0e1117; color: white; padding: 20px; border-radius: 12px; border: 1px solid #30363d; font-family: sans-serif;">
@@ -762,7 +762,6 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
         <div style="background-color: #161b22; padding: 18px; border-radius: 10px; border: 1px solid #30363d;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <span style="color: #58a6ff; font-weight: bold; font-size: 16px;">🔮 AI 統一展望 ({today_label})</span>
-                <span style="color: #3fb950; font-size: 12px; border: 1px solid #30363d; padding: 2px 8px; border-radius: 5px;">命中率: {acc_val_display}</span>
             </div>
             <div style="margin-bottom: 10px;">
                 <div style="font-size: 14px; color: #8b949e;">預估 {next_day_label} 收盤價</div>
@@ -973,6 +972,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
