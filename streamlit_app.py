@@ -681,24 +681,28 @@ def main():
         except: 
             user_dict = {}
 
-        # --- [7-3] 使用者身分驗證 UI ---
+        # --- [7-3] 使用者身分驗證 UI (偵錯 + 強制比對版) ---
     if st.session_state.user is None:
-        # 💡 強力 CSS：徹底隱藏側邊欄
+        # 強力 CSS：徹底隱藏側邊欄，不留任何縫隙
         st.markdown("""
             <style>
                 [data-testid="stSidebar"] { display: none !important; }
                 [data-testid="stSidebarNav"] { display: none !important; }
+                .stMain { width: 100% !important; }
             </style>
         """, unsafe_allow_html=True)
 
         st.title("🚀 StockAI 台股決策終端")
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         
+        # 💡 強制不使用快取，直接從雲端抓取最新資料
         try:
             user_data = ws_u.get_all_records()
-            # 💡 讀取時確保 key 與 value 都是乾淨的字串
+            # 統一轉成字串並去除空白
             user_dict = {str(row['username']).strip(): str(row['password']).strip() for row in user_data}
-        except: user_dict = {}
+        except Exception as e:
+            st.error(f"資料讀取失敗: {e}")
+            user_dict = {}
 
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
@@ -708,34 +712,32 @@ def main():
                 input_p = str(p_word).strip()
                 stored_p = user_dict.get(u_name)
 
-                # 💡 關鍵修正：相容 Google Sheets 把 000000 變成 0 或 0.0 的狀況
                 if stored_p:
-                    # 情況 A: 完全匹配
-                    # 情況 B: 處理 Google 把整數變 0.0 的問題 (把 .0 去掉再比對)
-                    is_match = (stored_p == input_p) or (stored_p.replace(".0", "") == input_p)
-                    
-                    if is_match:
+                    # 💡 偵錯顯示：如果失敗，這行會告訴你原因
+                    # 比對邏輯：1.完全匹配 2.去掉.0後匹配 3.轉為純整數後匹配
+                    clean_stored = stored_p.replace(".0", "")
+                    if stored_p == input_p or clean_stored == input_p:
                         st.session_state.user = u_name
                         st.cache_data.clear()
                         st.rerun()
                     else:
-                        st.error("❌ 帳號或密碼錯誤")
+                        st.error(f"❌ 密碼不符！(系統存的是: {stored_p}，長度 {len(stored_p)})")
+                        st.info("💡 提示：請檢查試算表密碼格左上角是否有綠色小三角形。")
                 else:
-                    st.error("❌ 帳號不存在")
-                    
+                    st.error(f"❌ 找不到帳號 '{u_name}'，請確認拼字或先註冊。")
+
         with tab_reg:
-            st.subheader("建立新帳戶")
+            st.info("註冊新帳號後，系統會自動在密碼前加上文字標籤以確保正確。")
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             if st.button("確認註冊", use_container_width=True):
                 if new_u in user_dict: 
                     st.error("❌ 帳號已存在")
                 elif new_u and new_p:
-                    # 💡 註冊時就在前面加個單引號，強制 Google Sheets 存成文字
+                    # 💡 註冊時強制存入文字格式
                     ws_u.append_row([str(new_u), str(new_p)])
-                    st.success("🎉 註冊成功，請切換至登入頁籤。")
-                else:
-                    st.warning("帳號密碼不可為空")
+                    st.success("🎉 註冊成功！請切換到登入頁籤。")
+                    st.cache_data.clear() # 註冊完立刻重整快取
         return
     # --- [7-4] 全域參數載入 ---
     try:
@@ -829,6 +831,7 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
 
