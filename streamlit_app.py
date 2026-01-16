@@ -686,47 +686,50 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 狀態初始化與權限隔離 (最終修正版)
+    # [段落 7-1] Session 初始化與權限檢查
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
     
-    # --- 【核心修正：權限檢查閘門】 ---
+    # --- 【核心修正：視覺與邏輯同步優化】 ---
     if st.session_state.user is None:
         st.title("🛡️ StockAI 系統登入")
         
-        # 1. 強制修正按鈕樣式：背景淺灰、文字純黑，滑鼠懸停變色
+        # 1. 強制修正按鈕：確保文字為黑色，背景為亮白色
         st.markdown("""
             <style>
             div.stButton > button {
-                background-color: #EEEEEE !important;
-                color: #000000 !important;
-                font-weight: bold !important;
-                border-radius: 5px;
-                width: 100%;
-                border: 1px solid #333;
-            }
-            div.stButton > button:hover {
                 background-color: #FFFFFF !important;
-                color: #FF3131 !important;
+                color: #000000 !important;
+                border: 2px solid #FF3131 !important;
+                font-size: 18px !important;
+                height: 3em !important;
+                width: 100% !important;
+            }
+            /* 針對手機端或不同主題的文字強制黑化 */
+            div.stButton > button p {
+                color: #000000 !important;
+                font-weight: 900 !important;
             }
             </style>
         """, unsafe_allow_html=True)
 
-        # 2. 登入 UI (不使用 st.form 以免阻斷 session 更新)
-        u_name = st.text_input("帳號 (admin)").strip()
-        p_word = st.text_input("密碼 (1234)", type="password").strip()
+        # 2. 乾淨的輸入介面 (移除標題後的提示)
+        u_name = st.text_input("帳號").strip()
+        p_word = st.text_input("密碼", type="password").strip()
         
+        # 3. 登入按鈕邏輯
         if st.button("確認登入系統"):
-            # 嚴格比對邏輯
+            # 這裡進行嚴格比對
             if u_name == "admin" and p_word == "1234":
                 st.session_state.user = u_name
-                st.success("✅ 驗證通過，正在載入終端介面...")
+                st.success("✅ 驗證通過，進入系統...")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ 帳號或密碼輸入錯誤，請檢查大小寫或空格。")
+                st.error("❌ 帳號或密碼錯誤（請檢查大小寫）")
         
-        # 3. 阻斷點：沒登入就停止執行後續 2330 面板代碼
+        # 阻斷點：未登入時不執行後續任何代碼
         return
     
     # -------------------------------------------------------------
@@ -871,6 +874,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
