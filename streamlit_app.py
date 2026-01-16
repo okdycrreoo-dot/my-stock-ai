@@ -107,10 +107,16 @@ def main_app(db):
     if target != "請選擇":
         all_preds = db["pred_ws"].get_all_records()
         df_p = pd.DataFrame(all_preds)
-        stock_data = df_p[df_p['symbol'] == target].tail(1)
+        
+        # 修正：檢查 dataframe 是否為空或缺少 symbol 欄位
+        if df_p.empty or 'symbol' not in df_p.columns:
+            st.warning(f"⚠️ 試算表尚未初始化或缺少 'symbol' 欄位標題。")
+            stock_data = pd.DataFrame() # 建立空的預算
+        else:
+            stock_data = df_p[df_p['symbol'] == target].tail(1)
 
         if stock_data.empty:
-            st.warning(f"目前尚無 {target} 的數據")
+            st.info(f"💡 目前尚無 {target} 的歷史分析數據。")
             if st.button(f"🚀 啟動即時 AI 診斷"):
                 with st.spinner("AI 正在解析數據..."):
                     df_yf, f_id = fetch_comprehensive_data(target)
@@ -149,5 +155,6 @@ if __name__ == "__main__":
             auth_section(db_con)
         else:
             main_app(db_con)
+
 
 
