@@ -74,6 +74,25 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- [1-6 段] Google Sheets API 連線初始化 ---
+try:
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    
+    # 💡 這裡定義全域變數，確保第 7 章的 main() 找得到它們
+    # 請將 "您的試算表名稱" 改為您實際的名稱
+    # 請確保 your_key.json 與此程式檔在同一目錄下
+    creds = Credentials.from_service_account_file("your_key.json", scopes=scope)
+    client = gspread.authorize(creds)
+    
+    sh = client.open("您的試算表名稱") 
+    ws_user = sh.worksheet("users")
+    
+except Exception as e:
+    # 報錯診斷，這能幫您檢查為什麼 UI 會消失
+    st.error(f"❌ [1-6 段] 連線失敗。請確認試算表名稱或金鑰檔：{e}")
+    sh = None
+    ws_user = None
+
 # =================================================================
 # 第二章：數據引擎 (Data Engine)
 # =================================================================
@@ -686,33 +705,18 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] 核心初始化與自主連線機制 (解決 NameError)
+    # [段落 7-1] Session 初始化與權限隔離
     # -------------------------------------------------------------
-    # 1. 初始化 Session 狀態
     if 'user' not in st.session_state:
         st.session_state.user = None
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 2. 自動登出檢查
+    # 自動登出檢查
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
         st.rerun()
     st.session_state.last_active = time.time()
-
-    # --- 【核心修復：在 main 內部重新取得連線】 ---
-    try:
-        # 💡 如果全域找不到 sh，我們直接從 st.connection 或全域字典強制獲取
-        # 這裡假設您的連線物件名稱為 'sh'，並強制建立 ws_user
-        if 'sh' in globals():
-            ws_user = globals()['sh'].worksheet("users")
-        else:
-            # 這是最後的保險：如果外部變數抓不到，顯示引導訊息
-            st.error("❌ 系統偵測不到試算表連線 (sh)。請確保程式碼最上方已執行 sh = client.open(...)")
-            st.stop() # 停止執行以防 UI 崩潰
-    except Exception as e:
-        st.error(f"❌ 無法讀取 'users' 工作表：{e}")
-        st.stop()
 
     # --- 【權限檢查閘門：未登入則顯示 UI】 ---
     if st.session_state.user is None:
@@ -720,21 +724,24 @@ def main():
         
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
-        # 預先讀取最新名單
+        # 💡 安全讀取：嘗試從全域獲取 ws_user
+        current_ws = globals().get('ws_user')
+        
         user_dict = {}
-        try:
-            user_data = ws_user.get_all_records()
-            user_dict = {str(row['username']): str(row['password']) for row in user_data}
-        except:
-            pass # 允許空名單進行第一次註冊
+        if current_ws:
+            try:
+                user_data = current_ws.get_all_records()
+                user_dict = {str(row['username']): str(row['password']) for row in user_data}
+            except:
+                pass
 
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
-            if st.button("立即登入系統", key="btn_login_final"):
+            if st.button("立即進入系統"):
                 if u_name in user_dict and str(user_dict[u_name]) == p_word:
                     st.session_state.user = u_name
-                    st.success(f"✅ 登入成功！歡迎 {u_name}")
+                    st.success(f"✅ 登入成功！")
                     st.rerun()
                 else:
                     st.error("❌ 帳號或密碼錯誤")
@@ -744,27 +751,24 @@ def main():
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             
-            if st.button("確認註冊並寫入系統", key="btn_reg_final"):
-                if not new_u or not new_p:
+            if st.button("確認註冊並寫入系統"):
+                if not current_ws:
+                    st.error("❌ 系統連線未建立，無法註冊。")
+                elif not new_u or not new_p:
                     st.warning("帳號與密碼不能為空")
                 elif new_u in user_dict:
                     st.error(f"❌ 帳號 '{new_u}' 已存在。")
                 else:
-                    # --- 【執行寫入動作：這行會解決您提到的「註冊成功卻沒寫入」】 ---
                     try:
-                        ws_user.append_row([new_u, new_p], value_input_option='RAW')
+                        # 執行寫入動作
+                        current_ws.append_row([new_u, new_p], value_input_option='RAW')
                         st.balloons() 
-                        st.success(f"🎉 註冊成功！帳號 '{new_u}' 已寫入試算表。")
-                        st.info("💡 請切換至『系統登入』分頁進行登入。")
+                        st.success(f"🎉 註冊成功！資料已同步至試算表。")
                     except Exception as e:
                         st.error(f"寫入失敗：{e}")
 
-        # 核心隔離：解決畫面重疊問題
+        # 核心隔離：解決截圖中的畫面重疊與找不到變數問題
         return 
-
-    # -------------------------------------------------------------
-    # [段落 7-2] 之後的代碼開始 (隔離區)
-    # -------------------------------------------------------------
 
     # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
@@ -908,6 +912,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main() # 不要傳參數
+
 
 
 
