@@ -1,39 +1,22 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import json
 import gspread
 from google.oauth2.service_account import Credentials
-import json
-import os
-import time
-import sys
 from datetime import datetime
+import pytz
 
 # =================================================================
-# 段落 1：頁面配置與路徑修復 (確保能讀到 cron_job.py)
+# 段落 1：核心引擎加載 (修正縮進錯誤)
 # =================================================================
-st.set_page_config(
-    page_title="Oracle AI 股市終端",
-    page_icon="🔮",
-    layout="centered",
-    initial_sidebar_state="collapsed" 
-)
-
-# 手機版 UI 優化：隱藏側邊欄，按鈕滿版
-st.markdown("""
-    <style>
-        [data-testid="stSidebar"] { display: none; }
-        .stButton button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
-    </style>
-""", unsafe_allow_html=True)
-
-# 確保程式能找到同目錄下的 cron_job.py
-sys.path.append(os.path.dirname(__file__))
-
 try:
-from cron_job import fetch_comprehensive_data, god_mode_engine, fetch_market_context
-except ImportError as e:
-    st.error(f"⚠️ 引擎加載失敗，請檢查 cron_job.py 是否在 GitHub 根目錄。錯誤: {e}")
+    # 這裡前面必須有 4 個空格 (縮進)
+    from cron_job import fetch_comprehensive_data, god_mode_engine, fetch_market_context, init_gspread
+    engine_available = True
+except Exception as e:
+    # 這裡前面也必須有 4 個空格
+    st.error(f"⚠️ 引擎加載失敗，請檢查 cron_job.py 位置是否正確。錯誤: {e}")
+    engine_available = False
 
 # =================================================================
 # 段落 2：資料庫連線 (使用現代化 google-auth)
@@ -47,10 +30,15 @@ def get_db():
         return None
     
     try:
+        # 解析 JSON
         info = json.loads(creds_info)
         scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        
+        # 建立連線
         creds = Credentials.from_service_account_info(info, scopes=scope)
         client = gspread.authorize(creds)
+        
+        # 開啟試算表
         sh = client.open("users")
         return {
             "user_ws": sh.worksheet("users"),
@@ -58,9 +46,8 @@ def get_db():
             "pred_ws": sh.worksheet("predictions")
         }
     except Exception as e:
-        st.error(f"連線 Google Sheets 失敗: {e}")
+        st.error(f"❌ 連線 Google Sheets 失敗，請檢查 JSON 格式或權限: {e}")
         return None
-
 # =================================================================
 # 段落 3：會員系統 (兼容您現有的 users 表格)
 # =================================================================
@@ -162,4 +149,5 @@ if __name__ == "__main__":
             auth_section(db_con)
         else:
             main_app(db_con)
+
 
