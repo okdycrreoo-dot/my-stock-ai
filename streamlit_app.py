@@ -689,7 +689,7 @@ def main():
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
     if now_tw.time() >= dt_module.time(14, 30):
-        with st.sidebar.status("🌙 正在同步收盤預測...", expanded=False):
+        with st.status("🌙 正在同步收盤預測...", expanded=False):
             all_w_data = ws_w.get_all_records()
             if all_w_data:
                 unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
@@ -737,6 +737,7 @@ def main():
 if __name__ == "__main__":
     st.set_page_config(page_title="AI Stock Terminal", layout="wide")
     main()
+
 
 
 
