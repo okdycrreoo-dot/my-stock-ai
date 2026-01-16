@@ -696,8 +696,23 @@ def main():
     # 自動登出檢查 (1 小時)
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
-        st.rerun() # 強制刷新回到登入頁
+        st.rerun() 
     st.session_state.last_active = time.time()
+
+    # --- 【權限閘門：阻斷未登入渲染】 ---
+    if st.session_state.user is None:
+        # 這裡根據您程式碼中實際的登入函數名稱進行呼叫
+        # 提醒：請確認 def render_login_ui(): 已經定義在 main() 之前
+        try:
+            render_login_ui()
+        except NameError:
+            # 如果還是找不到，提供手動顯示邏輯作為保底，避免整頁報錯
+            st.title("🛡️ StockAI 系統登入")
+            st.warning("請在程式碼中確認 render_login_ui 函數已正確定義。")
+        
+        # 關鍵修正點：使用 return 強制結束執行，
+        # 這樣就不會發生截圖中「登入框與 2330 面板並存」的情況
+        return
 
     # --- 【權限檢查閘門】 ---
     if st.session_state.user is None:
@@ -862,6 +877,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
