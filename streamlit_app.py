@@ -251,21 +251,46 @@ def auto_sync_feedback(ws_p, f_id, insight):
     except Exception as e:
         return f"🎯 系統同步中...", []
 
-# --- [3-4 段] 批次引擎：唯一且正確的定義 ---
+# --- [3-4 段] 批次引擎：寫入新數據前先掃描補齊舊數據 ---
 def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl, ws_w):
     """ 
-    收盤後自動化預測引擎。
-    包含 7 個正確參數，嚴格對齊 A-G 欄位寫入。
+    收盤後自動化批次預測引擎。
+    在寫入今日 (1/16) 數據時，會同時掃描並補齊之前的「待收盤更新」欄位。
     """
     try:
-        existing_p = pd.DataFrame(ws_p.get_all_records())
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        
+        # 1. 取得現有所有紀錄
+        recs = ws_p.get_all_records()
+        df_p = pd.DataFrame(recs)
+        tw_tz = pytz.timezone('Asia/Taipei')
+        today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
+
+        # 🚀 [新增邏輯] 先補齊之前的「待收盤更新」
+        if not df_p.empty:
+            print("🔍 正在掃描是否存在未更新的歷史收盤價...")
+            for i, row in df_p.iterrows():
+                # 判定：如果 actual_close 是「待收盤更新」且日期早於或等於今天
+                if str(row.get('actual_close', '')).strip() == "待收盤更新" and str(row.get('date', '')) <= today_str:
+                    try:
+                        t_date = row['date']
+                        e_date = (pd.to_datetime(t_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+                        # 抓取該日實際數據
+                        h = yf.download(row['symbol'], start=t_date, end=e_date, progress=False)
+                        if not h.empty:
+                            act_close = float(h['Close'].iloc[-1])
+                            pred_close = float(row['pred_close'])
+                            # 更新試算表：F 欄(實際價), G 欄(誤差)
+                            ws_p.update_cell(i + 2, 6, round(act_close, 2))
+                            err_val = (act_close - pred_close) / (pred_close + 1e-9)
+                            ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+                            print(f"✅ 已補齊 {row['symbol']} ({t_date}) 的收盤價")
+                    except: continue
+
+        # 2. 開始執行今日數據的預測與寫入
         for symbol in unique_stocks:
             # 防重複檢查
-            if not existing_p.empty and 'symbol' in existing_p.columns:
-                if not existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)].empty:
-                    continue
+            if not df_p.empty and 'symbol' in df_p.columns:
+                is_done = not df_p[(df_p['symbol'] == symbol) & (df_p['date'] == today_str)].empty
+                if is_done: continue
             
             try:
                 df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
@@ -274,18 +299,16 @@ def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl, w
                 f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
                 _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
                 
-                # A:date, B:symbol, C:pred, D:low, E:high, F:actual, G:error
+                # 寫入 1/16 數據：A-G 欄位
                 ws_p.append_row([
                     today_str, symbol, round(insight[3], 2), 
                     round(insight[5], 2), round(insight[4], 2), 
                     "待收盤更新", ""
                 ])
-            except Exception as inner_e:
-                print(f"⚠️ 標的 {symbol} 處理失敗: {inner_e}")
-                continue
+            except: continue
+            
     except Exception as e:
         print(f"⚠️ 批次引擎執行異常: {e}")
-
 
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
@@ -900,6 +923,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
