@@ -550,6 +550,10 @@ def perform_ai_engine(df, p_days, precision, trend_weight, v_comp, bias, f_vol, 
 # =================================================================
 # 第六章：終端渲染引擎 (Render Terminal)
 # =================================================================
+from datetime import datetime, timedelta  # 💡 移到最上方，修復 image_f82fe5 的報錯
+import streamlit.components.v1 as components
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- [6-1 段] render_terminal 完整呼叫邏輯 ---
 def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
@@ -883,5 +887,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
