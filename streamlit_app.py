@@ -170,7 +170,7 @@ def fetch_comprehensive_data(symbol, ttl_seconds):
                 continue
     return None, raw_s
 # =================================================================
-# 第三章：自動對帳與反饋系統 (Feedback System)
+# 第三章：自動對帳與反饋系統 (終極整合修正版)
 # =================================================================
 
 # --- [3-1 段] auto_sync_feedback 函數與時間判定邏輯 ---
@@ -181,17 +181,16 @@ def auto_sync_feedback(ws_p, f_id, insight):
         now = datetime.now()
         today_str = now.strftime("%Y-%m-%d")
         
-        # 14:30 收盤判定邏輯 (14*60 + 30 = 870 分鐘)
+        # 14:30 收盤判定邏輯
         is_after_market = (now.hour * 60 + now.minute) >= 870
         is_weekend = now.weekday() >= 5
 
 # --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
         if not df_p.empty:
             for i, row in df_p.iterrows():
-                # 若 actual_close 欄位為空，且預測日期已到達或已過
+                # 若 actual_close 為空，且預測日期已過
                 if str(row.get('actual_close', '')).strip() == "" and str(row.get('date', '')) <= today_str:
                     target_date = row['date']
-                    # 確保抓取該日數據
                     end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
                     h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
                     
@@ -203,13 +202,12 @@ def auto_sync_feedback(ws_p, f_id, insight):
                         act_close = float(act_df['Close'].iloc[-1])
                         pred_close = float(row['pred_close'])
                         
-                        # 更新試算表：第 6 欄為實際收盤價，第 7 欄為誤差率
+                        # 更新試算表：第 6 欄實際價，第 7 欄誤差率
                         ws_p.update_cell(i + 2, 6, round(act_close, 2))
                         err_val = (act_close - pred_close) / (pred_close + 1e-9)
                         ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
-# --- [3-3 段] 單一標的即時預測回填與命中率計算 ---
-        # 邏輯：收盤後若查詢該股，單筆寫入下一交易日預測
+# --- [3-3 段] 單一標的預測回填與 UI 命中率計算 ---
         if is_after_market and not is_weekend:
             next_bus_day = now + timedelta(days=1)
             while next_bus_day.weekday() >= 5: next_bus_day += timedelta(days=1)
@@ -217,15 +215,12 @@ def auto_sync_feedback(ws_p, f_id, insight):
 
             is_exists = any((str(r.get('date')) == next_day_str and r.get('symbol') == f_id) for r in recs)
             if not is_exists:
-                # 寫入預測：[日期, 代號, 預測價, 低標, 高標, 實際價(空), 誤差(空)]
                 new_row = [next_day_str, f_id, round(insight[3], 2), round(insight[5], 2), round(insight[4], 2), "待收盤更新", ""]
                 ws_p.append_row(new_row)
         
-        # 重新取得最新數據用於 UI 命中率計算 (最近 10 筆)
         recs_latest = ws_p.get_all_records()
         df_latest = pd.DataFrame(recs_latest)
         df_stock = df_latest[(df_latest['symbol'] == f_id) & (df_latest['actual_close'] != "") & (df_latest['actual_close'] != "待收盤更新")].copy()
-        
         accuracy_history = []
         hit_text = "🎯 數據累積中"
         
@@ -236,10 +231,9 @@ def auto_sync_feedback(ws_p, f_id, insight):
                     act = float(row['actual_close'])
                     pred = float(row['pred_close'])
                     acc_val = (1 - abs(act - pred) / (pred + 1e-9)) * 100
-                    acc_val = max(0, min(100, acc_val)) 
                     accuracy_history.append({
                         "date": str(row['date'])[-5:], 
-                        "acc_val": f"{acc_val:.1f}%",
+                        "acc_val": f"{max(0, min(100, acc_val)):.1f}%",
                         "color": "#FF3131" if acc_val >= 98 else "#FFFFFF" 
                     })
                 except: continue
@@ -250,86 +244,49 @@ def auto_sync_feedback(ws_p, f_id, insight):
                 high_v = pd.to_numeric(df_recent['range_high'])
                 hit = sum((act_v >= low_v) & (act_v <= high_v))
                 hit_text = f"🎯 此股近期區間命中率: {(hit/len(df_recent))*100:.1f}%"
-            except: hit_text = "🎯 命中率統計中"
+            except: pass
         
         return hit_text, accuracy_history
 
     except Exception as e:
         return f"🎯 系統同步中...", []
 
-# 🛑 函式定義結束，以下為工具函式
-
-# --- [3-4 段] 批次引擎：收盤後全自動化分析 ---
+# --- [3-4 段] 批次引擎：唯一且正確的定義 ---
 def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl, ws_w):
     """ 
-    收盤後自動化批次預測引擎。
-    整合了原本 3-4 與 3-5 的功能，確保 A-G 欄位純淨且參數完整。
+    收盤後自動化預測引擎。
+    包含 7 個正確參數，嚴格對齊 A-G 欄位寫入。
     """
     try:
-        # 1. 取得現有紀錄以防重複計算
         existing_p = pd.DataFrame(ws_p.get_all_records())
-        tw_tz = pytz.timezone('Asia/Taipei')
-        today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
+        today_str = datetime.now().strftime("%Y-%m-%d")
         
         for symbol in unique_stocks:
-            # 防重檢查
+            # 防重複檢查
             if not existing_p.empty and 'symbol' in existing_p.columns:
-                is_done = not existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)].empty
-                if is_done: continue
+                if not existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)].empty:
+                    continue
             
             try:
-                # 2. 啟動 AI 運算
                 df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
                 if df is None: continue
                 
                 f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
                 _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
                 
-                # 3. 對齊 A:date, B:symbol, C:pred, D:low, E:high, F:actual, G:error 寫入
+                # A:date, B:symbol, C:pred, D:low, E:high, F:actual, G:error
                 ws_p.append_row([
-                    today_str, symbol, round(float(insight[3]), 2), 
-                    round(float(insight[5]), 2), round(float(insight[4]), 2), 
+                    today_str, symbol, round(insight[3], 2), 
+                    round(insight[5], 2), round(insight[4], 2), 
                     "待收盤更新", ""
                 ])
-            except Exception as e:
-                print(f"⚠️ 標的 {symbol} 批次跳過: {e}")
+            except Exception as inner_e:
+                print(f"⚠️ 標的 {symbol} 處理失敗: {inner_e}")
                 continue
     except Exception as e:
-        print(f"⚠️ 批次引擎重大異常: {e}")
+        print(f"⚠️ 批次引擎執行異常: {e}")
 
-# --- [3-5 段] 批次引擎：確保 A-G 欄位純淨 ---
-def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
-    all_watchlist = pd.DataFrame(ws_w.get_all_records())
-    if all_watchlist.empty: return
-    
-    existing_p = pd.DataFrame(ws_p.get_all_records())
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    unique_stocks = all_watchlist['stock_symbol'].unique()
-    
-    for symbol in unique_stocks:
-        if not existing_p.empty:
-            is_done = existing_p[(existing_p['symbol'] == symbol) & (existing_p['date'] == today_str)]
-            if not is_done.empty: continue
-            
-        try:
-            df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
-            if df is None: continue
-            
-            f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, 7, tw_val, v_comp)
-            _, _, _, _, _, _, _, insight = perform_ai_engine(df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift)
-            
-            # 對齊 A:date, B:symbol, C:pred, D:low, E:high, F:actual, G:error
-            ws_p.append_row([
-                today_str,                   # A
-                symbol,                      # B
-                round(float(insight[3]), 2), # C
-                round(float(insight[5]), 2), # D
-                round(float(insight[4]), 2), # E
-                "待收盤更新",                # F: 這裡填文字佔位，不要放診斷
-                ""                           # G
-            ])
-        except Exception as e:
-            print(f"寫入失敗 {symbol}: {e}")
+
 # =================================================================
 # 第四章：AI 微調引擎 (Fine-tune Engine)
 # =================================================================
@@ -943,6 +900,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
