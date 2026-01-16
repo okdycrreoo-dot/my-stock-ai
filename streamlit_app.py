@@ -669,18 +669,18 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
     st.plotly_chart(fig, use_container_width=True)
 
-   # --- [6-5 段] 底部 AI 診斷建議盒 (新增預估價動態變色邏輯) ---
-    import streamlit.components.v1 as components
-    from datetime import datetime, timedelta # 確保導入
+   # --- [6-5 段] 底部 AI 診斷建議盒 (視覺顏色對應修正版) ---
+    # 💡 注意：此處已移除重複導入，以確保 6-4 段的技術圖表不崩潰
     
     now = datetime.now()
     today_label = now.strftime("%m/%d")
+    
+    # 計算預計交易日標籤
     next_day = now + timedelta(days=1)
     while next_day.weekday() >= 5: next_day += timedelta(days=1)
     next_day_label = next_day.strftime("%m/%d")
 
-    # 💡 [2026-01-16 新增] 判斷預估價顏色：高於現價用紅(#FF3131)，低於用綠(#00F5FF)
-    # insight[3] 是預估收盤價, curr_p 是當前收盤價
+    # 💡 判斷預估價顏色：高於現價用紅(#FF3131)，低於用綠(#00F5FF)
     pred_val = insight[3]
     est_color = "#FF3131" if pred_val > curr_p else "#00F5FF"
 
@@ -887,6 +887,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
