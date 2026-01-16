@@ -185,27 +185,50 @@ def auto_sync_feedback(ws_p, f_id, insight):
         is_after_market = (now.hour * 60 + now.minute) >= 870
         is_weekend = now.weekday() >= 5
 
-# --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
+# --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 (含殘缺數據補齊) ---
         if not df_p.empty:
+            # 確保獲取最新時間進行對比
+            tw_tz = pytz.timezone('Asia/Taipei')
+            today_str = datetime.now(tw_tz).strftime("%Y-%m-%d")
+            
             for i, row in df_p.iterrows():
-                # 若 actual_close 為空，且預測日期已過
-                if str(row.get('actual_close', '')).strip() == "" and str(row.get('date', '')) <= today_str:
-                    target_date = row['date']
+                # 取得當前欄位狀態
+                act_val = str(row.get('actual_close', '')).strip()
+                err_val_str = str(row.get('error_pct', '')).strip()
+                row_date = str(row.get('date', ''))
+                
+                # 🔍 核心修正：判定是否需要補數 (空值、佔位符、或漏掉誤差率)
+                needs_repair = (act_val == "" or act_val == "待收盤更新" or err_val_str == "")
+                
+                # 判定日期：必須是今天或之前的紀錄才進行對帳
+                if needs_repair and row_date <= today_str:
+                    target_date = row_date
+                    # yfinance 需要結束日期為目標日 +1
                     end_date = (pd.to_datetime(target_date) + timedelta(days=1)).strftime("%Y-%m-%d")
-                    h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
                     
-                    if not h.empty:
-                        act_df = h.copy()
-                        if isinstance(act_df.columns, pd.MultiIndex):
-                            act_df.columns = act_df.columns.get_level_values(0)
+                    try:
+                        h = yf.download(row['symbol'], start=target_date, end=end_date, progress=False)
                         
-                        act_close = float(act_df['Close'].iloc[-1])
-                        pred_close = float(row['pred_close'])
-                        
-                        # 更新試算表：第 6 欄實際價，第 7 欄誤差率
-                        ws_p.update_cell(i + 2, 6, round(act_close, 2))
-                        err_val = (act_close - pred_close) / (pred_close + 1e-9)
-                        ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+                        if not h.empty:
+                            act_df = h.copy()
+                            # 處理 yfinance 可能回傳的 MultiIndex 欄位結構
+                            if isinstance(act_df.columns, pd.MultiIndex):
+                                act_df.columns = act_df.columns.get_level_values(0)
+                            
+                            act_close = float(act_df['Close'].iloc[-1])
+                            pred_close = float(row['pred_close'])
+                            
+                            # 更新第 6 欄 (F): 實際價
+                            ws_p.update_cell(i + 2, 6, round(act_close, 2))
+                            
+                            # 更新第 7 欄 (G): 誤差率 (並解決之前的漏算問題)
+                            err_val = (act_close - pred_close) / (pred_close + 1e-9)
+                            ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
+                            
+                            print(f"✅ 已補齊 {row['symbol']} ({target_date}) 的對帳數據")
+                    except Exception as e:
+                        print(f"⚠️ 對帳失敗 {row['symbol']}: {e}")
+                        continue
 
 # --- [3-3 段] 單一標的預測回填與 UI 命中率計算 ---
         if is_after_market and not is_weekend:
@@ -923,6 +946,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
