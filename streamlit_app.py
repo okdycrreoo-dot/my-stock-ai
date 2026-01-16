@@ -675,7 +675,7 @@ def main():
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
             if st.button("進入 AI 系統", use_container_width=True):
-                if u_name in user_dict and str(user_dict[u_name]) == p_word:
+                if u_name in user_dict and str(user_dict[u_name]).strip() == str(p_word).strip():
                     st.session_state.user = u_name
                     st.cache_data.clear()
                     st.rerun()
@@ -783,4 +783,5 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
