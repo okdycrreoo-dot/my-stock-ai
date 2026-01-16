@@ -661,9 +661,8 @@ def main():
     if not sheets: return
     ws_u, ws_w, ws_s, ws_p = sheets["users"], sheets["watchlist"], sheets["settings"], sheets["predictions"]
 
-    # --- [7-3] 使用者身分驗證 UI ---
+    # --- [7-3] 使用者身分驗證 UI (補零保險版) ---
     if st.session_state.user is None:
-        # 強力 CSS：徹底隱藏側邊欄
         st.markdown("""
             <style>
                 [data-testid="stSidebar"] { display: none !important; }
@@ -677,8 +676,19 @@ def main():
         
         try:
             user_data = ws_u.get_all_records()
-            # 確保讀取時強制轉字串並去空格
-            user_dict = {str(row['username']).strip(): str(row['password']).strip() for row in user_data}
+            user_dict = {}
+            for row in user_data:
+                u = str(row['username']).strip()
+                p = str(row['password']).strip()
+                
+                # 💡 [核心修正] 處理 Google Sheets 數字簡化問題
+                # 如果密碼被簡化成 "0" 且你預期的是 "000000"，自動補齊
+                if p == "0":
+                    p = "000000"
+                elif ".0" in p:
+                    p = p.replace(".0", "")
+                
+                user_dict[u] = p
         except: 
             user_dict = {}
 
@@ -691,18 +701,19 @@ def main():
                 stored_p = user_dict.get(u_name)
 
                 if stored_p:
-                    # 💡 偵錯用：萬一還是失敗，你會看到系統到底抓到什麼
-                    clean_stored = stored_p.replace(".0", "")
-                    if stored_p == input_p or clean_stored == input_p:
+                    # 💡 最終比對邏輯
+                    if stored_p == input_p:
                         st.session_state.user = u_name
                         st.cache_data.clear()
                         st.rerun()
                     else:
-                        st.error(f"❌ 密碼不符！(提示：長度應為 {len(input_p)}，系統存的是 {len(stored_p)})")
+                        st.error(f"❌ 密碼不符！(輸入長度: {len(input_p)}，資料庫轉換後長度: {len(stored_p)})")
+                        st.info(f"系統目前的判定值為: {stored_p}")
                 else:
                     st.error(f"❌ 找不到帳號 '{u_name}'")
 
         with tab_reg:
+            st.warning("提醒：密碼請盡量包含英文字母，避免 Google Sheets 自動轉為數字格式。")
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
             new_p = st.text_input("設定新密碼", type="password", key="reg_p").strip()
             if st.button("確認註冊", use_container_width=True):
@@ -712,7 +723,7 @@ def main():
                     ws_u.append_row([str(new_u), str(new_p)])
                     st.success("🎉 註冊成功！請切換到登入頁籤。")
                     st.cache_data.clear()
-        return # 這裡 return 是正確的，因為未登入不需要執行下面內容
+        return
 
     # --- [7-4] 全域參數載入 ---
     try:
@@ -784,4 +795,5 @@ if __name__ == "__main__":
         </style>
     """, unsafe_allow_html=True)
     main()
+
 
