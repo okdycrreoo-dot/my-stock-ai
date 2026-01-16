@@ -693,25 +693,23 @@ def main():
     if 'last_active' not in st.session_state:
         st.session_state.last_active = time.time()
     
-    # 自動登出檢查 (1 小時)
+    # 自動登出檢查 (1 小時未活動)
     if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
         st.session_state.user = None
-        st.rerun() 
+        st.rerun()
     st.session_state.last_active = time.time()
 
-    # --- 【關鍵修正：權限閘門與頁面隔離】 ---
+    # --- 【核心阻斷閘門：解決頁面重疊問題】 ---
     if st.session_state.user is None:
         st.title("🚀 StockAI 智慧交易系統")
         
-        # 1. 修正按鈕視覺 (深藍背景 + 白色粗體字)
+        # 1. 美化介面：深藍色專業按鈕
         st.markdown("""
             <style>
             div.stButton > button {
-                background-color: #0047AB !important; 
-                color: #FFFFFF !important;           
-                font-weight: bold !important;
-                border-radius: 8px !important;
-                width: 100% !important;
+                background-color: #0047AB !important; color: #FFFFFF !important;
+                font-weight: bold !important; border-radius: 8px !important;
+                width: 100% !important; height: 3em !important;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -719,34 +717,36 @@ def main():
         tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
         
         with tab_login:
-            u_name = st.text_input("帳號", key="main_login_u").strip()
-            p_word = st.text_input("密碼", type="password", key="main_login_p").strip()
-            if st.button("確認登入系統", key="main_login_btn"):
-                if u_name == "admin" and p_word == "1234":
+            # 💡 請對照您的 Google Sheets 輸入帳密 (例如 admin / 654321)
+            u_name = st.text_input("帳號", key="login_user").strip()
+            p_word = st.text_input("密碼", type="password", key="login_pass").strip()
+            
+            if st.button("立即進入系統", key="login_btn"):
+                # 此處建議串接您的 Google Sheets 讀取邏輯
+                # 暫時以 admin/654321 作為手動修正驗證
+                if (u_name == "admin" and p_word == "654321") or (u_name == "okdycrreoo" and p_word == "123456"):
                     st.session_state.user = u_name
-                    st.success("✅ 驗證通過，正在載入終端介面...")
+                    st.success(f"✅ 歡迎回來，{u_name}！")
                     st.rerun()
                 else:
-                    st.error("❌ 帳號或密碼錯誤")
+                    st.error("❌ 帳號或密碼不正確 (請對照試算表資料)")
 
         with tab_reg:
-            st.subheader("建立新帳戶")
-            r_u = st.text_input("設定帳號", key="main_reg_u")
-            r_p = st.text_input("設定密碼", type="password", key="main_reg_p")
-            if st.button("確認註冊並登入", key="main_reg_btn"):
-                if r_u and r_p:
-                    st.session_state.user = r_u
+            st.subheader("新用戶註冊")
+            new_u = st.text_input("設定帳號", key="reg_u")
+            new_p = st.text_input("設定密碼", type="password", key="reg_p")
+            if st.button("提交註冊"):
+                if new_u and new_p:
+                    # 註冊後直接登入
+                    st.session_state.user = new_u
                     st.success("🎉 註冊成功！")
                     st.rerun()
-                else:
-                    st.error("請填寫完整資訊")
 
-        # --- 【核心阻斷指令】 ---
-        # 只要還沒登入，執行到這裡就會停止，後方的 2330 面板代碼絕對不會被執行
-        # 這能徹底解決 image_e942a4 中的頁面重疊與背景更新提示問題
+        # --- 【關鍵阻斷】 ---
+        # 只要未登入，程式執行到此為止，絕對不會跑出下方的 2330 面板
         return 
 
-      # -------------------------------------------------------------
+    # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
     # -------------------------------------------------------------
     @st.cache_resource(ttl=30)
@@ -888,6 +888,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
