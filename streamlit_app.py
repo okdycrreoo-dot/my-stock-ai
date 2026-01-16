@@ -686,65 +686,18 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 初始化與權限管理
+    # [段落 7-1] Session 狀態初始化與自動登出機制
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
+    if 'last_active' not in st.session_state:
+        st.session_state.last_active = time.time()
     
-    # --- 【權限閘門：未登入則顯示 UI 並中斷】 ---
-    if st.session_state.user is None:
-        st.title("🚀 StockAI 智慧交易系統")
-        
-        # 1. CSS 優化：深藍色背景按鈕 + 白色粗體字 (解決視覺問題)
-        st.markdown("""
-            <style>
-            div.stButton > button {
-                background-color: #0047AB !important; 
-                color: #FFFFFF !important;           
-                font-weight: 900 !important;
-                border-radius: 8px !important;
-                height: 3.2em !important;
-                width: 100% !important;
-                border: none !important;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-
-        # 2. 功能分頁：還原註冊功能，移除審核中文字
-        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 帳號註冊"])
-        
-        with tab_login:
-            # 💡 關鍵：為輸入框設定穩定的 key
-            st.text_input("帳號", key="input_user")
-            st.text_input("密碼", type="password", key="input_pass")
-            
-            if st.button("立即進入終端系統", key="final_login_btn"):
-                # 直接比對 session_state 裡的值，確保資料不丟失
-                val_u = st.session_state.get("input_user", "").strip()
-                val_p = st.session_state.get("input_pass", "").strip()
-                
-                if val_u == "admin" and val_p == "1234":
-                    st.session_state.user = val_u
-                    st.success("✅ 驗證成功，正在載入預測面板...")
-                    st.rerun()
-                else:
-                    st.error(f"❌ 驗證失敗。請確認帳號為 admin 且密碼為 1234 (目前偵測到: {val_u}/{'***' if val_p else '空'})")
-        
-        with tab_reg:
-            # 還原註冊介面
-            st.subheader("建立新帳號")
-            st.text_input("使用者名稱", key="new_u")
-            st.text_input("設定密碼", type="password", key="new_p")
-            if st.button("確認註冊並自動登入"):
-                if st.session_state.new_u and st.session_state.new_p:
-                    st.session_state.user = st.session_state.new_u
-                    st.success("🎉 註冊成功！")
-                    st.rerun()
-                else:
-                    st.error("請填寫完整註冊資訊。")
-        
-        # 3. 關鍵阻斷：解決 2330 面板重疊問題
-        return
+    # 檢查是否超過 1 小時未活動，若是則強制登出
+    if st.session_state.user and (time.time() - st.session_state.last_active > 3600):
+        st.session_state.user = None
+        st.warning("會話已過時，請重新登入")
+    st.session_state.last_active = time.time()
     
     # -------------------------------------------------------------
     # [段落 7-2] Google Sheets 資料庫連線與全局參數讀取
@@ -888,6 +841,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
