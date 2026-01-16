@@ -153,15 +153,18 @@ def god_mode_engine(df, symbol, mkt_df):
 # -----------------------------------------------------------------
 # 4. 全局自動化同步邏輯 (交易日自動對齊修正版)
 # -----------------------------------------------------------------
+# -----------------------------------------------------------------
+# 4. 全局自動化同步邏輯
+# -----------------------------------------------------------------
 def run_daily_sync():
     try:
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         
-        # [時間鎖已註解] 方便凌晨或週末手動測試，正式上線後可解除註解
-          if now.hour < 14 or (now.hour == 14 and now.minute < 30):
-              print(f"⏳ 當前時間 {now.strftime('%H:%M')}，未達 14:30，跳過。")
-              return
+        # ⚠️ 這裡前面必須有 8 個空格 (或 2 個 Tab)
+        if now.hour < 14 or (now.hour == 14 and now.minute < 30):
+            print(f"⏳ 當前時間 {now.strftime('%H:%M')}，未達 14:30，跳過。")
+            return
 
         client = init_gspread()
         sh = client.open("users")
