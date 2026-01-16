@@ -686,50 +686,60 @@ def render_terminal(symbol, p_days, cp, tw_val, api_ttl, v_comp, ws_p):
 
 def main():
     # -------------------------------------------------------------
-    # [段落 7-1] Session 初始化與權限檢查
+    # [段落 7-1] Session 初始化與權限管理
     # -------------------------------------------------------------
     if 'user' not in st.session_state:
         st.session_state.user = None
     
-    # --- 【核心修正：視覺與邏輯同步優化】 ---
+    # --- 【核心修正：美化介面與穩定登入】 ---
     if st.session_state.user is None:
-        st.title("🛡️ StockAI 系統登入")
+        st.title("🚀 StockAI 智慧交易系統")
         
-        # 1. 強制修正按鈕：確保文字為黑色，背景為亮白色
+        # 1. 視覺優化：深藍色背景按鈕 + 白色字 (解決文字太黑問題)
         st.markdown("""
             <style>
             div.stButton > button {
-                background-color: #FFFFFF !important;
-                color: #000000 !important;
-                border: 2px solid #FF3131 !important;
+                background-color: #0047AB !important; /* 專業深藍 */
+                color: #FFFFFF !important;           /* 純白文字 */
+                border-radius: 8px !important;
+                border: none !important;
                 font-size: 18px !important;
+                font-weight: bold !important;
                 height: 3em !important;
                 width: 100% !important;
+                box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
             }
-            /* 針對手機端或不同主題的文字強制黑化 */
-            div.stButton > button p {
-                color: #000000 !important;
-                font-weight: 900 !important;
+            div.stButton > button:hover {
+                background-color: #0056D2 !important;
+                transform: translateY(-2px);
             }
             </style>
         """, unsafe_allow_html=True)
 
-        # 2. 乾淨的輸入介面 (移除標題後的提示)
-        u_name = st.text_input("帳號").strip()
-        p_word = st.text_input("密碼", type="password").strip()
+        # 2. 找回分頁：將登入與註冊分開
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
         
-        # 3. 登入按鈕邏輯
-        if st.button("確認登入系統"):
-            # 這裡進行嚴格比對
-            if u_name == "admin" and p_word == "1234":
-                st.session_state.user = u_name
-                st.success("✅ 驗證通過，進入系統...")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ 帳號或密碼錯誤（請檢查大小寫）")
+        with tab_login:
+            # 使用唯一 key 值確保輸入框不會互相干擾
+            u_name = st.text_input("帳號", key="login_user").strip()
+            p_word = st.text_input("密碼", type="password", key="login_pass").strip()
+            
+            if st.button("立即進入終端系統"):
+                # 再次確認帳密：admin / 1234
+                if u_name == "admin" and p_word == "1234":
+                    st.session_state.user = u_name
+                    st.success("✅ 驗證成功！")
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼不正確，請重新檢查。")
         
-        # 阻斷點：未登入時不執行後續任何代碼
+        with tab_reg:
+            st.info("目前僅開放內部管理員 (admin) 登入，新帳號註冊功能審核中。")
+            st.text_input("預註冊帳號", key="reg_user")
+            st.text_input("預註冊密碼", type="password", key="reg_pass")
+            st.button("提交註冊申請", disabled=True)
+        
+        # 阻斷點：未登入時不執行後方 2330 運算
         return
     
     # -------------------------------------------------------------
@@ -874,6 +884,7 @@ def main():
 # -----------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
