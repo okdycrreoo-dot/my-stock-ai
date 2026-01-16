@@ -131,12 +131,33 @@ def main_app(db):
         if stock_data.empty:
             st.warning(f"目前尚無 {target} 的分析數據")
             if st.button(f"🚀 啟動即時 AI 診斷"):
-                with st.spinner("AI 正在解析數據..."):
-                    # (此處保留原有的 fetch_comprehensive_data 與 god_mode_engine 邏輯)
-                    st.success("診斷完成，請重新整理！")
-                    st.rerun()
-        else:
-            row = stock_data.iloc[0]
+                with st.spinner(f"正在為 {target} 執行預測之神引擎分析..."):
+                    try:
+                        # 1. 抓取數據
+                        mkt_df = fetch_market_context()
+                        df, f_id = fetch_comprehensive_data(target)
+                        
+                        if df is not None:
+                            # 2. 執行 AI 核心運算
+                            p_next, path_str, insight, biases, s_data, e_data = god_mode_engine(df, f_id, mkt_df)
+                            
+                            # 3. 準備寫入 Google Sheets 的數據列 (對齊 35 欄格式)
+                            data_date = df.index[-1].strftime("%Y-%m-%d")
+                            # s_data 包含 5, 10, 15, 20, 25, 30 日的數據，我們取前段
+                            upload_row = [
+                                data_date, f_id, p_next, round(p_next*0.985, 2), round(p_next*1.015, 2), "即時更新"
+                            ] + s_data + [0] + [path_str, insight] + biases + e_data
+                            
+                            # 4. 寫入試算表
+                            db["pred_ws"].append_row(upload_row)
+                            
+                            st.success(f"✅ {target} 診斷完成！數據已同步至雲端。")
+                            time.sleep(1)
+                            st.rerun() # 強制刷新頁面以顯示新數據
+                        else:
+                            st.error("無法從 Yahoo Finance 獲取該股票數據，請檢查代碼是否正確。")
+                    except Exception as e:
+                        st.error(f"❌ 診斷失敗：{str(e)}")
             
             # --- AI 關鍵診斷報告 ---
             st.success(f"🤖 **AI 診斷報告：**\n\n{row.get('ai_insight', '無報告')}")
@@ -178,6 +199,7 @@ if __name__ == "__main__":
             auth_section(db_con)
         else:
             main_app(db_con)
+
 
 
 
