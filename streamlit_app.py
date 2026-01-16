@@ -185,7 +185,11 @@ def auto_sync_feedback(ws_p, f_id, insight):
         is_after_market = (now.hour * 60 + now.minute) >= 870
         is_weekend = now.weekday() >= 5
 
-        # --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
+        # =================================================================
+# 第三章：數據回饋與自動化同步 (整合修正版)
+# =================================================================
+
+# --- [3-2 段] 歷史對帳邏輯：回填目標日已過的實際股價 ---
         if not df_p.empty:
             for i, row in df_p.iterrows():
                 # 若 actual_close 欄位為空，且該列記錄的預測目標日期已到達或已過(<=今天)
@@ -209,7 +213,50 @@ def auto_sync_feedback(ws_p, f_id, insight):
                         err_val = (act_close - pred_close) / (pred_close + 1e-9)
                         ws_p.update_cell(i + 2, 7, f"{err_val:.2%}")
 
-        # --- [3-3 段] 單一標的即時預測回填與命中率計算 ---
+# --- [3-3 段] 批次引擎邏輯：14:30 收盤後的全清單自動分析 ---
+def run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl, ws_w):
+    """
+    此函式負責在 14:30 後，針對所有使用者追蹤的股票進行一次性預測寫入。
+    💡 修正：已包含 ws_w 參數，徹底解決 AttributeError。
+    """
+    try:
+        # 1. 取得目前預測表中的記錄，用來檢查是否今天已經算過了
+        existing_records = ws_p.get_all_records()
+        existing_df = pd.DataFrame(existing_records) if existing_records else pd.DataFrame(columns=['date', 'symbol'])
+        
+        # 取得台灣今日日期字串
+        tw_tz = pytz.timezone('Asia/Taipei')
+        today_str = datetime.now(tw_tz).strftime('%Y-%m-%d')
+
+        for symbol in unique_stocks:
+            # 檢查防重機制：如果今天這檔股票已經在試算表裡有記錄，就跳過不重複計算
+            is_done = False
+            if not existing_df.empty and 'symbol' in existing_df.columns:
+                is_done = not existing_df[(existing_df['date'] == today_str) & (existing_df['symbol'] == symbol)].empty
+            
+            if is_done:
+                continue 
+
+            # 2. 啟動 AI 運算流 (依序呼叫各章節核心引擎)
+            df, f_id = fetch_comprehensive_data(symbol, api_ttl * 60)
+            if df is not None:
+                # 呼叫第四章：參數微調
+                f_p, f_tw, f_v, _, bias, f_vol, b_drift = auto_fine_tune_engine(df, cp, tw_val, v_comp)
+                
+                # 呼叫第五章：核心預測 (預設預估 7 天)
+                _, _, _, _, _, _, _, insight = perform_ai_engine(
+                    df, 7, f_p, f_tw, f_v, bias, f_vol, b_drift
+                )
+                
+                # 💡 insight 包含：[AI評等, 建議, 顏色, 預估價, 高標, 低標, 乖離率]
+                # 3. 寫入試算表存檔
+                auto_sync_feedback(ws_p, f_id, insight)
+                
+    except Exception as e:
+        # 背景任務執行時若出錯，記錄在後台不干擾使用者介面
+        print(f"⚠️ 批次引擎執行異常: {e}")
+
+        # --- [3-4 段] 單一標的即時預測回填與命中率計算 ---
         # 邏輯：14:30 收盤後，若使用者查詢該股，自動檢查並寫入下一交易日預測
         if is_after_market and not is_weekend:
             next_bus_day = now + timedelta(days=1)
@@ -264,7 +311,7 @@ def auto_sync_feedback(ws_p, f_id, insight):
         return f"🎯 系統同步中...", []
 
 
-# --- [3-4 段] 批次引擎：確保 A-G 欄位純淨 ---
+# --- [3-5 段] 批次引擎：確保 A-G 欄位純淨 ---
 def run_batch_predict_engine(ws_w, ws_p, cp, tw_val, v_comp, api_ttl):
     all_watchlist = pd.DataFrame(ws_w.get_all_records())
     if all_watchlist.empty: return
@@ -819,21 +866,44 @@ def main():
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
     # -------------------------------------------------------------
-    # [段落 7-4] 批次引擎：14:30 收盤門禁 + 跨使用者去重
-    # -------------------------------------------------------------
+# [第七章 修正版 7-4 段] 批次引擎：14:30 收盤門禁 + 跨使用者去重同步
+# -------------------------------------------------------------
+    # 設定台灣時區與檢查目前時間
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
     market_close = dt_module.time(14, 30)
 
+    # 判斷是否進入收盤後批次處理時間
     if now_tw.time() >= market_close:
-        with st.spinner("🌙 執行收盤全清單去重同步..."):
-            all_w_data = ws_w.get_all_records()
-            if all_w_data:
-                # 💡 去重邏輯：即便多人追蹤台積電，今日也只計算並寫入一次
-                unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
-                run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
+        with st.spinner("🌙 偵測到收盤時間，正在執行全清單 AI 預測同步..."):
+            try:
+                # 1. 從 Google Sheets 抓取所有使用者的自選股
+                all_w_data = ws_w.get_all_records()
+                
+                if all_w_data:
+                    # 2. 跨使用者去重邏輯：提取所有不重複的股票代號
+                    # 💡 即便多人追蹤同一檔，今日也只會計算並寫入一次 predictions 表
+                    unique_stocks = list(set([str(r['stock_symbol']) for r in all_w_data]))
+                    
+                    # 3. 呼叫批次引擎 (關鍵修正：補上 ws_w 參數確保內部可讀取清單)
+                    run_batch_predict_engine(
+                        unique_stocks, # 待測清單
+                        ws_p,          # 預測表連線
+                        cp,            # 全域精度
+                        tw_val,        # 趨勢權重
+                        v_comp,        # 波動補償
+                        api_ttl,       # API 快取時間
+                        ws_w           # 自選股表連線 (💡 修復錯誤的關鍵)
+                    )
+                    st.success(f"✅ 已完成 {len(unique_stocks)} 檔標的之收盤預測寫入。")
+                else:
+                    st.warning("目前無任何使用者加入自選股，跳過批次引擎。")
+                    
+            except Exception as e:
+                st.error(f"❌ 收盤同步執行異常: {e}")
     else:
-        st.info(f"☀️ 盤中時間 ({now_tw.strftime('%H:%M')}) 僅提供即時分析，14:30 後產出正式報告。")
+        # 盤中模式僅提示
+        st.info(f"☀️ 盤中時間 ({now_tw.strftime('%H:%M')}) 僅提供即時分析，14:30 後將產出正式預測報告。")
 
     # -------------------------------------------------------------
     # [段落 7-5] 管理面板：自選股維護 (含 20 支上限邏輯)
@@ -887,6 +957,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
