@@ -735,21 +735,26 @@ def main():
     except:
         cp, api_ttl, tw_val, v_comp = 55, 1, 1.0, 1.5
 
-    # --- [7-5] 14:30 收盤自動化同步 (統一 symbol) ---
+    # --- [7-5] 盤後數據狀態檢查 (2026 最終正確版：純讀取模式) ---
     tw_tz = pytz.timezone('Asia/Taipei')
     now_tw = dt_module.datetime.now(tw_tz)
     
-    if now_tw.time() >= dt_module.time(14, 30) and now_tw.weekday() < 5:
-        try:
-            all_w_data = ws_w.get_all_records()
-            if all_w_data:
-                # 統一使用 'symbol'
-                unique_stocks = list(set([str(r['symbol']) for r in all_w_data if 'symbol' in r]))
-                if unique_stocks:
-                    run_batch_predict_engine(unique_stocks, ws_p, cp, tw_val, v_comp, api_ttl)
-        except:
-            pass # 避免同步異常卡死主畫面
-
+    # 定義顯示邏輯，僅提供視覺資訊，不觸發 run_batch_predict_engine
+    with st.container():
+        col_status1, col_status2 = st.columns([2, 1])
+        with col_status1:
+            if now_tw.time() >= dt_module.time(14, 30) and now_tw.weekday() < 5:
+                st.success(f"🌙 已過收盤 (14:30)，目前顯示 GitHub 機器人同步之最新預測數據。")
+            elif now_tw.weekday() >= 5:
+                st.info(f"📅 週末休市模式：目前顯示本週最後一交易日之分析結果。")
+            else:
+                st.warning(f"☀️ 盤中即時模式 ({now_tw.strftime('%H:%M')})：顯示昨日收盤之 AI 預測基準。")
+        
+        with col_status2:
+            # 提供一個手動清除快取的按鈕，萬一資料沒更新時可用
+            if st.button("🔄 重新抓取雲端數據", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
     # --- [7-6] 管理面板：自選股維護 ---
     with st.expander("⚙️ 清單管理與系統設定", expanded=False):
         raw_w = ws_w.get_all_records()
@@ -823,4 +828,5 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
