@@ -681,25 +681,48 @@ def main():
         except: 
             user_dict = {}
 
+        # --- [7-3] 使用者身分驗證 UI ---
+    if st.session_state.user is None:
+        # 💡 強力 CSS：徹底隱藏側邊欄
+        st.markdown("""
+            <style>
+                [data-testid="stSidebar"] { display: none !important; }
+                [data-testid="stSidebarNav"] { display: none !important; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.title("🚀 StockAI 台股決策終端")
+        tab_login, tab_reg = st.tabs(["🔑 系統登入", "📝 註冊帳號"])
+        
+        try:
+            user_data = ws_u.get_all_records()
+            # 💡 讀取時確保 key 與 value 都是乾淨的字串
+            user_dict = {str(row['username']).strip(): str(row['password']).strip() for row in user_data}
+        except: user_dict = {}
+
         with tab_login:
             u_name = st.text_input("帳號", key="login_u").strip()
             p_word = st.text_input("密碼", type="password", key="login_p").strip()
             
             if st.button("進入 AI 系統", use_container_width=True):
-                # 取得儲存的密碼，若帳號不存在則回傳空字串
-                stored_p = user_dict.get(u_name)
-                
-                # 💡 [強化比對] 排除掉 .0 的干擾（針對 Google Sheets 數字格式）
                 input_p = str(p_word).strip()
-                if stored_p and (stored_p == input_p or stored_p.replace(".0", "") == input_p):
-                    st.session_state.user = u_name
-                    st.cache_data.clear() # 登入成功立即刷新快取
-                    st.rerun()
-                else: 
-                    st.error("❌ 帳號或密碼錯誤")
-                    # 調試用 (選用)：若還是失敗，可以取消下面註解看是什麼字串對不上
-                    # st.write(f"DEBUG: 儲存值='{stored_p}', 輸入值='{input_p}'")
+                stored_p = user_dict.get(u_name)
 
+                # 💡 關鍵修正：相容 Google Sheets 把 000000 變成 0 或 0.0 的狀況
+                if stored_p:
+                    # 情況 A: 完全匹配
+                    # 情況 B: 處理 Google 把整數變 0.0 的問題 (把 .0 去掉再比對)
+                    is_match = (stored_p == input_p) or (stored_p.replace(".0", "") == input_p)
+                    
+                    if is_match:
+                        st.session_state.user = u_name
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("❌ 帳號或密碼錯誤")
+                else:
+                    st.error("❌ 帳號不存在")
+                    
         with tab_reg:
             st.subheader("建立新帳戶")
             new_u = st.text_input("設定新帳號", key="reg_u").strip()
@@ -806,6 +829,7 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     main()
+
 
 
 
