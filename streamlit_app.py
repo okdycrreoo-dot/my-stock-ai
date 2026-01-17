@@ -267,9 +267,37 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                 if st.button("🗑️ 刪除", key="del_btn_main"):
                     delete_stock(user_name, selected_stock, watchlist_ws)
 
+# ==========================================
+# 拼圖 A：顯示器 (專門解決你看到的紅字問題)
+# ==========================================
+def display_analysis_results(row):
+    """將試算表數據轉化為漂亮圖表，若 row 不存在則不執行"""
+    if not row or len(row) < 3:
+        return
+    
+    st.markdown("---")
+    st.success(f"### 🎯 AI 分析報告：{row[1]}")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("分析日期", row[0])
+    with col2:
+        advice = row[2]
+        color = "green" if "買" in advice else "red" if "賣" in advice else "orange"
+        st.markdown(f"**建議方向：** :{color}[{advice}]")
+    with col3:
+        st.metric("AI 信心度", row[3] if len(row) > 3 else "N/A")
+
+    with st.expander("📊 查看詳細 AI 運算指標 (共 37 項)"):
+        # 顯示從第 5 欄開始的所有詳細技術指標
+        st.write(row[4:])
+
+# ==========================================
+# 拼圖 B：執行員 (完整覆蓋你給我的那段)
+# ==========================================
 def process_analysis(symbol, pred_ws):
     """
-    ST 強化版：偵測、呼叫、同步三合一
+    ST 強化版：1.偵測 2.喚醒 3.輪詢 4.顯示
     """
     import time
     import yfinance as yf
@@ -293,41 +321,43 @@ def process_analysis(symbol, pred_ws):
         st.success(f"✅ 取得最新分析報告 ({latest_market_date})")
         display_analysis_results(found_row)
     else:
-        # 如果沒資料，觸發 GitHub 雲端大腦
+        # 如果沒資料，啟動 GitHub 雲端大腦
         with st.status(f"🔮 偵測到 {symbol} 需更新，AI 大腦已接手...", expanded=True) as status:
             st.write("📡 正在發射指令給雲端引擎...")
             
-            # 這裡呼叫你放在最上方的遙控器函數
+            # 呼叫你放在最上方的遙控器函數
             if trigger_github_analysis(symbol):
                 st.write("🚀 指令送達！GitHub 大腦已啟動...")
             else:
                 status.update(label="❌ 遙控器連線失敗", state="error")
+                st.error("請檢查 Secrets 中的 GITHUB_TOKEN 設定")
                 return
 
             st.write("🧠 AI 正在進行深度分析 (預計 45-60 秒)...")
             sync_area = st.empty()
             
-            # 4. 輪詢等待
+            # 4. 輪詢等待回填 (最大等待約 2 分鐘)
             max_retries = 30
             for i in range(max_retries):
                 time.sleep(4)
-                # 重新讀取表格
+                # 每 4 秒重新讀取一次試算表
                 current_data = pred_ws.get_all_values()
                 new_row = next((r for r in current_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
                 
                 if new_row:
                     sync_area.empty()
                     status.update(label="✅ 大腦寫入完成！", state="complete", expanded=False)
-                    display_analysis_results(new_row) # 這裡會呼叫我們剛剛補上的顯示器
+                    display_analysis_results(new_row) 
                     return
                 
                 sync_area.write(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
             
             status.update(label="❌ 分析逾時", state="error")
-            st.warning("🔄 引擎處理中，請一分鐘後手動整理網頁。")
+            st.warning("🔄 引擎仍在處理中，請稍後手動重新整理網頁。")
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
