@@ -467,35 +467,52 @@ def chapter_5_ai_decision_report(row, pred_ws):
         st.error("數據欄位不足，請檢查試算表格式")
         return
 
-    # --- 1. 標題區 (整合基準日，取代黃色大區塊) ---
+    # --- 1. 標題與市場情緒 (抓取 AK 欄位) ---
     analysis_date = row[0]
-    st.markdown(f"### 🔮 隔日價格預演 (分析基準日：{analysis_date})")
+    # AK 欄位索引為 36
+    market_sentiment = row[36] if len(row) > 36 else "讀取中"
+    sentiment_icon = "🧘" if "冷靜" in market_sentiment else "🔥" if "過熱" in market_sentiment else "📊"
+    
+    st.markdown(f"### 🔮 隔日價格預演 (基準日：{analysis_date}) {sentiment_icon} <small>{market_sentiment}</small>", unsafe_allow_html=True)
 
-    # --- 2. 核心預測數據 ---
+    # --- 2. 核心預測數據 (同格上下行) ---
     c1, c2 = st.columns(2)
     with c1:
-        # 顯示預計收盤價與區間 (同格上下行)
         st.metric("預計收盤價", f"{row[2]}") 
         st.markdown(f"<p style='color:gray; font-size:0.9rem; margin-top:-15px;'>波動區間：{row[3]} ~ {row[4]}</p>", unsafe_allow_html=True)
     with c2:
-        # AI 信心度 (預設從試算表抓取或設定)
+        conf_val = 90.0 # 靜態或對應信心度欄位
         st.write("**AI 辨識信心度**")
-        conf_val = 90.0 
         st.progress(conf_val / 100)
-        st.caption(f"目前模型運算信心值為 {conf_val}%")
+        st.caption(f"信心值：{conf_val}%")
 
     st.markdown("---")
 
-    # --- 3. 策略預估價位矩陣 (5/10/20日) ---
-    st.write("### 🎯 策略預估價位矩陣")
-    price_matrix = {
-        "時序": ["5日建議", "10日建議", "20日建議"],
-        "建議買價": [row[6], row[7], row[9]], 
-        "建議賣價": [row[12], row[13], row[15]],
-        "壓力價位": [row[18], row[19], row[21]],
-        "乖離率 (%)": [row[29], row[30], row[32]]
-    }
-    st.table(price_matrix)
+    # --- 3. 核心指標儀表板 (專業標題，簡單說明) ---
+    st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        # AH 欄 (索引 33): atr_value
+        atr_v = safe_float(row[33]) if len(row) > 33 else 0.0
+        st.metric("股價活潑度 (ATR)", f"{atr_v:.2f}")
+        st.caption("💡 數字大代表股價跳動大，機會多但洗盤也兇。")
+
+    with col_b:
+        # AI 欄 (索引 34): vol_bias
+        vol_b = safe_float(row[34]) if len(row) > 34 else 0.0
+        v_status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
+        st.metric("資金追價意願", v_status, delta=f"{vol_b}%")
+        st.caption("💡 正數代表大家肯拿錢追高；負數代表只是虛漲。")
+
+    with col_c:
+        # AJ 欄 (索引 35): rr_ratio
+        rr_v = safe_float(row[35]) if len(row) > 35 else 0.0
+        rr_txt = "💎 極具價值" if rr_v > 1.5 else "⚠️ 風險偏高"
+        st.metric("投資性價比 (R/R)", rr_txt)
+        st.caption(f"💡 目前為 {rr_v:.1f}。代表賠 1 塊的風險能換 {rr_v:.1f} 塊獲利。")
+
+    st.markdown("---")
 
     # --- 4. 歷史準確率驗證 (隱藏索引 0，僅限 10 筆) ---
     st.write("### 📈 最新 10 筆預測準確率驗證")
@@ -541,13 +558,12 @@ st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
 col_a, col_b, col_c = st.columns(3)
 
 def safe_float(value):
-    """安全轉換數值函數，避免非數字字元導致崩潰"""
-    try:
-        # 移除百分比符號或空格
-        clean_val = str(value).replace('%', '').strip()
-        return float(clean_val)
-    except (ValueError, TypeError):
-        return 0.0
+        try:
+            if not value or str(value).strip() == "": return 0.0
+            clean_val = str(value).replace('%', '').replace(',', '').strip()
+            return float(clean_val)
+        except (ValueError, TypeError):
+            return 0.0
 
 with col_a:
     # AH 欄 (索引 33): atr_value
@@ -592,3 +608,4 @@ with col_out:
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
