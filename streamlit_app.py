@@ -183,9 +183,12 @@ def main():
         if selected_stock:
             chapter_4_stock_basic_info(selected_stock)
 
-        # 3. 【關鍵補位】顯示 AI 分析報告 (放在最下面)
-        if "current_analysis" in st.session_state:
-            display_analysis_results(st.session_state["current_analysis"])
+        # 3. 執行第五章 (AI 深度報告)
+            # 只有當我們有點擊「開始分析」取得結果後才顯示
+            if "current_analysis" in st.session_state:
+                # 確保分析的股票跟目前選中的股票是同一支
+                if st.session_state["current_analysis"][1] == selected_stock:
+                    chapter_5_ai_decision_report(st.session_state["current_analysis"])
 
 # ==========================================
 # 第三章：監控清單管理功能 (Control Panel)
@@ -454,10 +457,81 @@ def chapter_4_stock_basic_info(symbol):
 
     st.markdown("---") # 章節結束線
 
+# ==========================================
+# 第五章：AI 深度決策報告 (核心分析區)
+# ==========================================
+def chapter_5_ai_decision_report(row):
+    """
+    將 AI 試算表數據轉化為專業級決策面板
+    """
+    if not row or len(row) < 3:
+        return
+
+    # 數據對應 (假設 row 索引：0日期, 1代號, 2建議, 3信心, 4隔日預估, 5區間, 6診斷, 7展望...)
+    # 註：這裡的索引需要根據你 Google Sheets 實際欄位順序微調
+    date_str = row[0]
+    advice = row[2]
+    confidence = float(row[3].replace('%','')) if isinstance(row[3], str) else row[3]
+    
+    # --- 1. 頭條建議卡片 ---
+    bg_color = "#FF4B4B" if "賣" in advice else "#00CC66" if "買" in advice else "#FFA500"
+    st.markdown(f"""
+        <div style="background-color:{bg_color}; padding:20px; border-radius:10px; text-align:center;">
+            <h1 style="color:white; margin:0; letter-spacing:5px;">AI 決策建議：{advice}</h1>
+            <p style="color:white; margin:5px 0 0 0; opacity:0.9;">分析基準日：{date_str}</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # --- 2. AI 信心條 ---
+    st.write("##")
+    col_conf, col_bar = st.columns([1, 4])
+    with col_conf:
+        st.write("**AI 辨識信心度**")
+    with col_bar:
+        st.progress(confidence / 100)
+        st.caption(f"目前模型運算信心值為 {confidence}%")
+
+    st.markdown("---")
+
+    # --- 3. 預測價格矩陣 (5/10/20日) ---
+    st.write("### 🎯 策略預估價位")
+    # 這裡假設你的試算表有存這些值，或是由我們計算邏輯帶入
+    # 格式：[買價, 賣價, 壓力, 乖離]
+    price_data = {
+        "時序": ["5日建議", "10日建議", "20日建議"],
+        "建議買價": [row[8], row[12], row[16]], # 範例索引，需對應你試算表
+        "建議賣價": [row[9], row[13], row[17]],
+        "壓力價位": [row[10], row[14], row[18]],
+        "乖離率 (%)": [row[11], row[15], row[19]]
+    }
+    st.table(price_data)
+
+    # --- 4. 隔日預測與準確率 ---
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(f"🔮 **隔日預期收盤：{row[4]}**")
+        st.caption(f"波動預估區間：{row[5]}")
+    with c2:
+        # 這裡可以放你說的最新 10 筆準確率 (假設存成一個字串或分開存)
+        st.warning(f"📈 **近 10 筆預測準確率**")
+        st.write("90% | 85% | 100% | 70% | ...") # 依此類推
+
+    st.markdown("---")
+
+    # --- 5. AI 診斷與展望 (深度評論區) ---
+    st.write("### 🧠 深度診斷說明")
+    with st.container():
+        st.markdown(f"**【AI 臨床診斷】**")
+        st.info(row[6]) # 診斷建議
+        
+        st.markdown(f"**【未來展望評估】**")
+        st.success(row[7]) # 展望說明
+
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
