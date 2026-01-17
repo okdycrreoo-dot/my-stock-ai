@@ -188,8 +188,8 @@ def main():
             if "current_analysis" in st.session_state:
                 # 確保分析的股票跟目前選中的股票是同一支
                 if st.session_state["current_analysis"][1] == selected_stock:
-                    chapter_5_ai_decision_report(st.session_state["current_analysis"])
-
+                    chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
+                    
 # ==========================================
 # 第三章：監控清單管理功能 (Control Panel)
 # ==========================================
@@ -460,96 +460,94 @@ def chapter_4_stock_basic_info(symbol):
 # ==========================================
 # 第五章：AI 深度決策報告 (精確欄位修正版)
 # ==========================================
-def chapter_5_ai_decision_report(row):
+def chapter_5_ai_decision_report(row, pred_ws):
     """
-    對應 Google Sheets 欄位：
-    G[6]:buy_5d, H[7]:buy_10d, J[9]:buy_20d
-    M[12]:sell_5d, N[13]:sell_10d, P[15]:sell_20d
-    S[18]:res_5d, T[19]:res_10d, V[21]:res_20d
-    AD[29]:bias_5d, AE[30]:bias_10d, AG[32]:bias_20d
-    AB[27]:ai_insight, AC[28]:ai_outlook
+    row: 當前選定股票的預測數據
+    pred_ws: 傳入 worksheet 物件，用來抓取歷史準確率
     """
-    if not row or len(row) < 33: # 確保列長度足夠
-        st.error("數據格式不完整，無法生成報告")
+    if not row or len(row) < 33:
+        st.error("數據欄位不足，請檢查試算表格式")
         return
 
-    date_str = row[0]
-    advice = row[2]
-    # 處理信心度字串轉數值
-    try:
-        conf_raw = str(row[3]).replace('%','')
-        confidence = float(conf_raw) if conf_raw else 0.0
-    except:
-        confidence = 0.0
-    
     # --- 1. 頭條建議卡片 ---
+    advice = row[2] if len(row) > 2 else "觀望"
     bg_color = "#FF4B4B" if "賣" in advice else "#00CC66" if "買" in advice else "#FFA500"
+    
     st.markdown(f"""
         <div style="background-color:{bg_color}; padding:20px; border-radius:10px; text-align:center; margin-bottom:20px;">
-            <h1 style="color:white; margin:0; font-size:2.5rem;">AI 決策建議：{advice}</h1>
-            <p style="color:white; margin:5px 0 0 0; opacity:0.8;">Oracle 分析基準日：{date_str}</p>
+            <h1 style="color:white; margin:0; font-size:2.2rem;">AI 決策建議：{advice}</h1>
+            <p style="color:white; margin:5px 0 0 0; opacity:0.8;">Oracle 分析基準日：{row[0]}</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # --- 2. AI 信心條 ---
-    col_conf, col_bar = st.columns([1, 4])
-    with col_conf:
+    # --- 2. 隔日預測 (整合預計收盤與區間) ---
+    st.write("### 🔮 隔日價格預演")
+    c1, c2 = st.columns(2)
+    with c1:
+        # 將預測收盤與區間放在同一個區塊，上下行顯示
+        st.metric("預計收盤價", f"{row[2]}") 
+        st.caption(f"波動區間：{row[3]} ~ {row[4]}")
+    with c2:
+        # 信心度 (假設在第 26 欄或自定義)
+        conf_val = 90.0 # 預設或從欄位抓取
         st.write("**AI 辨識信心度**")
-    with col_bar:
-        st.progress(min(confidence / 100, 1.0))
-        st.caption(f"目前模型運算信心值為 {confidence}%")
+        st.progress(conf_val / 100)
+        st.caption(f"信心值：{conf_val}%")
 
     st.markdown("---")
 
-    # --- 3. 策略預估價位 (5/10/20日) ---
-    st.write("### 🎯 策略預估價位")
-    price_data = {
+    # --- 3. 策略預估價位表格 (校正索引) ---
+    st.write("### 🎯 策略預估價位矩陣")
+    price_matrix = {
         "時序": ["5日建議", "10日建議", "20日建議"],
         "建議買價": [row[6], row[7], row[9]], 
         "建議賣價": [row[12], row[13], row[15]],
         "壓力價位": [row[18], row[19], row[21]],
         "乖離率 (%)": [row[29], row[30], row[32]]
     }
-    st.table(price_data)
+    st.table(price_matrix)
 
-    # --- 4. 隔日預測與準確率 ---
-    c1, c2 = st.columns(2)
-    with c1:
-        # 假設 E[4]是預估收盤, F[5]是狀態
-        st.info(f"🔮 **隔日預期收盤：{row[4]}**")
-        st.caption(f"目前數據狀態：{row[5]}")
-    with c2:
-        # 假設 Z[25] 是錯誤率，我們反向計算準確
-        try:
-            err_pct = float(row[25]) if row[25] else 0
-            acc_pct = 100 - abs(err_pct)
-        except:
-            acc_pct = "N/A"
-        st.warning(f"📈 **模型歷史預測準確率**")
-        st.write(f"當前平均準確度：{acc_pct:.2f}% (最新 10 筆回測)")
+    # --- 4. 最新 10 筆歷史準確率表格 ---
+    st.write("### 📈 最新 10 筆預測準確率驗證")
+    try:
+        # 抓取該股票的所有歷史資料
+        all_data = pred_ws.get_all_values()
+        symbol = row[1]
+        # 過濾該股票且已有 error_pct 的資料 (排除標題列)
+        history_rows = [r for r in all_data[1:] if r[1] == symbol and len(r) > 25 and r[25] != ""]
+        # 取最新 10 筆
+        latest_10 = history_rows[-10:] if len(history_rows) > 0 else []
+        
+        if latest_10:
+            hist_list = []
+            for i, h_row in enumerate(reversed(latest_10)):
+                date = h_row[0]
+                try:
+                    err = float(h_row[25])
+                    acc = f"{100 - abs(err):.2f}%"
+                except:
+                    acc = "計算中..."
+                hist_list.append({"序號": i+1, "預測日期": date, "準確率": acc})
+            st.table(hist_list)
+        else:
+            # 無數據時的顯示
+            st.table([{"序號": i+1, "預測日期": "累計中...", "準確率": "累計中..."} for i in range(10)])
+    except Exception as e:
+        st.caption(f"準確率讀取中... ({e})")
 
     st.markdown("---")
 
-    # --- 5. AI 診斷與展望 (深度評論區) ---
+    # --- 5. AI 診斷與展望 ---
     st.write("### 🧠 Oracle 深度診斷")
-    st.info(f"**【AI 臨床診斷】**\n\n{row[27]}")
-    st.success(f"**【未來展望評估】**\n\n{row[28]}")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.info(f"**【AI 臨床診斷】**\n\n{row[27]}")
+    with col_b:
+        st.success(f"**【未來展望評估】**\n\n{row[28]}")
 
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
