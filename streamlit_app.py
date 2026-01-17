@@ -156,14 +156,96 @@ def main():
                 st.session_state["logged_in"] = False
                 st.rerun()
 
-        # --- 第三章：監控清單管理預留區 ---
-        st.markdown("---")
-        st.subheader("📍 第三章：監控清單管理")
-        st.info("導覽列已恢復橫向並縮小，準備進入功能開發。")
+# ==========================================
+# 第三章：監控清單管理功能 (Control Panel)
+# ==========================================
+
+def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
+    """
+    db_ws: 帳號表, watchlist_ws: 自選股表, predictions_ws: AI數據表
+    """
+    user_name = st.session_state["user"]
+    
+    # --- 3.1 控制台縮放按鈕 ---
+    with st.expander("🛠️ 開啟股票控制台", expanded=False):
+        
+        # 獲取目前使用者的自選清單
+        # 假設 watchlist A欄是使用者名稱, B欄是股票代號
+        all_watch = watchlist_ws.get_all_values()
+        user_stocks = [row[1] for row in all_watch if row[0] == user_name]
+        stock_count = len(user_stocks)
+        
+        # 3.2 新增功能佈局 (顯示數量提醒)
+        st.write(f"### 📥 新增自選股 ({stock_count}/30)")
+        
+        col_input, col_add = st.columns([3, 1])
+        
+        with col_input:
+            new_stock = st.text_input("輸入股票代號 (僅限英數)", key="new_stock_input").strip().upper()
+        
+        with col_add:
+            st.write("##") # 對齊
+            add_btn = st.button("確認新增", key="add_stock_btn")
+            
+        # 3.3 新增邏輯處理
+        if add_btn:
+            if not is_alphanumeric(new_stock):
+                st.error("🚫 格式錯誤：僅限輸入英文或數字")
+            elif stock_count >= 30:
+                st.warning("⚠️ 已達上限：最多只能 30 筆自選股")
+            elif new_stock in [s.split('.')[0] for s in user_stocks]:
+                st.info("💡 提醒：此股票已在清單中")
+            else:
+                # --- 自動補全尾數邏輯 (示範用，實際需對接市場代碼) ---
+                # 這裡暫時預設 2330 為 .TW，其餘可透過字典比對
+                # 假設我們有一個判斷函數 get_stock_suffix(symbol)
+                suffix = ".TW" # 預設，後續可擴充判斷 .TWO
+                full_code = f"{new_stock}{suffix}"
+                
+                watchlist_ws.append_row([user_name, full_code])
+                st.success(f"✅ {full_code} 已加入清單")
+                st.rerun()
+
+    # --- 3.4 自選股清單顯示與操作 ---
+    st.markdown("---")
+    st.write("### 📋 我的監控清單")
+    
+    if not user_stocks:
+        st.info("目前清單空空的，快去新增股票吧！")
+    else:
+        for stock in user_stocks:
+            # 每支股票一行，左邊名稱，中間分析按鈕，右邊刪除按鈕
+            c1, c2, c3 = st.columns([3, 1, 1])
+            with c1:
+                st.write(f"🔍 **{stock}**")
+            with c2:
+                if st.button(f"🚀 開始分析", key=f"ana_{stock}"):
+                    process_analysis(stock, predictions_ws)
+            with c3:
+                if st.button(f"🗑️ 刪除", key=f"del_{stock}"):
+                    delete_stock(user_name, stock, watchlist_ws)
+
+def delete_stock(user, symbol, ws):
+    """刪除邏輯：找到對應列並移除"""
+    cells = ws.findall(user)
+    for cell in cells:
+        if ws.cell(cell.row, 2).value == symbol:
+            ws.delete_rows(cell.row)
+            st.success(f"已從清單移除 {symbol}")
+            st.rerun()
+            break
+
+def process_analysis(symbol, pred_ws):
+    """分析邏輯：比對預測表或新增資料"""
+    # 這裡實作比對 predictions 表的邏輯
+    st.write(f"正在分析 {symbol}...")
+    # ... 檢查是否存在 -> 存在則讀取 -> 不存在則觸發 AI ...
+
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
