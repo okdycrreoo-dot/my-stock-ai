@@ -81,43 +81,56 @@ def chapter_2_login(db_ws):
                 st.error("❌ 帳號或密碼錯誤")
 
 # ==========================================
-# 核心執行入口 (The Main Entrance)
+# 核心執行入口章節 (The Main Entrance)
 # ==========================================
 def main():
+    # 執行基礎設定 (白色背景、英數限制提示等)
     setup_page()
-    db = init_db()
     
-    if db is None: return
+    # 執行資料庫連線章節
+    db = init_db() 
+    
+    if db is None:
+        return
 
+    # 初始化登入狀態
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
+    # 判斷登入狀態並顯示對應章節
     if not st.session_state["logged_in"]:
-        st.title("🔮 Oracle AI 入口頁面")
+        # --- 顯示登入/註冊頁面 (第一、二章) ---
+        st.markdown("<h1 style='text-align: center;'>🔮 Oracle AI 入口頁面</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
+        
         with tab1:
             chapter_2_login(db)
         with tab2:
             chapter_1_registration(db)
+            
     else:
-        # --- 登入後的物件排列 ---
-        # 使用 columns 讓歡迎文字與登出按鈕並排
-        col_msg, col_logout = st.columns([3, 1])
+        # --- 顯示登入後的並排佈局 (需求：文字後方跟隨登出按鈕) ---
+        # 建立兩個水平欄位，第一欄放文字，第二欄放按鈕
+        col_msg, col_logout = st.columns([0.85, 0.15])
         
         with col_msg:
-            st.success(f"✅ 歡迎回來，{st.session_state['user']}！")
+            # 使用 markdown 展示標題，確保與按鈕處於同一行
+            st.markdown(f"### ✅ 歡迎回來，{st.session_state['user']}！")
             
         with col_logout:
-            # 調整按鈕垂直位置使其與文字對齊
+            # 增加間距對齊文字高度
             st.write("##") 
             if st.button("登出系統", key="main_logout"):
                 st.session_state["logged_in"] = False
+                # 清除狀態並重整
                 st.rerun()
 
-        # --- 第三章預留位置 ---
+        # --- 以下開始進入第三章預留位置 ---
         st.markdown("---")
-        st.write("📍 **第三章：股票監控清單管理** (待開發物件位置)")
+        st.subheader("📍 第三章：監控清單管理")
+        st.info("此區塊將放置：自選股表格、新增輸入框、刪除按鈕等物件。")
 
+# 程式啟動點
 if __name__ == "__main__":
     main()
 
