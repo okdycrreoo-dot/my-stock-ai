@@ -257,17 +257,16 @@ def delete_stock(user, symbol, ws):
 
 def process_analysis(symbol, pred_ws):
     """
-    ST 背景邏輯確認：
-    1. 比對 predictions 中股票是否存在且日期最新。
-    2. 若是，直接顯示，不叫 AI。
-    3. 若否，發出『喚醒訊號』(F欄標記) 並顯示分析中狀態。
-    4. 不重複寫入相同股票。
+    ST 純偵查模式：
+    1. 只判斷最新資料是否存在於 predictions 表。
+    2. 若有：直接顯示。
+    3. 若無：不寫入表格，顯示「分析中」，並由大腦外部觸發機制進行回填。
     """
     import time
     import yfinance as yf
     import datetime
 
-    st.info(f"🔍 正在核對 {symbol} 的數據時效性...")
+    st.info(f"🔍 正在核對 {symbol} 數據狀態...")
     
     # 1. 取得市場最新收盤日
     try:
@@ -276,71 +275,72 @@ def process_analysis(symbol, pred_ws):
     except:
         latest_market_date = datetime.date.today().strftime("%Y-%m-%d")
 
-    # 2. 搜尋 predictions 內容 (找是否存在 & 日期是否最新)
+    # 2. 搜尋 predictions (純讀取比對)
+    # 我們不再紀錄 row_idx，因為 ST 不會去修改該行
     all_data = pred_ws.get_all_values()
-    row_idx = -1
-    is_latest = False
+    found_row = None
     
-    for i, row in enumerate(all_data):
-        if len(row) > 1 and row[1] == symbol: # B 欄是代號
-            row_idx = i + 1
-            if row[0] == latest_market_date: # A 欄是日期
-                is_latest = True
-            break # 找到第一筆就停，避免重複處理
+    for row in all_data:
+        # 比對 A 欄日期 與 B 欄代號
+        if len(row) > 1 and row[1] == symbol and row[0] == latest_market_date:
+            found_row = row
+            break
 
-    # 3. 執行判斷與喚醒
-    if row_idx != -1 and is_latest:
-        # 資料已是最新：直接拿 A-AK 顯示
-        st.success(f"✅ 取得最新分析資料 ({latest_market_date})")
-        display_analysis_results(all_data[row_idx-1])
+    # 3. 執行判斷
+    if found_row:
+        # 【情境一】資料已存在且日期最新：直接用現有的
+        st.success(f"✅ 取得最新分析報告 ({latest_market_date})")
+        display_analysis_results(found_row)
         
     else:
-        # 資料不符：顯示分析中，並喚醒大腦補資料
-        with st.status("🔮 Oracle AI 正在分析中，請稍候...", expanded=True) as status:
-            if row_idx != -1:
-                # 存在但舊了：在原位置標記，大腦會看到
-                pred_ws.update_cell(row_idx, 6, "Waiting Update")
-                st.write(f"🔄 偵測到舊數據，正在呼叫大腦更新 A-AK 欄位...")
-            else:
-                # 不存在：建立新行標記，大腦會補齊
-                new_row = [""] * 37
-                new_row[0] = latest_market_date
-                new_row[1] = symbol
-                new_row[5] = "Waiting New"
-                pred_ws.append_row(new_row)
-                st.write(f"🆕 建立新任務指標...")
-                row_idx = len(pred_ws.get_all_values())
-
-            # --- 4. 輪詢 (Polling)：等待大腦寫入 A-AK ---
-            for _ in range(30): # 等待 60 秒
-                time.sleep(2) 
-                updated_row = pred_ws.row_values(row_idx)
+        # 【情境二】找不到最新資料：不寫入，原地轉圈圈等待大腦
+        with st.status(f"🔮 偵測到 {symbol} 需更新，AI 大腦已接手...", expanded=True) as status:
+            st.write("🧠 AI 正在進行深度分析並回填 37 項指標...")
+            
+            # --- 重要：這裡你可以觸發你原本喚醒大腦的開關 ---
+            # 例如：trigger_ai_script(symbol) 
+            # 只要大腦的邏輯是「發現日期不對就寫入新行」，大腦就會自己去 append_row 完整的 A-AK
+            
+            # --- 4. 輪詢 (Polling)：持續檢查表格直到大腦寫入完畢 ---
+            max_retries = 30 
+            for i in range(max_retries):
+                time.sleep(3) # 每 3 秒檢查一次
                 
-                # 檢查大腦寫完了沒 (F 欄不再是 Waiting 狀態)
-                if len(updated_row) >= 6 and updated_row[5] not in ["Waiting Update", "Waiting New", "AI分析中..."]:
-                    status.update(label="✅ 分析完成！", state="complete", expanded=False)
-                    display_analysis_results(updated_row)
+                # 重新讀取最新的表格數據
+                current_all_data = pred_ws.get_all_values()
+                
+                # 再次尋找大腦是否已經寫入該筆資料
+                newly_written_row = next((r for r in current_all_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
+                
+                if newly_written_row:
+                    status.update(label="✅ 大腦寫入完成！", state="complete", expanded=False)
+                    st.success(f"✨ {symbol} 分析成功")
+                    display_analysis_results(newly_written_row)
                     return
+                
+                if i % 3 == 0:
+                    st.write(f"⏳ 正在同步數據中...")
             
             status.update(label="❌ 分析逾時", state="error")
-            st.error("大腦處理較慢，請稍後刷新頁面查看。")
+            st.error("大腦處理時間過長，或後端程式未啟動。請稍後再試。")
 
 def display_analysis_results(data_row):
     """將 A-AK 的 37 欄位資料顯示出來"""
     st.markdown("---")
     st.subheader(f"📊 {data_row[1]} 預測報告 ({data_row[0]})")
     
-    # 這裡顯示核心指標 (A-AK 範例)
     c1, c2, c3 = st.columns(3)
-    c1.metric("最後交易日", data_row[0])
-    c2.metric("預測收盤價", data_row[2] if data_row[2] else "--")
-    c3.metric("狀態", data_row[5])
+    c1.metric("收盤日期", data_row[0])
+    # 假設 C 欄是預測價格，F 欄是狀態
+    c2.metric("預測價", data_row[2] if len(data_row) > 2 else "--")
+    c3.metric("分析狀態", data_row[5] if len(data_row) > 5 else "--")
     
-    with st.expander("查看 37 欄原始數據 (A-AK)"):
+    with st.expander("🔍 查看詳細 A-AK 數據內容"):
         st.write(data_row)
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
