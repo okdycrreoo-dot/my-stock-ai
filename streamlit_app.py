@@ -367,10 +367,92 @@ def delete_stock(user, symbol, watchlist_ws):
     except Exception as e:
         st.error(f"刪除失敗: {e}")
 
+# ==========================================
+# 第四章：基本行情觀測面板 (行情觀測站)
+# ==========================================
+def chapter_4_stock_basic_info(symbol):
+    """
+    獨立章節：顯示股票即時行情，具備手動更新機制以節省資源。
+    """
+    import yfinance as yf
+    
+    # 章節外框
+    st.markdown("### 📋 第四章：基本行情觀測")
+    
+    # 佈局：標題與更新按鈕
+    col_info, col_refresh = st.columns([5, 1])
+    with col_info:
+        st.write(f"目前觀測對象：**{symbol}**")
+    with col_refresh:
+        # 手動更新按鈕：只有按下才觸發 yfinance 請求
+        refresh_pushed = st.button("🔄 更新行情", key=f"refresh_ch4_{symbol}")
+
+    # 使用 session_state 儲存數據，避免重複抓取被鎖 IP
+    cache_key = f"ch4_data_{symbol}"
+    
+    if refresh_pushed or cache_key not in st.session_state:
+        with st.spinner(f"正在連線市場獲取 {symbol} 最新報價..."):
+            try:
+                ticker = yf.Ticker(symbol)
+                # 抓取 2 日數據以計算昨日與今日的變動
+                hist = ticker.history(period="2d")
+                
+                if not hist.empty and len(hist) >= 2:
+                    # 提取數據
+                    prev_close = hist['Close'].iloc[-2]
+                    open_price = hist['Open'].iloc[-1]
+                    curr_price = hist['Close'].iloc[-1]
+                    high_price = hist['High'].iloc[-1]
+                    low_price = hist['Low'].iloc[-1]
+                    volume = hist['Volume'].iloc[-1]
+                    
+                    change = curr_price - prev_close
+                    change_pct = (change / prev_close) * 100
+                    
+                    # 寫入快取
+                    st.session_state[cache_key] = {
+                        "prev_close": prev_close,
+                        "open_price": open_price,
+                        "curr_price": curr_price,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "volume": volume,
+                        "high": high_price,
+                        "low": low_price
+                    }
+                else:
+                    st.warning("⚠️ 查無足夠的交易數據（可能今日尚未開盤或停牌）")
+                    return
+            except Exception as e:
+                st.error(f"行情抓取失敗：{e}")
+                return
+
+    # 從快取中顯示數據
+    data = st.session_state.get(cache_key)
+    if data:
+        # 漲紅跌綠邏輯
+        color = "red" if data["change"] >= 0 else "green"
+        sign = "+" if data["change"] >= 0 else ""
+
+        # --- 第一排資訊 ---
+        c1, c2, c3 = st.columns(3)
+        c1.write(f"昨日收盤：**{data['prev_close']:.2f}**")
+        c2.write(f"今日開盤：**{data['open_price']:.2f}**")
+        c3.write(f"當前價格：**:{color}[{data['curr_price']:.2f}]**")
+
+        # --- 第二排資訊 ---
+        c4, c5, c6 = st.columns(3)
+        c4.write(f"漲跌價格：**:{color}[{sign}{data['change']:.2f}]**")
+        c5.write(f"漲跌幅度：**:{color}[{sign}{data['change_pct']:.2f}%]**")
+        c6.write(f"今日成交量：**{int(data['volume']):,}**")
+
+    st.markdown("---") # 章節結束線
+
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
