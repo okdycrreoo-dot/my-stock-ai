@@ -199,25 +199,26 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     import datetime
     user_name = st.session_state["user"]
     
+    # --- 防困邏輯 1：初始化展開狀態 (僅在不存在時設定) ---
+    if "menu_expanded" not in st.session_state:
+        st.session_state["menu_expanded"] = True # 初始進入預設開啟
+
     # 1. 取得目前使用者的自選清單
     try:
         all_watch = watchlist_ws.get_all_values()
-        # A 欄是 User, B 欄是股票代號
         user_stocks = [row[1] for row in all_watch if len(row) > 1 and row[0] == user_name]
-    except:
+    except Exception:
         user_stocks = []
     
     stock_count = len(user_stocks)
 
-    # --- 3.1 整個功能都裝進縮放按鈕 ---
-    with st.expander("🛠️ 開啟股票控制台", expanded=False):
+    # --- 3.1 使用變數控制 expanded 狀態 ---
+    with st.expander("🛠️ 開啟股票控制台", expanded=st.session_state["menu_expanded"]):
         
-        # 3.2 上半部：新增功能佈局
-        # [個人化指令實現]：上限設為 20，並顯示提醒
+        # 3.2 上半部：新增功能
         st.write(f"### 📥 新增自選股 ({stock_count}/20)")
         
         col_input, col_add = st.columns([3, 1])
-        
         with col_input:
             new_stock = st.text_input("輸入股票代號 (英數)", key="new_stock_input").strip().upper()
         
@@ -225,42 +226,36 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             st.write("##") # 對齊
             add_btn = st.button("確認新增", key="add_stock_btn")
             
-        # 3.3 新增邏輯處理 (強化比對與驗證)
+        # 3.3 新增邏輯：維持展開狀態
         if add_btn:
             if not new_stock:
                 st.warning("⚠️ 請先輸入代號")
-            elif not is_valid_format(new_stock): # 保留你原本的格式檢查函數
+            elif not is_valid_format(new_stock):
                 st.error("🚫 格式錯誤：僅限輸入英文或數字")
             elif stock_count >= 20:
                 st.warning("⚠️ 已達上限：最多只能 20 筆自選股")
             elif any(s.startswith(new_stock) for s in user_stocks):
                 st.info("💡 提醒：此股票已在清單中")
             else:
-                # --- 新增：市場代號存在性校驗邏輯 ---
                 with st.spinner(f"🔍 正在驗證市場代號 {new_stock}..."):
-                    # 判斷邏輯：嘗試 .TW 或 .TWO，確保代號真實存在
-                    if len(new_stock) == 4 and new_stock[0] in ['2', '3']:
-                        suffix = ".TW"
-                    else:
-                        suffix = ".TWO"
-                    
+                    # 簡易判斷台灣市場後綴
+                    suffix = ".TW" if len(new_stock) == 4 and new_stock[0] in ['2', '3'] else ".TWO"
                     full_code = f"{new_stock}{suffix}"
                     
-                    # 檢查 yfinance 是否能抓到歷史資料
                     test_ticker = yf.Ticker(full_code)
                     test_data = test_ticker.history(period="1d")
                     
                     if not test_data.empty:
-                        # 只有真實存在的股票才會寫入
                         watchlist_ws.append_row([user_name, full_code])
                         st.success(f"✅ {full_code} 已加入清單")
+                        # 防困：此處 rerun 會依據 session_state["menu_expanded"] (此時為 True) 保持開啟
                         st.rerun()
                     else:
                         st.error(f"❌ 查無此股票：市場中找不到代號 {new_stock}")
 
         st.markdown("---")
-            
-        # 3.4 下半部：自選股清單顯示 (下拉選單形式)
+        
+        # 3.4 下半部：清單管理
         st.write("### 📋 監控清單管理")
         if not user_stocks:
             st.info("目前清單中沒有股票")
@@ -272,14 +267,17 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
-                    # 執行分析並將結果暫存到 session_state
-                    result = process_analysis(selected_stock, predictions_ws)
-                    if result:
-                        st.session_state["current_analysis"] = result
-                        # 這裡不再呼叫 display_analysis_results
+                    with st.spinner("正在啟動 AI 運算..."):
+                        result = process_analysis(selected_stock, predictions_ws)
+                        if result:
+                            st.session_state["current_analysis"] = result
+                            # --- 關鍵防困：只有分析完成才將展開狀態設為 False ---
+                            st.session_state["menu_expanded"] = False
+                            st.rerun() 
             
             with c3:
                 if st.button("🗑️ 刪除", key="del_btn_main"):
+                    # 執行刪除，狀態維持為 True
                     delete_stock(user_name, selected_stock, watchlist_ws)
 
 # ==========================================
@@ -548,6 +546,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
