@@ -354,9 +354,36 @@ def process_analysis(symbol, pred_ws):
             
             status.update(label="❌ 分析逾時", state="error")
             st.warning("🔄 引擎仍在處理中，請稍後手動重新整理網頁。")
+# ==========================================
+# 補強工人 1：格式檢查 (防止新增報錯)
+# ==========================================
+def is_valid_format(text):
+    import re
+    return bool(re.match("^[a-zA-Z0-9]*$", text))
+
+# ==========================================
+# 補強工人 2：刪除邏輯 (防止刪除報錯)
+# ==========================================
+def delete_stock(user, symbol, watchlist_ws):
+    try:
+        all_data = watchlist_ws.get_all_values()
+        # 過濾掉該使用者要刪除的那支股票
+        updated_rows = [all_data[0]] + [row for row in all_data[1:] if not (row[0] == user and row[1] == symbol)]
+        
+        watchlist_ws.clear()
+        watchlist_ws.update('A1', updated_rows)
+        st.success(f"🗑️ 已移除 {symbol}")
+        import time
+        time.sleep(1)
+        st.rerun()
+    except Exception as e:
+        st.error(f"刪除失敗: {e}")
+
+
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
