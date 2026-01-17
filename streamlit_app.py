@@ -156,12 +156,14 @@ def main():
 # ==========================================
 
 def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
+    import yfinance as yf
+    import datetime
     user_name = st.session_state["user"]
     
     # 1. 取得目前使用者的自選清單
     try:
         all_watch = watchlist_ws.get_all_values()
-        # 假設 A 欄是 User, B 欄是股票代號
+        # A 欄是 User, B 欄是股票代號
         user_stocks = [row[1] for row in all_watch if len(row) > 1 and row[0] == user_name]
     except:
         user_stocks = []
@@ -172,7 +174,9 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     with st.expander("🛠️ 開啟股票控制台", expanded=False):
         
         # 3.2 上半部：新增功能佈局
-        st.write(f"### 📥 新增自選股 ({stock_count}/30)")
+        # [個人化指令實現]：上限設為 20，並顯示提醒
+        st.write(f"### 📥 新增自選股 ({stock_count}/20)")
+        
         col_input, col_add = st.columns([3, 1])
         
         with col_input:
@@ -182,31 +186,38 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             st.write("##") # 對齊
             add_btn = st.button("確認新增", key="add_stock_btn")
             
-        # 3.3 新增邏輯處理 (您要求的邏輯都在這)
+        # 3.3 新增邏輯處理 (強化比對與驗證)
         if add_btn:
             if not new_stock:
                 st.warning("⚠️ 請先輸入代號")
-            elif not is_valid_format(new_stock):
+            elif not is_valid_format(new_stock): # 保留你原本的格式檢查函數
                 st.error("🚫 格式錯誤：僅限輸入英文或數字")
-            elif stock_count >= 30:
-                st.warning("⚠️ 已達上限：最多只能 30 筆自選股")
+            elif stock_count >= 20:
+                st.warning("⚠️ 已達上限：最多只能 20 筆自選股")
             elif any(s.startswith(new_stock) for s in user_stocks):
                 st.info("💡 提醒：此股票已在清單中")
             else:
-                # --- 自動比對市場尾數邏輯 (.TW / .TWO) ---
-                # 這裡目前以簡單判斷示範：一般 4 位代號且不以 '8' 或 '6' 開頭多為上市
-                # 實際建議對接市場名單，這裡先預設處理邏輯：
-                if len(new_stock) == 4 and new_stock[0] in ['2', '3']:
-                    suffix = ".TW"
-                else:
-                    suffix = ".TWO"
-                
-                full_code = f"{new_stock}{suffix}"
-                
-                # 寫入試算表 (User, Full_Code)
-                watchlist_ws.append_row([user_name, full_code])
-                st.success(f"✅ {full_code} 已加入清單")
-                st.rerun()
+                # --- 新增：市場代號存在性校驗邏輯 ---
+                with st.spinner(f"🔍 正在驗證市場代號 {new_stock}..."):
+                    # 判斷邏輯：嘗試 .TW 或 .TWO，確保代號真實存在
+                    if len(new_stock) == 4 and new_stock[0] in ['2', '3']:
+                        suffix = ".TW"
+                    else:
+                        suffix = ".TWO"
+                    
+                    full_code = f"{new_stock}{suffix}"
+                    
+                    # 檢查 yfinance 是否能抓到歷史資料
+                    test_ticker = yf.Ticker(full_code)
+                    test_data = test_ticker.history(period="1d")
+                    
+                    if not test_data.empty:
+                        # 只有真實存在的股票才會寫入
+                        watchlist_ws.append_row([user_name, full_code])
+                        st.success(f"✅ {full_code} 已加入清單")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ 查無此股票：市場中找不到代號 {new_stock}")
 
         st.markdown("---")
             
@@ -222,26 +233,20 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
-                    # 呼叫預測比對邏輯
+                    # 呼叫改進後的分析與喚醒邏輯
                     process_analysis(selected_stock, predictions_ws)
             
             with c3:
                 if st.button("🗑️ 刪除", key="del_btn_main"):
                     delete_stock(user_name, selected_stock, watchlist_ws)
 
-# --- 支援功能：刪除與分析 ---
-
-import time
-import yfinance as yf
-
-# --- 支援功能：刪除與分析 ---
+# --- 支援功能：刪除與分析 (完全覆蓋版) ---
 
 def delete_stock(user, symbol, ws):
     """刪除邏輯：找到對應列並移除"""
     try:
         all_data = ws.get_all_values()
         for i, row in enumerate(all_data):
-            # A 欄是 User, B 欄是 Symbol
             if len(row) > 1 and row[0] == user and row[1] == symbol:
                 ws.delete_rows(i + 1)
                 st.success(f"已從自選清單移除 {symbol}")
@@ -255,97 +260,88 @@ def process_analysis(symbol, pred_ws):
     ST 背景邏輯確認：
     1. 比對 predictions 中股票是否存在且日期最新。
     2. 若是，直接顯示，不叫 AI。
-    3. 若否，發出『喚醒訊號』請大腦處理，並在 ST 顯示分析中。
-    4. 僅做判斷與喚醒，不重複寫入相同股票。
+    3. 若否，發出『喚醒訊號』(F欄標記) 並顯示分析中狀態。
+    4. 不重複寫入相同股票。
     """
     import time
     import yfinance as yf
     import datetime
 
-    st.info(f"🔍 正在核對 {symbol} 的資料庫狀態...")
+    st.info(f"🔍 正在核對 {symbol} 的數據時效性...")
     
-    # --- 1. 取得市場最新收盤日 ---
+    # 1. 取得市場最新收盤日
     try:
         stock_data = yf.Ticker(symbol)
-        # 抓取最後一個交易日的日期
         latest_market_date = stock_data.history(period="1d").index[0].strftime("%Y-%m-%d")
     except:
         latest_market_date = datetime.date.today().strftime("%Y-%m-%d")
 
-    # --- 2. 搜尋 predictions 內容 (背景邏輯確認) ---
+    # 2. 搜尋 predictions 內容 (找是否存在 & 日期是否最新)
     all_data = pred_ws.get_all_values()
     row_idx = -1
     is_latest = False
     
     for i, row in enumerate(all_data):
-        # B 欄是代號 (index 1)
-        if len(row) > 1 and row[1] == symbol:
-            row_idx = i + 1 # 紀錄找到的行數
-            # A 欄是收盤日期 (index 0)
-            if row[0] == latest_market_date:
+        if len(row) > 1 and row[1] == symbol: # B 欄是代號
+            row_idx = i + 1
+            if row[0] == latest_market_date: # A 欄是日期
                 is_latest = True
-            break # 重要：找到第一筆就停止，避免重複
+            break # 找到第一筆就停，避免重複處理
 
-    # --- 3. 執行判斷與喚醒 ---
+    # 3. 執行判斷與喚醒
     if row_idx != -1 and is_latest:
-        # 【情境一】資料已存在且日期最新：直接用現有的，不叫 AI
-        st.success(f"✅ {symbol} 已有最新分析資料 ({latest_market_date})")
+        # 資料已是最新：直接拿 A-AK 顯示
+        st.success(f"✅ 取得最新分析資料 ({latest_market_date})")
         display_analysis_results(all_data[row_idx-1])
         
     else:
-        # 【情境二】資料不符或不存在：通知大腦出來處理
+        # 資料不符：顯示分析中，並喚醒大腦補資料
         with st.status("🔮 Oracle AI 正在分析中，請稍候...", expanded=True) as status:
             if row_idx != -1:
-                # 股票存在但日期舊了：更新該行 F 欄標註，喚醒大腦
+                # 存在但舊了：在原位置標記，大腦會看到
                 pred_ws.update_cell(row_idx, 6, "Waiting Update")
-                st.write(f"🔄 偵測到舊資料，已發送喚醒訊號請大腦更新...")
+                st.write(f"🔄 偵測到舊數據，正在呼叫大腦更新 A-AK 欄位...")
             else:
-                # 完全沒資料：新增一列讓大腦填寫
+                # 不存在：建立新行標記，大腦會補齊
                 new_row = [""] * 37
-                new_row[0] = latest_market_date # A: 日期
-                new_row[1] = symbol             # B: 代號
-                new_row[5] = "Waiting New"      # F: Status
+                new_row[0] = latest_market_date
+                new_row[1] = symbol
+                new_row[5] = "Waiting New"
                 pred_ws.append_row(new_row)
-                st.write(f"🆕 資料庫無紀錄，已請大腦直接處理新資料...")
-                # 重新獲取最後一行的行號
+                st.write(f"🆕 建立新任務指標...")
                 row_idx = len(pred_ws.get_all_values())
 
-            # --- 4. 輪詢檢查 (Polling)：等待大腦補完 A-AK 欄位 ---
-            # 這裡大腦會繞過 14:30 的限制，直接更新這行
-            for _ in range(30): # 最多等 60 秒
+            # --- 4. 輪詢 (Polling)：等待大腦寫入 A-AK ---
+            for _ in range(30): # 等待 60 秒
                 time.sleep(2) 
                 updated_row = pred_ws.row_values(row_idx)
                 
-                # 檢查大腦是否寫完：F 欄狀態不再是 Waiting 且 A 欄日期正確
+                # 檢查大腦寫完了沒 (F 欄不再是 Waiting 狀態)
                 if len(updated_row) >= 6 and updated_row[5] not in ["Waiting Update", "Waiting New", "AI分析中..."]:
-                    status.update(label="✅ 大腦分析完成！", state="complete", expanded=False)
-                    st.success(f"✨ {symbol} 資料已同步完成")
+                    status.update(label="✅ 分析完成！", state="complete", expanded=False)
                     display_analysis_results(updated_row)
                     return
             
             status.update(label="❌ 分析逾時", state="error")
-            st.error("大腦處理較久，請稍後刷新頁面查看。")
+            st.error("大腦處理較慢，請稍後刷新頁面查看。")
 
 def display_analysis_results(data_row):
-    """
-    這裡負責將 A-AK 的 37 欄位資料視覺化
-    """
+    """將 A-AK 的 37 欄位資料顯示出來"""
     st.markdown("---")
     st.subheader(f"📊 {data_row[1]} 預測報告 ({data_row[0]})")
     
-    # 這裡顯示 A-AK 完整資訊的排版
-    # 舉例顯示前幾個欄位
+    # 這裡顯示核心指標 (A-AK 範例)
     c1, c2, c3 = st.columns(3)
-    c1.metric("收盤日期", data_row[0])
+    c1.metric("最後交易日", data_row[0])
     c2.metric("預測收盤價", data_row[2] if data_row[2] else "--")
     c3.metric("狀態", data_row[5])
     
-    # 暫時印出完整 row 確保開發者確認 37 欄位內容
-    with st.expander("查看完整 37 欄原始數據 (A-AK)"):
+    with st.expander("查看 37 欄原始數據 (A-AK)"):
         st.write(data_row)
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
