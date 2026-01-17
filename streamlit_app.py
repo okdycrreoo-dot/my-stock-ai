@@ -242,19 +242,6 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
 
 # --- 支援功能：刪除與分析 (完全覆蓋版) ---
 
-def delete_stock(user, symbol, ws):
-    """刪除邏輯：找到對應列並移除"""
-    try:
-        all_data = ws.get_all_values()
-        for i, row in enumerate(all_data):
-            if len(row) > 1 and row[0] == user and row[1] == symbol:
-                ws.delete_rows(i + 1)
-                st.success(f"已從自選清單移除 {symbol}")
-                st.rerun()
-                return
-    except Exception as e:
-        st.error(f"刪除失敗: {e}")
-
 def process_analysis(symbol, pred_ws):
     """
     ST 純偵查模式：
@@ -276,81 +263,55 @@ def process_analysis(symbol, pred_ws):
         latest_market_date = datetime.date.today().strftime("%Y-%m-%d")
 
     # 2. 搜尋 predictions (純讀取比對)
-    # 我們不再紀錄 row_idx，因為 ST 不會去修改該行
     all_data = pred_ws.get_all_values()
     found_row = None
     
     for row in all_data:
-        # 比對 A 欄日期 與 B 欄代號
         if len(row) > 1 and row[1] == symbol and row[0] == latest_market_date:
             found_row = row
             break
 
     # 3. 執行判斷
     if found_row:
-        # 【情境一】資料已存在且日期最新：直接用現有的
         st.success(f"✅ 取得最新分析報告 ({latest_market_date})")
         display_analysis_results(found_row)
         
     else:
-        # 【情境二】找不到最新資料：不寫入，原地轉圈圈等待大腦
+        # --- 修正開始：使用 placeholder 解決字樣重複跳出問題 ---
         with st.status(f"🔮 偵測到 {symbol} 需更新，AI 大腦已接手...", expanded=True) as status:
             st.write("🧠 AI 正在進行深度分析並回填 37 項指標...")
             
-            # --- 重要：這裡你可以觸發你原本喚醒大腦的開關 ---
-            # 例如：trigger_ai_script(symbol) 
-            # 只要大腦的邏輯是「發現日期不對就寫入新行」，大腦就會自己去 append_row 完整的 A-AK
+            # 建立一個專門放「同步中」字樣的容器
+            sync_text_area = st.empty()
+            sync_text_area.write("⏳ 正在同步數據中...")
             
             # --- 4. 輪詢 (Polling)：持續檢查表格直到大腦寫入完畢 ---
             max_retries = 30 
+            success = False
             for i in range(max_retries):
-                time.sleep(3) # 每 3 秒檢查一次
+                time.sleep(3) 
                 
-                # 重新讀取最新的表格數據
                 current_all_data = pred_ws.get_all_values()
-                
-                # 再次尋找大腦是否已經寫入該筆資料
                 newly_written_row = next((r for r in current_all_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
                 
                 if newly_written_row:
+                    success = True
+                    sync_text_area.empty() # 同步成功，清除字樣
                     status.update(label="✅ 大腦寫入完成！", state="complete", expanded=False)
                     st.success(f"✨ {symbol} 分析成功")
                     display_analysis_results(newly_written_row)
                     return
                 
+                # 這裡原本會一直 st.write 導致字串堆疊，現在透過 sync_text_area.write 保持只有一行
                 if i % 3 == 0:
-                    st.write(f"⏳ 正在同步數據中...")
+                    sync_text_area.write("⏳ 正在同步數據中...")
             
-            status.update(label="❌ 分析逾時", state="error")
-            st.error("大腦處理時間過長，或後端程式未啟動。請稍後再試。")
-
-def display_analysis_results(data_row):
-    """將 A-AK 的 37 欄位資料顯示出來"""
-    st.markdown("---")
-    st.subheader(f"📊 {data_row[1]} 預測報告 ({data_row[0]})")
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("收盤日期", data_row[0])
-    # 假設 C 欄是預測價格，F 欄是狀態
-    c2.metric("預測價", data_row[2] if len(data_row) > 2 else "--")
-    c3.metric("分析狀態", data_row[5] if len(data_row) > 5 else "--")
-    
-    with st.expander("🔍 查看詳細 A-AK 數據內容"):
-        st.write(data_row)
+            if not success:
+                sync_text_area.empty() # 失敗也清除該字樣
+                status.update(label="❌ 分析逾時", state="error")
+                st.error("❌ 同步失敗，請連絡管理者。")
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
