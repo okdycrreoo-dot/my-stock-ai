@@ -247,19 +247,21 @@ def god_mode_engine(df, symbol, mkt_df):
 # 第四章：自動同步作業 (精確 A-AK 37 欄位)
 # =================================================================
 
-def run_daily_sync():
-    """ 
-    自動化主邏輯：讀取、運算、精確打包 37 欄位並寫入 
-    """
+def run_daily_sync(target_symbol=None): # <--- 改動1：增加接收參數
     try:
-        # 設定台北時區
         tz = pytz.timezone('Asia/Taipei')
         now_time = datetime.now(tz)
         
-        # 判定收盤同步時間
-        if now_time.hour < 14 or (now_time.hour == 14 and now_time.minute < 30):
-            print(f"⌛ 目前時間 {now_time.strftime('%H:%M')}，尚未達 14:30 更新時間。")
-            return
+        # 改動2：判定是否為急件
+        is_urgent = (target_symbol is not None and target_symbol != "")
+
+        # 如果不是急件，才執行原本的時間擋箭牌
+        if not is_urgent:
+            if now_time.hour < 14 or (now_time.hour == 14 and now_time.minute < 30):
+                print(f"⌛ 定時任務：目前時間 {now_time.strftime('%H:%M')}，未達更新時間，不執行。")
+                return
+        else:
+            print(f"⚡ 即時任務：跳過時間檢查，準備分析 {target_symbol}")
 
         # 初始化連線
         client = init_gspread()
@@ -268,11 +270,16 @@ def run_daily_sync():
         ws_watch = spreadsheet.worksheet("watchlist")
         
         # 1. 抓取名單
-        watch_data = ws_watch.get_all_values()[1:]
         symbols_set = set()
-        for row in watch_data:
-            if len(row) >= 2 and row[1]:
-                symbols_set.add(str(row[1]).strip().upper())
+        if is_urgent:
+            # 急件模式：名單只有 ST 指定的那一支
+            symbols_set.add(str(target_symbol).strip().upper())
+        else:
+            # 定時模式：才執行你原本的抓取全清單邏輯
+            watch_data = ws_watch.get_all_values()[1:]
+            for row in watch_data:
+                if len(row) >= 2 and row[1]:
+                    symbols_set.add(str(row[1]).strip().upper())
         
         # --- [重點提醒：20支股票上限] ---
         if len(symbols_set) > 20:
@@ -302,10 +309,11 @@ def run_daily_sync():
                 
                 # 去重檢查 (日期 + 代號)
                 duplicate = False
-                for log in existing_logs:
-                    if len(log) >= 2 and log[0] == last_date and log[1] == final_id:
-                        duplicate = True
-                        break
+                if not is_urgent: # 只有定時任務才需要跳過已存在的
+                    for log in existing_logs:
+                        if len(log) >= 2 and log[0] == last_date and log[1] == final_id:
+                            duplicate = True
+                            break
                 
                 if duplicate:
                     print(f"⏩ {final_id} 今日數據已存在，跳過。")
@@ -354,5 +362,17 @@ def run_daily_sync():
 # =================================================================
 
 if __name__ == "__main__":
-    # 正式執行同步
-    run_daily_sync()
+    # 1. 從環境變數中讀取 GitHub Actions 傳入的目標代號
+    # 這裡的 "TARGET_SYMBOL" 必須對應 YAML 檔案中 env 區塊設定的名稱
+    import os
+    target_stock = os.environ.get("TARGET_SYMBOL", "").strip().upper()
+
+    # 2. 執行同步邏輯
+    # 如果 target_stock 為空字串，代表是定時任務
+    # 如果 target_stock 有值（如 '2330.TW'），代表是 ST 傳來的即時請求
+    if target_stock:
+        print(f"🚀 偵測到即時分析請求，目標標的: {target_stock}")
+        run_daily_sync(target_stock)
+    else:
+        print("📅 偵測到定時任務啟動，將執行全清單掃描。")
+        run_daily_sync()
