@@ -458,79 +458,88 @@ def chapter_4_stock_basic_info(symbol):
     st.markdown("---") # 章節結束線
 
 # ==========================================
-# 第五章：AI 深度決策報告 (核心分析區)
+# 第五章：AI 深度決策報告 (精確欄位修正版)
 # ==========================================
 def chapter_5_ai_decision_report(row):
     """
-    將 AI 試算表數據轉化為專業級決策面板
+    對應 Google Sheets 欄位：
+    G[6]:buy_5d, H[7]:buy_10d, J[9]:buy_20d
+    M[12]:sell_5d, N[13]:sell_10d, P[15]:sell_20d
+    S[18]:res_5d, T[19]:res_10d, V[21]:res_20d
+    AD[29]:bias_5d, AE[30]:bias_10d, AG[32]:bias_20d
+    AB[27]:ai_insight, AC[28]:ai_outlook
     """
-    if not row or len(row) < 3:
+    if not row or len(row) < 33: # 確保列長度足夠
+        st.error("數據格式不完整，無法生成報告")
         return
 
-    # 數據對應 (假設 row 索引：0日期, 1代號, 2建議, 3信心, 4隔日預估, 5區間, 6診斷, 7展望...)
-    # 註：這裡的索引需要根據你 Google Sheets 實際欄位順序微調
     date_str = row[0]
     advice = row[2]
-    confidence = float(row[3].replace('%','')) if isinstance(row[3], str) else row[3]
+    # 處理信心度字串轉數值
+    try:
+        conf_raw = str(row[3]).replace('%','')
+        confidence = float(conf_raw) if conf_raw else 0.0
+    except:
+        confidence = 0.0
     
     # --- 1. 頭條建議卡片 ---
     bg_color = "#FF4B4B" if "賣" in advice else "#00CC66" if "買" in advice else "#FFA500"
     st.markdown(f"""
-        <div style="background-color:{bg_color}; padding:20px; border-radius:10px; text-align:center;">
-            <h1 style="color:white; margin:0; letter-spacing:5px;">AI 決策建議：{advice}</h1>
-            <p style="color:white; margin:5px 0 0 0; opacity:0.9;">分析基準日：{date_str}</p>
+        <div style="background-color:{bg_color}; padding:20px; border-radius:10px; text-align:center; margin-bottom:20px;">
+            <h1 style="color:white; margin:0; font-size:2.5rem;">AI 決策建議：{advice}</h1>
+            <p style="color:white; margin:5px 0 0 0; opacity:0.8;">Oracle 分析基準日：{date_str}</p>
         </div>
     """, unsafe_allow_html=True)
 
     # --- 2. AI 信心條 ---
-    st.write("##")
     col_conf, col_bar = st.columns([1, 4])
     with col_conf:
         st.write("**AI 辨識信心度**")
     with col_bar:
-        st.progress(confidence / 100)
+        st.progress(min(confidence / 100, 1.0))
         st.caption(f"目前模型運算信心值為 {confidence}%")
 
     st.markdown("---")
 
-    # --- 3. 預測價格矩陣 (5/10/20日) ---
+    # --- 3. 策略預估價位 (5/10/20日) ---
     st.write("### 🎯 策略預估價位")
-    # 這裡假設你的試算表有存這些值，或是由我們計算邏輯帶入
-    # 格式：[買價, 賣價, 壓力, 乖離]
     price_data = {
         "時序": ["5日建議", "10日建議", "20日建議"],
-        "建議買價": [row[8], row[12], row[16]], # 範例索引，需對應你試算表
-        "建議賣價": [row[9], row[13], row[17]],
-        "壓力價位": [row[10], row[14], row[18]],
-        "乖離率 (%)": [row[11], row[15], row[19]]
+        "建議買價": [row[6], row[7], row[9]], 
+        "建議賣價": [row[12], row[13], row[15]],
+        "壓力價位": [row[18], row[19], row[21]],
+        "乖離率 (%)": [row[29], row[30], row[32]]
     }
     st.table(price_data)
 
     # --- 4. 隔日預測與準確率 ---
     c1, c2 = st.columns(2)
     with c1:
+        # 假設 E[4]是預估收盤, F[5]是狀態
         st.info(f"🔮 **隔日預期收盤：{row[4]}**")
-        st.caption(f"波動預估區間：{row[5]}")
+        st.caption(f"目前數據狀態：{row[5]}")
     with c2:
-        # 這裡可以放你說的最新 10 筆準確率 (假設存成一個字串或分開存)
-        st.warning(f"📈 **近 10 筆預測準確率**")
-        st.write("90% | 85% | 100% | 70% | ...") # 依此類推
+        # 假設 Z[25] 是錯誤率，我們反向計算準確
+        try:
+            err_pct = float(row[25]) if row[25] else 0
+            acc_pct = 100 - abs(err_pct)
+        except:
+            acc_pct = "N/A"
+        st.warning(f"📈 **模型歷史預測準確率**")
+        st.write(f"當前平均準確度：{acc_pct:.2f}% (最新 10 筆回測)")
 
     st.markdown("---")
 
     # --- 5. AI 診斷與展望 (深度評論區) ---
-    st.write("### 🧠 深度診斷說明")
-    with st.container():
-        st.markdown(f"**【AI 臨床診斷】**")
-        st.info(row[6]) # 診斷建議
-        
-        st.markdown(f"**【未來展望評估】**")
-        st.success(row[7]) # 展望說明
+    st.write("### 🧠 Oracle 深度診斷")
+    st.info(f"**【AI 臨床診斷】**\n\n{row[27]}")
+    st.success(f"**【未來展望評估】**\n\n{row[28]}")
 
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
