@@ -111,7 +111,7 @@ def main():
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # 3. 呼叫連線章節 (剛才新增的 init_db)
+    # 3. 呼叫連線章節
     db = init_db() 
     
     if db is None:
@@ -119,7 +119,7 @@ def main():
 
     # 4. 判斷頁面邏輯
     if not st.session_state["logged_in"]:
-        # --- 第一、二章：入口頁面 ---
+        # --- 入口頁面 (未登入) ---
         st.markdown("<h1 style='text-align: center;'>🔮 Oracle AI 入口頁面</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
@@ -128,31 +128,38 @@ def main():
             chapter_1_registration(db)
             
     else:
-        # --- 登入後佈局優化 (需求：文字後方緊跟登出按鈕) ---
-        # 建立三個欄位：左邊放歡迎詞，中間放名稱(靠左)，右邊放登出按鈕(靠右)
-        # 比例 [1.5, 3, 1] 確保名稱後有空間放按鈕
-        c1, c2, c3 = st.columns([1.5, 3, 1], vertical_alignment="center")
+        # --- 登入後：最上方緊湊佈局 (文字 + 50% 小按鈕) ---
+        # 建立欄位，讓內容靠左排列，剩餘空間留白
+        c1, c2, c3 = st.columns([0.4, 0.2, 0.4], vertical_alignment="bottom")
         
         with c1:
-            st.markdown("### ✅ 歡迎回來，")
+            # 縮小字體級別 (使用 h4)，讓畫面更精緻
+            st.markdown(f"#### ✅ 歡迎回來，{st.session_state['user']}！")
             
         with c2:
-            # 這裡放使用者名稱，緊跟在歡迎詞後面
-            st.markdown(f"### {st.session_state['user']}！")
+            # 透過 CSS 讓按鈕寬度減半並調整邊距
+            st.markdown("""
+                <style>
+                div[data-testid="stButton"] button {
+                    width: 50% !important;
+                    padding: 2px 5px !important;
+                    font-size: 14px !important;
+                }
+                </style>
+            """, unsafe_allow_html=True)
             
-        with c3:
-            # 登出按鈕放在最後一欄
-            if st.button("🚪 登出系統", key="main_logout"):
+            if st.button("🚪 登出", key="main_logout"):
                 st.session_state["logged_in"] = False
                 st.rerun()
+        
+        # c3 留空作為右側緩衝
 
         # --- 第三章：監控清單管理預留區 ---
         st.markdown("---")
         st.subheader("📍 第三章：監控清單管理")
-        st.info("入口頁面功能已修正，準備設計清單物件。")
+        st.info("導覽列已精簡，請開始設計股票清單物件。")
 
-# 這是讓程式跑起來的關鍵，請確保它在檔案最下方且左邊沒空格
+# 確保程式啟動
 if __name__ == "__main__":
     main()
-
 
