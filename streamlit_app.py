@@ -3,7 +3,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 import re
-
+import requests # <-- 記得補上這行，因為發送指令需要它
+import time     # <-- 記得補上這行，後續等待檢查需要它
 # ==========================================
 # 基礎設定章節：強制白色主題與解鎖
 # ==========================================
@@ -24,6 +25,32 @@ def is_valid_format(text):
     """1.5 & 2.5 限制章節：僅限英數"""
     return bool(re.match("^[a-zA-Z0-9]*$", text))
     
+# ==========================================
+# GitHub 連線通訊章節：叫醒雲端大腦
+# ==========================================
+def trigger_github_analysis(symbol):
+    """發送 API 請求給 GitHub，啟動指定的 Workflow 並傳入股票代號"""
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        repo = st.secrets["GITHUB_REPO"]
+        workflow = st.secrets["GITHUB_WORKFLOW_ID"]
+        
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        data = {
+            "ref": "main", 
+            "inputs": {"target_symbol": symbol}
+        }
+        
+        response = requests.post(url, headers=headers, json=data)
+        return response.status_code == 204
+    except Exception as e:
+        st.error(f"連線 GitHub 失敗: {e}")
+        return False
+        
 # ==========================================
 # 工具章節：資料庫連線 (解決 NameError 的關鍵)
 # ==========================================
@@ -271,47 +298,58 @@ def process_analysis(symbol, pred_ws):
             found_row = row
             break
 
-    # 3. 執行判斷
+    # 3. 執行判斷 (完整覆蓋版)
     if found_row:
         st.success(f"✅ 取得最新分析報告 ({latest_market_date})")
         display_analysis_results(found_row)
         
     else:
-        # --- 修正開始：使用 placeholder 解決字樣重複跳出問題 ---
+        # 當沒找到資料時，觸發 GitHub 雲端大腦
         with st.status(f"🔮 偵測到 {symbol} 需更新，AI 大腦已接手...", expanded=True) as status:
+            
+            # --- 核心動作：發射訊號叫醒大腦 ---
+            st.write("📡 正在發射指令給雲端引擎...")
+            if trigger_github_analysis(symbol):
+                st.write("🚀 指令送達！GitHub 大腦已啟動 (排隊中)...")
+            else:
+                status.update(label="❌ 遙控器連線失敗", state="error")
+                st.error("請檢查 Secrets 中的 GITHUB_TOKEN 與 REPO 設定。")
+                return
+
             st.write("🧠 AI 正在進行深度分析並回填 37 項指標...")
             
-            # 建立一個專門放「同步中」字樣的容器
+            # 建立同步狀態顯示區
             sync_text_area = st.empty()
-            sync_text_area.write("⏳ 正在同步數據中...")
             
-            # --- 4. 輪詢 (Polling)：持續檢查表格直到大腦寫入完畢 ---
-            max_retries = 30 
+            # --- 4. 輪詢 (Polling)：每 4 秒檢查一次 Sheets，共等 2 分鐘 ---
+            max_retries = 30  
             success = False
             for i in range(max_retries):
-                time.sleep(3) 
+                # 每輪檢查前稍微等待
+                time.sleep(4) 
                 
+                # 重新抓取一次表格資料
                 current_all_data = pred_ws.get_all_values()
                 newly_written_row = next((r for r in current_all_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
                 
                 if newly_written_row:
                     success = True
-                    sync_text_area.empty() # 同步成功，清除字樣
+                    sync_text_area.empty()
                     status.update(label="✅ 大腦寫入完成！", state="complete", expanded=False)
                     st.success(f"✨ {symbol} 分析成功")
                     display_analysis_results(newly_written_row)
                     return
                 
-                # 這裡原本會一直 st.write 導致字串堆疊，現在透過 sync_text_area.write 保持只有一行
-                if i % 3 == 0:
-                    sync_text_area.write("⏳ 正在同步數據中...")
+                # 動態更新目前進度，讓使用者知道程式沒當掉
+                sync_text_area.write(f"⏳ 雲端運算中，請稍候... (進度: {i+1}/{max_retries})")
             
             if not success:
-                sync_text_area.empty() # 失敗也清除該字樣
+                sync_text_area.empty()
                 status.update(label="❌ 分析逾時", state="error")
-                st.error("❌ 同步失敗，請連絡管理者。")
+                st.warning("🔄 雲端排隊較久，請於 1 分鐘後重新整理頁面。")
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
