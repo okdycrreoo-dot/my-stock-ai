@@ -260,8 +260,11 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
-                    # 呼叫改進後的分析與喚醒邏輯
-                    process_analysis(selected_stock, predictions_ws)
+                    # 執行分析並將結果暫存到 session_state
+                    result = process_analysis(selected_stock, predictions_ws)
+                    if result:
+                        st.session_state["current_analysis"] = result
+                        # 這裡不再呼叫 display_analysis_results
             
             with c3:
                 if st.button("🗑️ 刪除", key="del_btn_main"):
@@ -297,14 +300,12 @@ def display_analysis_results(row):
 # ==========================================
 def process_analysis(symbol, pred_ws):
     """
-    ST 強化版：1.偵測 2.喚醒 3.輪詢 4.顯示
+    靜默版執行員：負責背景同步與拿取數據，不直接顯示 UI
     """
     import time
     import yfinance as yf
     import datetime
 
-    st.info(f"🔍 正在核對 {symbol} 數據狀態...")
-    
     # 1. 取得市場最新收盤日
     try:
         stock_data = yf.Ticker(symbol)
@@ -312,43 +313,26 @@ def process_analysis(symbol, pred_ws):
     except:
         latest_market_date = datetime.date.today().strftime("%Y-%m-%d")
 
-    # 2. 搜尋 predictions 表格
+    # 2. 搜尋表格
     all_data = pred_ws.get_all_values()
     found_row = next((row for row in all_data if len(row) > 1 and row[1] == symbol and row[0] == latest_market_date), None)
 
-    # 3. 執行判斷
     if found_row:
-        st.success(f"✅ 取得最新分析報告 ({latest_market_date})")
-        display_analysis_results(found_row)
+        return found_row
     else:
-        # 如果沒資料，啟動 GitHub 雲端大腦
-        with st.status(f"🔮 偵測到 {symbol} 需更新，AI 大腦已接手...", expanded=True) as status:
-            st.write("📡 正在發射指令給雲端引擎...")
-            
-            # 呼叫你放在最上方的遙控器函數
-            if trigger_github_analysis(symbol):
-                st.write("🚀 指令送達！GitHub 大腦已啟動...")
-            else:
-                status.update(label="❌ 遙控器連線失敗", state="error")
-                st.error("請檢查 Secrets 中的 GITHUB_TOKEN 設定")
-                return
-
-            st.write("🧠 AI 正在進行深度分析 (預計 45-60 秒)...")
-            sync_area = st.empty()
-            
-            # 4. 輪詢等待回填 (最大等待約 2 分鐘)
-            max_retries = 30
-            for i in range(max_retries):
+        # 這裡不使用 st.status，改用安靜的提示
+        msg = st.info(f"📡 正在請求雲端分析 {symbol}...")
+        if trigger_github_analysis(symbol):
+            # 輪詢等待
+            for i in range(30):
                 time.sleep(4)
-                # 每 4 秒重新讀取一次試算表
                 current_data = pred_ws.get_all_values()
                 new_row = next((r for r in current_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
-                
                 if new_row:
-                    sync_area.empty()
-                    status.update(label="✅ 大腦寫入完成！", state="complete", expanded=False)
-                    display_analysis_results(new_row) 
-                    return
+                    msg.empty() # 成功後把提示刪掉
+                    return new_row
+        msg.error("❌ 分析逾時")
+        return None
                 
                 sync_area.write(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
             
@@ -383,6 +367,7 @@ def delete_stock(user, symbol, watchlist_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
