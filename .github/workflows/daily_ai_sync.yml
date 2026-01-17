@@ -7,7 +7,12 @@ on:
     # 台灣時間 (UTC+8) 23:00 = UTC 15:00
     - cron: '0 15 * * 1-5'
   
-  workflow_dispatch: # 允許您在 GitHub 介面點擊 "Run workflow" 手動測試
+  workflow_dispatch:
+    inputs:
+      target_symbol:
+        description: 'ST 傳入的即時更新代號'
+        required: false
+        default: ''  # 預設為空，代表定時全更
 
 jobs:
   build:
@@ -30,6 +35,7 @@ jobs:
 
       - name: Run AI Oracle Engine
         env:
-          # 這裡與您在 Settings > Secrets 中的名稱一致
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          # 新增下面這一行，讓 Python 讀得到 ST 傳進來的參數
+          TARGET_SYMBOL: ${{ github.event.inputs.target_symbol }}
         run: python cron_job.py
