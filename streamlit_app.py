@@ -23,6 +23,26 @@ def setup_page():
 def is_valid_format(text):
     """1.5 & 2.5 限制章節：僅限英數"""
     return bool(re.match("^[a-zA-Z0-9]*$", text))
+    
+# ==========================================
+# 工具章節：資料庫連線 (解決 NameError 的關鍵)
+# ==========================================
+@st.cache_resource
+def init_db():
+    """建立與 Google Sheets 的連線"""
+    try:
+        # 從 Streamlit Secrets 讀取設定
+        info = json.loads(st.secrets["GCP_SERVICE_ACCOUNT_JSON"])
+        creds = Credentials.from_service_account_info(info, scopes=[
+            'https://www.googleapis.com/auth/spreadsheets', 
+            'https://www.googleapis.com/auth/drive'
+        ])
+        client = gspread.authorize(creds)
+        # 開啟名為 "users" 的試算表及其同名工作表
+        return client.open("users").worksheet("users")
+    except Exception as e:
+        st.error(f"❌ 資料庫連線失敗: {e}")
+        return None
 
 # ==========================================
 # 第一章：帳號申請功能 (註冊物件)
@@ -84,27 +104,23 @@ def chapter_2_login(db_ws):
 # 核心執行入口章節 (The Main Entrance)
 # ==========================================
 def main():
-    # 1. 基礎樣式設定
+    # 1. 執行基礎樣式設定
     setup_page()
     
-    # 2. 初始化登入狀態 (必須放在最前面)
+    # 2. 初始化登入狀態
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # 3. 呼叫資料庫連線 (請確認名稱是否為 init_db 或 get_database)
-    # 如果你之前的連線函數叫 get_database，請把這裡改掉
+    # 3. 呼叫連線章節 (剛才新增的 init_db)
     db = init_db() 
     
     if db is None:
-        st.warning("資料庫連線中，請檢查 GCP Secrets 設定...")
         return
 
     # 4. 判斷頁面邏輯
     if not st.session_state["logged_in"]:
-        # --- 第一、二章：登入註冊頁面 ---
+        # --- 第一、二章：入口頁面 ---
         st.markdown("<h1 style='text-align: center;'>🔮 Oracle AI 入口頁面</h1>", unsafe_allow_html=True)
-        
-        # 使用簡單的分頁
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
             chapter_2_login(db)
@@ -112,27 +128,21 @@ def main():
             chapter_1_registration(db)
             
     else:
-        # --- 登入後的並排佈局 (需求修正) ---
-        # 建立兩個容器：左邊放歡迎文字，右邊放按鈕
-        head_col1, head_col2 = st.columns([0.8, 0.2])
+        # --- 登入後並排佈局：文字 + 登出按鈕 ---
+        col_msg, col_logout = st.columns([0.8, 0.2])
         
-        with head_col1:
-            # 用 markdown 顯示，避免 st.success 的大綠框擋住排版
+        with col_msg:
+            # 使用 H3 標題，確保與按鈕水平對齊
             st.markdown(f"### ✅ 歡迎回來，{st.session_state['user']}！")
             
-        with head_col2:
-            # 對齊標題高度的登出按鈕
-            st.write("##") # 補位調整
+        with col_logout:
+            st.write("##") # 補位微調，讓按鈕垂直置中
             if st.button("🚪 登出系統", key="main_logout"):
                 st.session_state["logged_in"] = False
                 st.rerun()
 
-        # --- 第三章：監控清單管理物件預留區 ---
+        # --- 第三章：監控清單管理預留區 ---
         st.markdown("---")
         st.subheader("📍 第三章：監控清單管理")
-        st.write("目前清單功能正在對接中...")
-
-# 執行點
-if __name__ == "__main__":
-    main()
+        st.info("入口頁面功能已修正，準備設計清單物件。")
 
