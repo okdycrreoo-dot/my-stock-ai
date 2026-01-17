@@ -145,7 +145,7 @@ def main():
         """, unsafe_allow_html=True)
 
         # 2. 使用小比例欄位達成橫向緊靠
-        c1, c2 = st.columns([0.1, 0.9], vertical_alignment="center")
+        c1, c2 = st.columns([0.1, 2.0], vertical_alignment="center")
         
         with c1:
             # 使用 span 標籤讓文字不換行，並縮小標題等級
@@ -164,5 +164,6 @@ def main():
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
