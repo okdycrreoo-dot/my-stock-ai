@@ -535,49 +535,60 @@ def chapter_5_ai_decision_report(row, pred_ws):
     st.markdown("---")
 
     # --- 核心指標儀表板 ---
+st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
 
-    st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
+# 根據截圖校正索引：AH[33], AI[34], AJ[35]
+col_a, col_b, col_c = st.columns(3)
 
-    # 假設索引：ATR[22], Vol_Bias[23], RR_Ratio[26] (請根據實際試算表調整)
-    # 這裡先以 row 中的數據進行轉換
-    col_a, col_b, col_c = st.columns(3)
+def safe_float(value):
+    """安全轉換數值函數，避免非數字字元導致崩潰"""
+    try:
+        # 移除百分比符號或空格
+        clean_val = str(value).replace('%', '').strip()
+        return float(clean_val)
+    except (ValueError, TypeError):
+        return 0.0
 
-    with col_a:
-        atr_val = float(row[22]) if row[22] else 0
-        st.metric("股價活潑度 (ATR)", f"{atr_val:.2f}")
-        st.caption("💡 數字越大，代表股價跳動越劇烈，要注意洗盤風險。")
+with col_a:
+    # AH 欄 (索引 33): atr_value
+    atr_val = safe_float(row[33]) if len(row) > 33 else 0.0
+    st.metric("股價活潑度 (ATR)", f"{atr_val:.2f}")
+    st.caption("💡 數字越大代表股價跳動劇烈，獲利空間大但洗盤風險也高。")
 
-    with col_b:
-        vol_b = float(row[23]) if row[23] else 0
-        # 簡單判斷：正值為強，負值為弱
-        status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
-        st.metric("資金追價意願", status, delta=f"{vol_b}%")
-        st.caption("💡 正數代表漲起來很有力；負數代表大家只是看看，沒人敢追。")
+with col_b:
+    # AI 欄 (索引 34): vol_bias
+    vol_b = safe_float(row[34]) if len(row) > 34 else 0.0
+    status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
+    st.metric("資金追價意願", status, delta=f"{vol_b}%")
+    st.caption("💡 正數代表漲起來很有力；負數代表只是虛漲，追價意願低。")
 
-    with col_c:
-        rr_val = float(row[26]) if row[26] else 0
-        # 簡單判斷：> 1.5 為優
-        rr_status = "💎 極具價值" if rr_val > 1.5 else "⚠️ 風險偏高"
-        st.metric("投資性價比 (R/R)", rr_status)
-        st.caption(f"💡 目前為 {rr_val:.1f}。代表你承擔 1 份風險，預期能換回 {rr_val:.1f} 份獲利。")
+with col_c:
+    # AJ 欄 (索引 35): rr_ratio
+    rr_val = safe_float(row[35]) if len(row) > 35 else 0.0
+    # 專業風報比判斷
+    if rr_val > 2.0:
+        rr_status = "💎 極具價值"
+    elif rr_val > 1.0:
+        rr_status = "⚖️ 比例合理"
+    else:
+        rr_status = "⚠️ 風險偏高"
+    
+    st.metric("投資性價比 (R/R)", rr_status)
+    st.caption(f"💡 目前為 {rr_val:.2f}。代表每承擔 1 份風險，預期換回 {rr_val:.2f} 份獲利。")
 
-    st.markdown("---")
+st.markdown("---")
 
-    # --- 5. AI 診斷與展望 ---
-    st.write("### 🧠 Oracle 深度診斷")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.info(f"**【AI 臨床診斷】**\n\n{row[27]}")
-    with col_b:
-        st.success(f"**【未來展望評估】**\n\n{row[28]}")
+# --- 5. AI 診斷與展望 (對應 AB[27], AC[28]) ---
+st.write("### 🧠 Oracle 深度診斷")
+col_diag, col_out = st.columns(2)
+with col_diag:
+    # AB 欄 (索引 27)
+    st.info(f"**【AI 臨床診斷】**\n\n{row[27]}")
+with col_out:
+    # AC 欄 (索引 28)
+    st.success(f"**【未來展望評估】**\n\n{row[28]}")
 
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
