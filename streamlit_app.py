@@ -198,13 +198,23 @@ def main():
             st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅ 歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
         with c2:
             if st.button("🚪 登出", key="main_logout"):
-                # 1. 刪除 Cookie
-                cookie_manager.delete('oracle_remember_me')
-                # 2. 強制清空 session 狀態
+                # 安全刪除：先檢查 Cookie 是否存在再刪除，避免 KeyError
+                try:
+                    # 抓取目前所有 cookies
+                    all_cookies = cookie_manager.get_all()
+                    if 'oracle_remember_me' in all_cookies:
+                        cookie_manager.delete('oracle_remember_me')
+                except:
+                    pass # 如果刪除失敗就跳過，不影響登出流程
+
+                # 強制清空狀態
                 st.session_state["logged_in"] = False
-                st.session_state["user"] = None 
-                # 3. 標記為「剛登出」，防止重整後又被抓回來
+                st.session_state["user"] = None
                 st.session_state["just_logged_out"] = True
+                
+                # 給一點點時間讓 Cookie 刪除指令發出後再跳轉
+                import time
+                time.sleep(0.5) 
                 st.rerun()
 
         st.markdown("---")
@@ -626,6 +636,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
