@@ -515,32 +515,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
     st.dataframe(price_matrix, hide_index=True, use_container_width=True)
     
     st.markdown("---")
-    
-    # --- 3. 核心指標儀表板 (精確索引對應 AH:33, AI:34, AJ:35) ---
-    st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
-    col_a, col_b, col_c = st.columns(3)
-
-    with col_a:
-        # AH 欄 (索引 33): atr_value
-        atr_v = safe_float(row[33]) if len(row) > 33 else 0.0
-        st.metric("股價活潑度 (ATR)", f"{atr_v:.2f}")
-        st.caption("💡 數字大代表股價跳動大，機會多但洗盤也兇。")
-
-    with col_b:
-        # AI 欄 (索引 34): vol_bias
-        vol_b = safe_float(row[34]) if len(row) > 34 else 0.0
-        v_status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
-        st.metric("資金追價意願", v_status, delta=f"{vol_b}%")
-        st.caption("💡 正數代表大家肯拿錢追高；負數代表只是虛漲。")
-
-    with col_c:
-        # AJ 欄 (索引 35): rr_ratio
-        rr_v = safe_float(row[35]) if len(row) > 35 else 0.0
-        rr_txt = "💎 極具價值" if rr_v > 1.5 else "⚠️ 風險偏高"
-        st.metric("投資性價比 (R/R)", rr_txt)
-        st.caption(f"💡 目前為 {rr_v:.1f}。代表賠 1 塊的風險能換 {rr_v:.1f} 塊獲利。")
-
-    st.markdown("---")
 
     # --- 4. 最新 10 筆預測準確率驗證 ---
     st.write("### 📈 最新 10 筆預測準確率驗證")
@@ -576,6 +550,32 @@ def chapter_5_ai_decision_report(row, pred_ws):
         st.caption(f"準確率加載中...")
 
     st.markdown("---")
+    
+    # --- 3. 核心指標儀表板 (精確索引對應 AH:33, AI:34, AJ:35) ---
+    st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        # AH 欄 (索引 33): atr_value
+        atr_v = safe_float(row[33]) if len(row) > 33 else 0.0
+        st.metric("股價活潑度 (ATR)", f"{atr_v:.2f}")
+        st.caption("💡 數字大代表股價跳動大，機會多但洗盤也兇。")
+
+    with col_b:
+        # AI 欄 (索引 34): vol_bias
+        vol_b = safe_float(row[34]) if len(row) > 34 else 0.0
+        v_status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
+        st.metric("資金追價意願", v_status, delta=f"{vol_b}%")
+        st.caption("💡 正數代表大家肯拿錢追高；負數代表只是虛漲。")
+
+    with col_c:
+        # AJ 欄 (索引 35): rr_ratio
+        rr_v = safe_float(row[35]) if len(row) > 35 else 0.0
+        rr_txt = "💎 極具價值" if rr_v > 1.5 else "⚠️ 風險偏高"
+        st.metric("投資性價比 (R/R)", rr_txt)
+        st.caption(f"💡 目前為 {rr_v:.1f}。代表賠 1 塊的風險能換 {rr_v:.1f} 塊獲利。")
+
+    st.markdown("---")
 
     # --- 5. AI 診斷與展望 (AB:27, AC:28) ---
     st.write("### 🧠 Oracle 深度診斷")
@@ -588,6 +588,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
