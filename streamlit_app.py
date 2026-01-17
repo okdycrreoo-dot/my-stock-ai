@@ -1,3 +1,4 @@
+import extra_streamlit_components as st_tags
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
@@ -9,7 +10,7 @@ import time     # <-- 記得補上這行，後續等待檢查需要它
 # 基礎設定章節：強制白色主題與解鎖
 # ==========================================
 def setup_page():
-    st.set_page_config(page_title="Oracle Login", layout="centered")
+    st.set_page_config(page_title="智慧AI輔助", layout="centered")
     st.markdown("""
         <style>
         /* 強制背景白色，並移除所有可能的灰色遮蓋層 */
@@ -101,9 +102,9 @@ def chapter_1_registration(db_ws):
             st.warning("請檢查輸入內容是否完整且格式正確。")
 
 # ==========================================
-# 第二章：帳號登入功能 (登入物件)
+# 第二章：帳號登入功能 (已整合寫入 Cookie)
 # ==========================================
-def chapter_2_login(db_ws):
+def chapter_2_login(db_ws, cookie_manager): # <-- 這裡多接收了參數
     # 2.1 帳號輸入框
     u = st.text_input("帳號", key="login_u")
     if u and not is_valid_format(u):
@@ -117,37 +118,56 @@ def chapter_2_login(db_ws):
     # 2.3 確認登入按鈕
     if st.button("確認登入系統", key="login_btn"):
         if u and p:
-            # 2.4 核對邏輯 (處理 000000 格式問題)
+            # 2.4 核對邏輯
             data = db_ws.get_all_values()
-            # 遍歷核對，強制轉字串解決 Google Sheets 格式問題
             match = any(str(row[0]).strip() == u and str(row[1]).strip() == p for row in data)
             
             if match:
+                # A. 原有的 Session 登入
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = u
+                
+                # B. 【新增】寫入 Cookie 到瀏覽器，設定 14 天有效期
+                import datetime
+                expire_at = datetime.datetime.now() + datetime.timedelta(days=14)
+                cookie_manager.set('oracle_remember_me', u, expires_at=expire_at)
+                
+                st.success("登入成功！正在跳轉...")
                 st.rerun()
             else:
                 st.error("❌ 帳號或密碼錯誤")
 
 # ==========================================
-# 核心執行入口章節 (The Main Entrance)
+# 核心執行入口章節 (已整合 Cookie 持久化)
 # ==========================================
 def main():
     setup_page()
     
+    # 1. 初始化 Cookie 管理器 (必須放在 main 的最前面)
+    cookie_manager = st_tags.CookieManager()
+    
+    # 2. 嘗試抓取瀏覽器記憶中的帳號 (Key 名稱為 'oracle_remember_me')
+    saved_user = cookie_manager.get('oracle_remember_me')
+    
+    # 3. 持久化判斷邏輯
     if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
+        if saved_user:
+            # 如果發現 Cookie，自動幫使用者恢復 Session
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = saved_user
+        else:
+            st.session_state["logged_in"] = False
 
     db_dict = init_db() 
-    if db_dict is None:
-        return
+    if db_dict is None: return
 
     if not st.session_state["logged_in"]:
         # --- 入口頁面 (未登入) ---
         st.markdown("<h1 style='text-align: center;'>🔮 股市輔助決策系統-進化型AI</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
-            chapter_2_login(db_dict["users"]) # 傳入 users 分頁
+            # 【注意】這裡要多傳入一個 cookie_manager 參數給登入函數
+            chapter_2_login(db_dict["users"], cookie_manager) 
         with tab2:
             chapter_1_registration(db_dict["users"])
             
@@ -166,6 +186,8 @@ def main():
             st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅ 歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
         with c2:
             if st.button("🚪 登出", key="main_logout"):
+                # 【關鍵】登出時不只要清空 Session，也要刪除瀏覽器的 Cookie 記憶
+                cookie_manager.delete('oracle_remember_me')
                 st.session_state["logged_in"] = False
                 st.rerun()
 
@@ -588,6 +610,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
