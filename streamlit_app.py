@@ -384,10 +384,7 @@ def chapter_4_stock_basic_info(symbol):
     獨立章節：顯示股票即時行情，具備手動更新機制以節省資源。
     """
     import yfinance as yf
-    
-    # 章節外框
-    st.markdown("### 📋 第四章：基本行情觀測")
-    
+ 
     # 佈局：標題與更新按鈕
     col_info, col_refresh = st.columns([5, 1])
     with col_info:
@@ -461,6 +458,7 @@ def chapter_4_stock_basic_info(symbol):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
