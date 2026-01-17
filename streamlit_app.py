@@ -144,7 +144,7 @@ def main():
 
     if not st.session_state["logged_in"]:
         # --- 入口頁面 (未登入) ---
-        st.markdown("<h1 style='text-align: center;'>🔮 Oracle AI 入口頁面</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center;'>🔮 股市輔助決策系統-進化型AI</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
             chapter_2_login(db_dict["users"]) # 傳入 users 分頁
@@ -588,6 +588,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
