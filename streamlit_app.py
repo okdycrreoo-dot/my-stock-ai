@@ -3,117 +3,96 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 import re
-import time
 
 # ==========================================
-# 基礎配置：強制白色背景與 UI 修復
+# 基礎設定章節：強制白色主題與解鎖
 # ==========================================
-def setup_theme():
+def setup_page():
+    st.set_page_config(page_title="Oracle Login", layout="centered")
     st.markdown("""
         <style>
-        .stApp { background-color: #FFFFFF !important; color: #000000 !important; }
-        /* 修正灰色覆蓋層問題 */
-        .stTabs [data-baseweb="tab-list"] { background-color: #FFFFFF; }
+        /* 強制背景白色，並移除所有可能的灰色遮蓋層 */
+        .stApp { background-color: #FFFFFF !important; }
+        .stTabs [data-baseweb="tab-list"] { background-color: #FFFFFF !important; }
         p, label, h1, h2, h3 { color: #000000 !important; }
-        input { background-color: #F0F2F6 !important; color: #000000 !important; }
+        /* 讓輸入框更明顯 */
+        input { border: 1px solid #CCC !important; color: #000 !important; }
         </style>
     """, unsafe_allow_html=True)
 
-def is_alphanumeric(text):
-    """英數檢查 (需求 1.5 & 2.5)"""
+def is_valid_format(text):
+    """1.5 & 2.5 限制章節：僅限英數"""
     return bool(re.match("^[a-zA-Z0-9]*$", text))
 
 # ==========================================
 # 第一章：帳號申請功能 (註冊物件)
 # ==========================================
-
-def reg_section(db_ws):
+def chapter_1_registration(db_ws):
     # 1.1 設定帳號輸入框
-    u = st.text_input("設定新帳號 (僅限英數)", key="reg_u_input")
-    # 1.5 輸入限制
-    if u and not is_alphanumeric(u):
-        st.error("🚫 僅限英文或數字")
-        
+    u = st.text_input("設定新帳號", key="reg_u")
+    if u and not is_valid_format(u):
+        st.error("🚫 帳號僅能輸入英文或數字")
+
     # 1.2 設定密碼輸入框
-    p = st.text_input("設定新密碼 (僅限英數)", type="password", key="reg_p_input")
-    if p and not is_alphanumeric(p):
-        st.error("🚫 僅限英文或數字")
+    p = st.text_input("設定新密碼", type="password", key="reg_p")
+    if p and not is_valid_format(p):
+        st.error("🚫 密碼僅能輸入英文或數字")
 
     # 1.3 確認註冊按鈕
-    if st.button("確認註冊帳號", key="reg_btn"):
-        if not u or not p:
-            st.warning("請填寫內容")
-        elif not is_alphanumeric(u) or not is_alphanumeric(p):
-            st.error("格式不符")
-        else:
+    if st.button("確認註冊並送出", key="reg_btn"):
+        if u and p and is_valid_format(u) and is_valid_format(p):
             # 1.4 確認重複邏輯
-            users_list = db_ws.get_all_values()
-            usernames = [row[0] for row in users_list] # 假設 A 欄是帳號
-            if u in usernames:
-                st.error(f"❌ 帳號 '{u}' 已存在")
+            all_users = db_ws.col_values(1) # 只抓第一欄提升速度
+            if u in all_users:
+                st.error(f"❌ 帳號 '{u}' 已被使用")
             else:
                 db_ws.append_row([u, p])
-                st.success("🎉 註冊成功，請切換至登入頁面")
+                st.success("🎉 註冊成功！請切換到登入分頁。")
+        else:
+            st.warning("請檢查輸入內容是否完整且格式正確。")
 
 # ==========================================
 # 第二章：帳號登入功能 (登入物件)
 # ==========================================
-
-def login_section(db_ws):
+def chapter_2_login(db_ws):
     # 2.1 帳號輸入框
-    u = st.text_input("帳號", key="login_u_input")
-    if u and not is_alphanumeric(u):
-        st.error("🚫 僅限英文或數字")
+    u = st.text_input("帳號", key="login_u")
+    if u and not is_valid_format(u):
+        st.error("🚫 請輸入英文或數字")
 
     # 2.2 密碼輸入框
-    p = st.text_input("密碼", type="password", key="login_p_input")
-    if p and not is_alphanumeric(p):
-        st.error("🚫 僅限英文或數字")
+    p = st.text_input("密碼", type="password", key="login_p")
+    if p and not is_valid_format(p):
+        st.error("🚫 請輸入英文或數字")
 
     # 2.3 確認登入按鈕
     if st.button("確認登入系統", key="login_btn"):
-        if not u or not p:
-            st.warning("請輸入帳號密碼")
-        else:
-            # 2.4 核對邏輯 (處理 '000000' 格式問題)
-            users_list = db_ws.get_all_values()
-            found = False
-            for row in users_list:
-                # 去除空白並強制轉字串比對
-                db_u = str(row[0]).strip()
-                db_p = str(row[1]).strip()
-                if db_u == u and db_p == p:
-                    found = True
-                    break
+        if u and p:
+            # 2.4 核對邏輯 (處理 000000 格式問題)
+            data = db_ws.get_all_values()
+            # 遍歷核對，強制轉字串解決 Google Sheets 格式問題
+            match = any(str(row[0]).strip() == u and str(row[1]).strip() == p for row in data)
             
-            if found:
+            if match:
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = u
-                st.success("🎯 登入中...")
-                time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ 核對失敗：帳號或密碼錯誤")
+                st.error("❌ 帳號或密碼錯誤")
 
 # ==========================================
-# 入口頁面執行與對接 (Main Entrance)
+# 執行入口章節 (Main Entry)
 # ==========================================
-
-@st.cache_resource
-def init_db():
-    try:
-        info = json.loads(st.secrets["GCP_SERVICE_ACCOUNT_JSON"])
-        creds = Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
-        return gspread.authorize(creds).open("users").worksheet("users")
-    except:
-        return None
-
 def main():
-    setup_theme()
-    db = init_db()
+    setup_page()
     
-    if db is None:
-        st.error("資料庫連線中，請稍候...")
+    # 初始化連線
+    try:
+        creds_json = json.loads(st.secrets["GCP_SERVICE_ACCOUNT_JSON"])
+        creds = Credentials.from_service_account_info(creds_json, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
+        db_ws = gspread.authorize(creds).open("users").worksheet("users")
+    except Exception as e:
+        st.error(f"連線失敗，請檢查 Secrets。錯誤: {e}")
         return
 
     if "logged_in" not in st.session_state:
@@ -121,17 +100,15 @@ def main():
 
     if not st.session_state["logged_in"]:
         st.title("🔮 Oracle AI 入口頁面")
-        # 使用分頁區隔章節
-        tab_login, tab_reg = st.tabs(["帳號登入", "帳號申請"])
+        tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         
-        with tab_login:
-            login_section(db)
-            
-        with tab_reg:
-            reg_section(db)
+        with tab1:
+            chapter_2_login(db_ws)
+        with tab2:
+            chapter_1_registration(db_ws)
     else:
-        # 登入後的頁面預留 (第三章)
-        st.title(f"歡迎回來, {st.session_state['user']}!")
+        # 登入成功後的轉場
+        st.success(f"歡迎回來, {st.session_state['user']}")
         if st.button("登出"):
             st.session_state["logged_in"] = False
             st.rerun()
