@@ -156,31 +156,28 @@ def main():
 # ==========================================
 
 def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
-    """
-    db_ws: 帳號表, watchlist_ws: 自選股表, predictions_ws: AI數據表
-    """
     user_name = st.session_state["user"]
     
-    # --- 3.1 控制台縮放按鈕 ---
+    # 取得目前使用者的自選清單
+    all_watch = watchlist_ws.get_all_values()
+    user_stocks = [row[1] for row in all_watch if row[0] == user_name]
+    stock_count = len(user_stocks)
+
+    # --- 3.1 整個功能都裝進縮放按鈕 ---
     with st.expander("🛠️ 開啟股票控制台", expanded=False):
         
-        # 獲取目前使用者的自選清單
-        # 假設 watchlist A欄是使用者名稱, B欄是股票代號
-        all_watch = watchlist_ws.get_all_values()
-        user_stocks = [row[1] for row in all_watch if row[0] == user_name]
-        stock_count = len(user_stocks)
-        
-        # 3.2 新增功能佈局 (顯示數量提醒)
+        # 上半部：新增功能
         st.write(f"### 📥 新增自選股 ({stock_count}/30)")
-        
         col_input, col_add = st.columns([3, 1])
-        
         with col_input:
-            new_stock = st.text_input("輸入股票代號 (僅限英數)", key="new_stock_input").strip().upper()
-        
+            new_stock = st.text_input("輸入股票代號", key="new_stock_input").strip().upper()
         with col_add:
             st.write("##") # 對齊
-            add_btn = st.button("確認新增", key="add_stock_btn")
+            if st.button("確認新增", key="add_stock_btn"):
+                # ... 這裡保留您原本的新增邏輯 (包含 .TW/.TWO 判斷) ...
+                pass
+
+        st.markdown("---")
             
         # 3.3 新增邏輯處理
         if add_btn:
@@ -202,23 +199,24 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                 st.rerun()
 
     # --- 3.4 自選股清單顯示與操作 ---
-    st.markdown("---")
-    st.write("### 📋 我的監控清單")
-    
-    if not user_stocks:
-        st.info("目前清單空空的，快去新增股票吧！")
-    else:
-        for stock in user_stocks:
-            # 每支股票一行，左邊名稱，中間分析按鈕，右邊刪除按鈕
-            c1, c2, c3 = st.columns([3, 1, 1])
+    st.write("### 📋 監控清單管理")
+        if not user_stocks:
+            st.info("目前清單中沒有股票")
+        else:
+            # 建立三欄佈局：下拉選單 | 開始分析按鈕 | 刪除按鈕
+            c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+            
             with c1:
-                st.write(f"🔍 **{stock}**")
+                selected_stock = st.selectbox("選擇要操作的股票", options=user_stocks, key="stock_selector")
+            
             with c2:
-                if st.button(f"🚀 開始分析", key=f"ana_{stock}"):
-                    process_analysis(stock, predictions_ws)
+                if st.button("🚀 開始分析", key="ana_btn_main"):
+                    process_analysis(selected_stock, predictions_ws)
+            
             with c3:
-                if st.button(f"🗑️ 刪除", key=f"del_{stock}"):
-                    delete_stock(user_name, stock, watchlist_ws)
+                if st.button("🗑️ 刪除", key="del_btn_main"):
+                    delete_stock(user_name, selected_stock, watchlist_ws)
+                    st.rerun()
 
 def delete_stock(user, symbol, ws):
     """刪除邏輯：找到對應列並移除"""
@@ -240,6 +238,7 @@ def process_analysis(symbol, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
