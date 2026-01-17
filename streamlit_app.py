@@ -91,12 +91,12 @@ def chapter_1_registration(db_ws):
     # 1.3 確認註冊按鈕
     if st.button("確認註冊並送出", key="reg_btn"):
         if u and p and is_valid_format(u) and is_valid_format(p):
-            # 1.4 確認重複邏輯
-            all_users = db_ws.col_values(1) # 只抓第一欄提升速度
+            all_users = db_ws.col_values(1)
             if u in all_users:
                 st.error(f"❌ 帳號 '{u}' 已被使用")
             else:
-                db_ws.append_row([u, p])
+                # 【關鍵修改】在帳號與密碼前加上單引號，保留開頭的 0
+                db_ws.append_row([f"'{u}", f"'{p}"]) 
                 st.success("🎉 註冊成功！請切換到登入分頁。")
         else:
             st.warning("請檢查輸入內容是否完整且格式正確。")
@@ -146,8 +146,16 @@ def main():
     # 1. 初始化 Cookie 管理器 (必須放在 main 的最前面)
     cookie_manager = st_tags.CookieManager()
     
-    # 2. 嘗試抓取瀏覽器記憶中的帳號 (Key 名稱為 'oracle_remember_me')
-    saved_user = cookie_manager.get('oracle_remember_me')
+    # --- [新增防護開關：初始化登出狀態] ---
+    if "just_logged_out" not in st.session_state:
+        st.session_state["just_logged_out"] = False
+
+    # 2. 嘗試抓取瀏覽器記憶 (加入判斷，如果剛登出就不要抓)
+    if st.session_state["just_logged_out"]:
+        saved_user = None  # 強制忽略 Cookie
+    else:
+        saved_user = cookie_manager.get('oracle_remember_me')
+    # ------------------------------------
     
     # 3. 持久化判斷邏輯
     if "logged_in" not in st.session_state:
@@ -186,9 +194,13 @@ def main():
             st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅ 歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
         with c2:
             if st.button("🚪 登出", key="main_logout"):
-                # 【關鍵】登出時不只要清空 Session，也要刪除瀏覽器的 Cookie 記憶
+                # 1. 刪除 Cookie
                 cookie_manager.delete('oracle_remember_me')
+                # 2. 強制清空 session 狀態
                 st.session_state["logged_in"] = False
+                st.session_state["user"] = None 
+                # 3. 標記為「剛登出」，防止重整後又被抓回來
+                st.session_state["just_logged_out"] = True
                 st.rerun()
 
         st.markdown("---")
@@ -610,6 +622,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
