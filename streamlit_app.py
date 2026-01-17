@@ -67,14 +67,15 @@ def reg_submit_logic(u, p, db_ws):
 
 def login_username_input():
     """2.1 帳號輸入框"""
-    u = st.text_input("帳號", key="login_u")
+    # 使用 .strip() 自動去除使用者不小心按到的前後空格
+    u = st.text_input("帳號", key="login_u").strip()
     if not is_alphanumeric(u):
         st.error("⚠️ 格式不符：僅接受英文或數字")
     return u
 
 def login_password_input():
     """2.2 密碼輸入框"""
-    p = st.text_input("密碼", type="password", key="login_p")
+    p = st.text_input("密碼", type="password", key="login_p").strip()
     if not is_alphanumeric(p):
         st.error("⚠️ 格式不符：僅接受英文或數字")
     return p
@@ -82,17 +83,31 @@ def login_password_input():
 def login_verify_logic(u, p, users_data):
     """2.3 & 2.4 確認登入按鈕與核對邏輯"""
     if st.button("確認登入系統", key="btn_login_submit"):
-        # 尋找是否有匹配的帳號密碼
-        found = next((row for row in users_data if 
-                      str(row.get('username', '')).strip() == u and 
-                      str(row.get('password', '')).strip() == p), None)
+        if not u or not p:
+            st.warning("請輸入帳號與密碼")
+            return
+
+        # 強力核對邏輯：
+        # 1. 強制轉為字串 str() 解決數字/單引號問題
+        # 2. 使用 .strip() 解決隱形空格問題
+        # 3. 使用 row.get('column_name') 預防欄位缺失導致報錯
+        found = None
+        for row in users_data:
+            db_u = str(row.get('username', '')).strip()
+            db_p = str(row.get('password', '')).strip()
+            
+            if db_u == u and db_p == p:
+                found = row
+                break
+
         if found:
             st.session_state["logged_in"] = True
             st.session_state["user"] = u
             st.success("🎯 驗證成功，正在登入...")
+            time.sleep(0.5)
             st.rerun()
         else:
-            st.error("❌ 核對失敗：帳號或密碼錯誤")
+            st.error("❌ 核對失敗：帳號或密碼錯誤 (請檢查大小寫)")
 
 # ==========================================
 # 資料庫連線章節 (Backend)
@@ -149,3 +164,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
