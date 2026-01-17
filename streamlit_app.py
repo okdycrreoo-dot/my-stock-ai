@@ -171,28 +171,34 @@ def main():
             attempt += 1
     # -----------------------------------------------
 
-    # --- #3. 持久化判斷邏輯 ---
+    # --- #3. 持久化判斷邏輯 (攔截優化版) ---
     if "logged_in" not in st.session_state:
         if saved_user:
-            # 抓到 Cookie 了，直接幫他恢復登入狀態
+            # A. 抓到 Cookie，直接恢復登入
             st.session_state["logged_in"] = True
             st.session_state["user"] = saved_user
-            # 關鍵：抓到後立刻 rerun 一次，確保整個介面同步更新
             st.rerun()
         else:
+            # B. 沒抓到 Cookie，暫時設為 False
             st.session_state["logged_in"] = False
 
-    # 後續連接原本的資料庫初始化...
+    # 資料庫初始化
     db_dict = init_db() 
     if db_dict is None: return
 
+    # --- #4. 頁面顯示邏輯 ---
     if not st.session_state["logged_in"]:
-        # --- 入口頁面 (未登入) ---
+        # 【關鍵攔截】如果不是剛登出，但 saved_user 還是 None，代表 Cookie 還在讀取中
+        if not st.session_state.get("just_logged_out", False) and saved_user is None:
+            with st.status("🚀 正在恢復您的加密連線...", expanded=False):
+                st.write("檢查瀏覽器憑證中...")
+            st.stop() # 暫停執行，等待下一秒 Cookie 到位自動觸發 Rerun
+
+        # 只有在「確定沒 Cookie」或「剛登出」的情況下，才顯示登入分頁
         st.markdown("<h1 style='text-align: center;'>🔮 股市輔助決策系統-進化型AI</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
-            # 【注意】這裡要多傳入一個 cookie_manager 參數給登入函數
-            chapter_2_login(db_dict["users"], cookie_manager) 
+            chapter_2_login(db_dict["users"], cookie_manager)
         with tab2:
             chapter_1_registration(db_dict["users"])
             
@@ -649,5 +655,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
