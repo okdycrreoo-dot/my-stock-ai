@@ -455,6 +455,9 @@ def chapter_4_stock_basic_info(symbol):
 
     st.markdown("---") # 章節結束線
 
+# ==========================================
+# 第五章：AI 深度決策報告 (修正索引與防錯)
+# ==========================================
 def chapter_5_ai_decision_report(row, pred_ws):
     # --- 內部工具函數：放在這裡確保不會發生 NameError ---
     def safe_float(value):
@@ -487,6 +490,32 @@ def chapter_5_ai_decision_report(row, pred_ws):
 
     st.markdown("---")
 
+    # --- 2.5 策略預估價位表格 (補回此區塊) ---
+    st.write("### 🎯 策略預估價位矩陣")
+    
+    # 根據試算表索引精確對應：
+    # 建議買價：buy_5d(6), buy_10d(7), buy_20d(9)
+    # 建議賣價：sell_5d(12), sell_10d(13), sell_20d(15)
+    # 壓力價位：res_5d(18), res_10d(19), res_20d(21)
+    # 乖離率：bias_5d(29), bias_10d(30), bias_20d(32)
+    
+    price_matrix = {
+        "時序": ["5日建議", "10日建議", "20日建議"],
+        "建議買價": [row[6], row[7], row[9]], 
+        "建議賣價": [row[12], row[13], row[15]],
+        "壓力價位": [row[18], row[19], row[21]],
+        "乖離率 (%)": [
+            f"{row[29]}%" if len(row) > 29 else "-",
+            f"{row[30]}%" if len(row) > 30 else "-",
+            f"{row[32]}%" if len(row) > 32 else "-"
+        ]
+    }
+    
+    # 使用 dataframe 顯示並隱藏索引，讓介面更專業
+    st.dataframe(price_matrix, hide_index=True, use_container_width=True)
+    
+    st.markdown("---")
+    
     # --- 3. 核心指標儀表板 (精確索引對應 AH:33, AI:34, AJ:35) ---
     st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
     col_a, col_b, col_c = st.columns(3)
@@ -559,5 +588,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
