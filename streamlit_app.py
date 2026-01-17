@@ -29,21 +29,23 @@ def is_valid_format(text):
 # ==========================================
 @st.cache_resource
 def init_db():
-    """建立與 Google Sheets 的連線"""
     try:
-        # 從 Streamlit Secrets 讀取設定
         info = json.loads(st.secrets["GCP_SERVICE_ACCOUNT_JSON"])
         creds = Credentials.from_service_account_info(info, scopes=[
             'https://www.googleapis.com/auth/spreadsheets', 
             'https://www.googleapis.com/auth/drive'
         ])
         client = gspread.authorize(creds)
-        # 開啟名為 "users" 的試算表及其同名工作表
-        return client.open("users").worksheet("users")
+        spreadsheet = client.open("users") # 打開試算表檔案
+        return {
+            "users": spreadsheet.worksheet("users"),
+            "watchlist": spreadsheet.worksheet("watchlist"),
+            "predictions": spreadsheet.worksheet("predictions")
+        }
     except Exception as e:
-        st.error(f"❌ 資料庫連線失敗: {e}")
+        st.error(f"❌ 資料庫分頁連線失敗: {e}")
         return None
-
+        
 # ==========================================
 # 第一章：帳號申請功能 (註冊物件)
 # ==========================================
@@ -104,57 +106,50 @@ def chapter_2_login(db_ws):
 # 核心執行入口章節 (The Main Entrance)
 # ==========================================
 def main():
-    # 1. 執行基礎樣式設定
     setup_page()
     
-    # 2. 初始化登入狀態
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # 3. 呼叫連線章節
-    db = init_db() 
-    
-    if db is None:
+    db_dict = init_db() 
+    if db_dict is None:
         return
 
-    # 4. 判斷頁面邏輯
     if not st.session_state["logged_in"]:
         # --- 入口頁面 (未登入) ---
         st.markdown("<h1 style='text-align: center;'>🔮 Oracle AI 入口頁面</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
-            chapter_2_login(db)
+            chapter_2_login(db_dict["users"]) # 傳入 users 分頁
         with tab2:
-            chapter_1_registration(db)
+            chapter_1_registration(db_dict["users"])
             
     else:
-        # --- 登入後：橫向緊湊佈局 (文字與按鈕 50% 縮小) ---
-        # 1. 注入 CSS 縮小按鈕實體大小與字體
+        # --- 登入後：導覽列 ---
         st.markdown("""
             <style>
             div[data-testid="column"] { width: fit-content !important; flex: unset !important; }
             div[data-testid="stHorizontalBlock"] { gap: 10px; }
-            /* 讓按鈕變小、字體變小、內距縮減 */
-            .stButton > button {
-                padding: 2px 10px !important;
-                font-size: 12px !important;
-                height: auto !important;
-                min-height: 25px !important;
-            }
+            .stButton > button { padding: 2px 10px !important; font-size: 12px !important; min-height: 25px !important; }
             </style>
         """, unsafe_allow_html=True)
 
-        # 2. 使用小比例欄位達成橫向緊靠
         c1, c2 = st.columns([0.1, 0.03], vertical_alignment="center")
-        
         with c1:
-            # 使用 span 標籤讓文字不換行，並縮小標題等級
             st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅ 歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
-            
         with c2:
             if st.button("🚪 登出", key="main_logout"):
                 st.session_state["logged_in"] = False
                 st.rerun()
+
+        st.markdown("---")
+
+        # 【核心修正】在這裡呼叫第三章，縮放按鈕才會出現！
+        chapter_3_watchlist_management(
+            db_dict["users"], 
+            db_dict["watchlist"], 
+            db_dict["predictions"]
+        )
 
 # ==========================================
 # 第三章：監控清單管理功能 (Control Panel)
@@ -189,7 +184,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
         # 3.3 新增邏輯處理
         if add_btn:
-            if not is_alphanumeric(new_stock):
+            if not is_valid_format(new_stock):  # 修正這裡的函數名稱
                 st.error("🚫 格式錯誤：僅限輸入英文或數字")
             elif stock_count >= 30:
                 st.warning("⚠️ 已達上限：最多只能 30 筆自選股")
@@ -245,6 +240,7 @@ def process_analysis(symbol, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
