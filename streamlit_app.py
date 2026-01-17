@@ -499,47 +499,37 @@ def chapter_5_ai_decision_report(row, pred_ws):
     }
     st.table(price_matrix)
 
-    # --- 4. 歷史準確率驗證 (僅限最新 10 筆) ---
+    # --- 4. 歷史準確率驗證 (隱藏索引 0，僅限 10 筆) ---
     st.write("### 📈 最新 10 筆預測準確率驗證")
     try:
         all_data = pred_ws.get_all_values()
         symbol = row[1]
-        
-        # 篩選該股票的所有歷史紀錄 (排除標題列)
         history_rows = [r for r in all_data[1:] if len(r) > 1 and r[1] == symbol]
-        
-        # 邏輯：先反轉(最新在前)，然後只取前 10 筆
         display_rows = list(reversed(history_rows))[:10]
         
         if display_rows:
-            accuracy_table = []
+            accuracy_data = []
             for h_row in display_rows:
-                h_date = h_row[0]   # 預測日期
-                h_pred = h_row[2]   # 預測收盤價
-                # 實際收盤價 (索引 24)
-                h_actual = h_row[24] if (len(h_row) > 24 and h_row[24] not in ["", "0", None]) else "累積中..."
-                
-                # 準確率 (索引 25)
+                h_actual = h_row[24] if (len(h_row) > 24 and h_row[24] not in ["", "0", "0.0", None]) else "累積中..."
+                acc = "累積中..."
                 if h_actual != "累積中...":
                     try:
                         err = float(h_row[25])
                         acc = f"{100 - abs(err):.2f}%"
                     except:
-                        acc = "計算中..."
-                else:
-                    acc = "累積中..."
+                        pass
                 
-                accuracy_table.append({
-                    "預測日期": h_date,
-                    "預測價格": h_pred,
+                accuracy_data.append({
+                    "預測日期": h_row[0],
+                    "預測價格": h_row[2],
                     "實際收盤價": h_actual,
                     "準確率": acc
                 })
             
-            # 顯示表格
-            st.table(accuracy_table)
+            # 使用 dataframe 顯示並隱藏左側索引 0
+            st.dataframe(accuracy_data, hide_index=True, use_container_width=True)
         else:
-            st.info("💡 尚未有歷史預測數據，系統累積中...")
+            st.info("💡 尚未有歷史預測數據")
             
     except Exception as e:
         st.caption(f"數據讀取中... ({e})")
@@ -558,6 +548,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
