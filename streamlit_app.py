@@ -81,37 +81,43 @@ def chapter_2_login(db_ws):
                 st.error("❌ 帳號或密碼錯誤")
 
 # ==========================================
-# 執行入口章節 (Main Entry)
+# 執行入口章節 - 登入後狀態調整
 # ==========================================
+
+# ... (前面 setup_page, chapter_1, chapter_2 保持不變) ...
+
 def main():
     setup_page()
+    db = init_db()
     
-    # 初始化連線
-    try:
-        creds_json = json.loads(st.secrets["GCP_SERVICE_ACCOUNT_JSON"])
-        creds = Credentials.from_service_account_info(creds_json, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
-        db_ws = gspread.authorize(creds).open("users").worksheet("users")
-    except Exception as e:
-        st.error(f"連線失敗，請檢查 Secrets。錯誤: {e}")
-        return
-
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
+    # ... (資料庫連線檢查與 session_state 初始化) ...
 
     if not st.session_state["logged_in"]:
+        # 顯示登入/註冊分頁 (第一、二章)
         st.title("🔮 Oracle AI 入口頁面")
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
-        
-        with tab1:
-            chapter_2_login(db_ws)
-        with tab2:
-            chapter_1_registration(db_ws)
+        with tab1: chapter_2_login(db)
+        with tab2: chapter_1_registration(db)
     else:
-        # 登入成功後的轉場
-        st.success(f"歡迎回來, {st.session_state['user']}")
-        if st.button("登出"):
-            st.session_state["logged_in"] = False
-            st.rerun()
+        # --- 登入後的佈局調整 ---
+        # 使用 columns 讓文字與按鈕並排
+        # [4, 1] 代表左邊佔 4 份寬度，右邊按鈕佔 1 份，這樣按鈕會靠右且跟在後面
+        col_text, col_btn = st.columns([4, 1])
+        
+        with col_text:
+            st.success(f"歡迎回來，{st.session_state['user']}")
+            
+        with col_btn:
+            # 為了美觀，我們加一點空間讓按鈕對齊文字高度
+            st.write("") 
+            if st.button("登出", key="logout_btn"):
+                st.session_state["logged_in"] = False
+                st.rerun()
+        
+        # --- 接下來可以開始設計第三章的內容 ---
+        st.markdown("---")
+        st.write("📍 這裡將開始放置第三章：股票監控清單管理物件")
 
 if __name__ == "__main__":
     main()
+
