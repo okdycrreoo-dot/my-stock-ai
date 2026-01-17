@@ -177,6 +177,15 @@ def main():
             db_dict["watchlist"], 
             db_dict["predictions"]
         )
+        # 2. 【關鍵補位】執行第四章 (基本行情觀測)
+        # 我們從 session_state 抓取使用者在第三章選中的股票
+        selected_stock = st.session_state.get("stock_selector")
+        if selected_stock:
+            chapter_4_stock_basic_info(selected_stock)
+
+        # 3. 【關鍵補位】顯示 AI 分析報告 (放在最下面)
+        if "current_analysis" in st.session_state:
+            display_analysis_results(st.session_state["current_analysis"])
 
 # ==========================================
 # 第三章：監控清單管理功能 (Control Panel)
@@ -452,6 +461,7 @@ def chapter_4_stock_basic_info(symbol):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
