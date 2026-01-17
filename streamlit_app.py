@@ -341,10 +341,7 @@ def process_analysis(symbol, pred_ws):
             placeholder.error("❌ 分析逾時，請稍後再試")
         return None
                 
-                sync_area.write(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
-            
-            status.update(label="❌ 分析逾時", state="error")
-            st.warning("🔄 引擎仍在處理中，請稍後手動重新整理網頁。")
+
 # ==========================================
 # 補強工人 1：格式檢查 (防止新增報錯)
 # ==========================================
@@ -374,6 +371,7 @@ def delete_stock(user, symbol, watchlist_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
