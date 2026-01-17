@@ -142,34 +142,47 @@ def chapter_2_login(db_ws, cookie_manager): # <-- 這裡多接收了參數
                 st.error("❌ 帳號或密碼錯誤")
 
 # ==========================================
-# 核心執行入口章節 (已整合 Cookie 持久化)
+# 核心執行入口章節 (終極修復 F5 登出問題)
 # ==========================================
 def main():
     setup_page()
     
-    # 1. 初始化 Cookie 管理器 (必須放在 main 的最前面)
+    # 1. 初始化 Cookie 管理器
     cookie_manager = st_tags.CookieManager()
     
-    # --- [新增防護開關：初始化登出狀態] ---
+    # --- #2. 嘗試抓取瀏覽器記憶 (加入緩衝等待機制) ---
+    saved_user = None
+    
+    # 初始化登出狀態標記
     if "just_logged_out" not in st.session_state:
         st.session_state["just_logged_out"] = False
 
-    # 2. 嘗試抓取瀏覽器記憶 (加入判斷，如果剛登出就不要抓)
-    if st.session_state["just_logged_out"]:
-        saved_user = None  # 強制忽略 Cookie
-    else:
-        saved_user = cookie_manager.get('oracle_remember_me')
-    # ------------------------------------
-    
-    # 3. 持久化判斷邏輯
+    # 如果不是剛按過登出，就進入「循環讀取」邏輯
+    if not st.session_state["just_logged_out"]:
+        # 這裡的迴圈是為了解決 F5 重整時 Cookie 讀取過慢的問題
+        # 我們最多等 1.2 秒 (0.3秒 * 4次)
+        attempt = 0
+        while saved_user is None and attempt < 4:
+            saved_user = cookie_manager.get('oracle_remember_me')
+            if saved_user:
+                break
+            import time
+            time.sleep(0.3)
+            attempt += 1
+    # -----------------------------------------------
+
+    # --- #3. 持久化判斷邏輯 ---
     if "logged_in" not in st.session_state:
         if saved_user:
-            # 如果發現 Cookie，自動幫使用者恢復 Session
+            # 抓到 Cookie 了，直接幫他恢復登入狀態
             st.session_state["logged_in"] = True
             st.session_state["user"] = saved_user
+            # 關鍵：抓到後立刻 rerun 一次，確保整個介面同步更新
+            st.rerun()
         else:
             st.session_state["logged_in"] = False
 
+    # 後續連接原本的資料庫初始化...
     db_dict = init_db() 
     if db_dict is None: return
 
@@ -636,4 +649,5 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
