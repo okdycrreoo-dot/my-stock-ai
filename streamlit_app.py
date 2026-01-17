@@ -231,41 +231,103 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
 
 # --- 支援功能：刪除與分析 ---
 
+import time
+import yfinance as yf
+
+# --- 支援功能：刪除與分析 ---
+
 def delete_stock(user, symbol, ws):
     """刪除邏輯：找到對應列並移除"""
     try:
         all_data = ws.get_all_values()
         for i, row in enumerate(all_data):
+            # A 欄是 User, B 欄是 Symbol
             if row[0] == user and row[1] == symbol:
                 ws.delete_rows(i + 1)
-                st.success(f"已移除 {symbol}")
+                st.success(f"已從自選清單移除 {symbol}")
                 st.rerun()
                 return
     except Exception as e:
         st.error(f"刪除失敗: {e}")
 
 def process_analysis(symbol, pred_ws):
-    """分析邏輯：比對 predictions 表，決定是否呼叫 AI"""
-    st.info(f"正在連線大腦分析 {symbol}...")
+    """
+    精確比對 A-AK (37欄) 邏輯：
+    1. 抓取 yfinance 最新收盤日
+    2. 比對 B 欄 (代號) 與 A 欄 (日期)
+    3. 若不符，標記 Waiting 並等待大腦寫入 37 欄
+    """
+    st.info(f"🔍 正在檢查 {symbol} 的數據時效性...")
     
-    # 1. 取得所有預測記錄
-    preds = pred_ws.get_all_values()
-    # 假設 A 欄是股票代號
-    exist = any(row[0] == symbol for row in preds)
-    
-    if exist:
-        st.success(f"✨ 找到 {symbol} 的現有記錄，正在讀取分析報告...")
-        # 這裡後續可以串接讀取該列的數據
-    else:
-        st.warning(f"🧠 大腦資料庫無紀錄，正在為 {symbol} 新增 AI 分析任務...")
-        # 這裡模擬 AI 寫入新資料
-        pred_ws.append_row([symbol, "AI分析中...", "N/A"])
-        st.success(f"🚀 任務已派發，請稍後查看。")
+    # --- 1. 取得市場最新收盤日 ---
+    try:
+        stock_data = yf.Ticker(symbol)
+        latest_market_date = stock_data.history(period="1d").index[0].strftime("%Y-%m-%d")
+    except:
+        import datetime
+        latest_market_date = datetime.date.today().strftime("%Y-%m-%d")
 
+    # --- 2. 搜尋 predictions 內容 ---
+    all_data = pred_ws.get_all_values()
+    row_idx = -1
+    is_latest = False
+    
+    for i, row in enumerate(all_data):
+        if len(row) > 1 and row[1] == symbol: # B 欄是代號
+            row_idx = i + 1
+            if row[0] == latest_market_date: # A 欄是日期
+                is_latest = True
+            break
+
+    # --- 3. 執行判斷與顯示 ---
+    if row_idx != -1 and is_latest:
+        st.success(f"✅ 取得 {symbol} 最新分析 ({latest_market_date})")
+        display_analysis_results(all_data[row_idx-1]) # 直接顯示現有的 37 欄資料
+        
+    else:
+        # 進入等待大腦模式
+        with st.status("🔮 Oracle AI 正在分析中，請稍候...", expanded=True) as status:
+            if row_idx != -1:
+                # 日期舊了，標記 F 欄 (Status) 為 Waiting Update
+                pred_ws.update_cell(row_idx, 6, "Waiting Update")
+                st.write("🔄 偵測到舊資料，正在通知大腦同步最新收盤日...")
+            else:
+                # 完全沒資料，新增 A-AK 空列並標記 Waiting New
+                new_row = [""] * 37
+                new_row[0] = latest_market_date # A
+                new_row[1] = symbol            # B
+                new_row[5] = "Waiting New"      # F (Status)
+                pred_ws.append_row(new_row)
+                st.write("🆕 正在建立新分析任務...")
+                row_idx = len(pred_ws.get_all_values())
+
+            # --- 4. 輪詢檢查 (Polling)：等待大腦寫完 37 欄 ---
+            for _ in range(20): # 最多等 40 秒
+                time.sleep(2) 
+                updated_row = pred_ws.row_values(row_idx)
+                
+                # 判斷大腦寫好了沒：檢查 Status 欄位是否變更為 Completed 或其他非 Waiting 狀態
+                if len(updated_row) >= 6 and updated_row[5] not in ["Waiting Update", "Waiting New", "AI分析中..."]:
+                    status.update(label="✅ 分析完成！", state="complete", expanded=False)
+                    display_analysis_results(updated_row)
+                    return
+            
+            status.update(label="❌ 分析逾時", state="error")
+            st.error("大腦分析時間過長，請重新點擊分析或稍後查看。")
+
+def display_analysis_results(data_row):
+    """
+    這裡負責將 A-AK 的 37 欄位資料視覺化
+    """
+    st.markdown("---")
+    st.subheader(f"📊 {data_row[1]} 預測報告 ({data_row[0]})")
+    # ... 您可以根據 A-AK 的定義在這裡放置 st.metric 或 st.write ...
+    st.write(data_row) # 暫時先印出整行確認資料正確
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
