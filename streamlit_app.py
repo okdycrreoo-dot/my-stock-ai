@@ -458,45 +458,37 @@ def chapter_4_stock_basic_info(symbol):
     st.markdown("---") # 章節結束線
 
 # ==========================================
-# 第五章：AI 深度決策報告 (精確欄位修正版)
+# 第五章：AI 深度決策報告 (精簡專業版)
 # ==========================================
 def chapter_5_ai_decision_report(row, pred_ws):
     """
     row: 當前選定股票的預測數據
-    pred_ws: 傳入 worksheet 物件，用來抓取歷史準確率
+    pred_ws: predictions 分頁，用於抓取歷史準確率
     """
     if not row or len(row) < 33:
         st.error("數據欄位不足，請檢查試算表格式")
         return
 
-    # --- 1. 頭條建議卡片 ---
-    advice = row[2] if len(row) > 2 else "觀望"
-    bg_color = "#FF4B4B" if "賣" in advice else "#00CC66" if "買" in advice else "#FFA500"
-    
-    st.markdown(f"""
-        <div style="background-color:{bg_color}; padding:20px; border-radius:10px; text-align:center; margin-bottom:20px;">
-            <h1 style="color:white; margin:0; font-size:2.2rem;">AI 決策建議：{advice}</h1>
-            <p style="color:white; margin:5px 0 0 0; opacity:0.8;">Oracle 分析基準日：{row[0]}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # --- 1. 標題區 (整合基準日，取代黃色大區塊) ---
+    analysis_date = row[0]
+    st.markdown(f"### 🔮 隔日價格預演 (分析基準日：{analysis_date})")
 
-    # --- 2. 隔日預測 (整合預計收盤與區間) ---
-    st.write("### 🔮 隔日價格預演")
+    # --- 2. 核心預測數據 ---
     c1, c2 = st.columns(2)
     with c1:
-        # 將預測收盤與區間放在同一個區塊，上下行顯示
+        # 顯示預計收盤價與區間 (同格上下行)
         st.metric("預計收盤價", f"{row[2]}") 
-        st.caption(f"波動區間：{row[3]} ~ {row[4]}")
+        st.markdown(f"<p style='color:gray; font-size:0.9rem; margin-top:-15px;'>波動區間：{row[3]} ~ {row[4]}</p>", unsafe_allow_html=True)
     with c2:
-        # 信心度 (假設在第 26 欄或自定義)
-        conf_val = 90.0 # 預設或從欄位抓取
+        # AI 信心度 (預設從試算表抓取或設定)
         st.write("**AI 辨識信心度**")
+        conf_val = 90.0 
         st.progress(conf_val / 100)
-        st.caption(f"信心值：{conf_val}%")
+        st.caption(f"目前模型運算信心值為 {conf_val}%")
 
     st.markdown("---")
 
-    # --- 3. 策略預估價位表格 (校正索引) ---
+    # --- 3. 策略預估價位矩陣 (5/10/20日) ---
     st.write("### 🎯 策略預估價位矩陣")
     price_matrix = {
         "時序": ["5日建議", "10日建議", "20日建議"],
@@ -507,33 +499,50 @@ def chapter_5_ai_decision_report(row, pred_ws):
     }
     st.table(price_matrix)
 
-    # --- 4. 最新 10 筆歷史準確率表格 ---
+    # --- 4. 歷史準確率驗證 (僅限最新 10 筆) ---
     st.write("### 📈 最新 10 筆預測準確率驗證")
     try:
-        # 抓取該股票的所有歷史資料
         all_data = pred_ws.get_all_values()
         symbol = row[1]
-        # 過濾該股票且已有 error_pct 的資料 (排除標題列)
-        history_rows = [r for r in all_data[1:] if r[1] == symbol and len(r) > 25 and r[25] != ""]
-        # 取最新 10 筆
-        latest_10 = history_rows[-10:] if len(history_rows) > 0 else []
         
-        if latest_10:
-            hist_list = []
-            for i, h_row in enumerate(reversed(latest_10)):
-                date = h_row[0]
-                try:
-                    err = float(h_row[25])
-                    acc = f"{100 - abs(err):.2f}%"
-                except:
-                    acc = "計算中..."
-                hist_list.append({"序號": i+1, "預測日期": date, "準確率": acc})
-            st.table(hist_list)
+        # 篩選該股票的所有歷史紀錄 (排除標題列)
+        history_rows = [r for r in all_data[1:] if len(r) > 1 and r[1] == symbol]
+        
+        # 邏輯：先反轉(最新在前)，然後只取前 10 筆
+        display_rows = list(reversed(history_rows))[:10]
+        
+        if display_rows:
+            accuracy_table = []
+            for h_row in display_rows:
+                h_date = h_row[0]   # 預測日期
+                h_pred = h_row[2]   # 預測收盤價
+                # 實際收盤價 (索引 24)
+                h_actual = h_row[24] if (len(h_row) > 24 and h_row[24] not in ["", "0", None]) else "累積中..."
+                
+                # 準確率 (索引 25)
+                if h_actual != "累積中...":
+                    try:
+                        err = float(h_row[25])
+                        acc = f"{100 - abs(err):.2f}%"
+                    except:
+                        acc = "計算中..."
+                else:
+                    acc = "累積中..."
+                
+                accuracy_table.append({
+                    "預測日期": h_date,
+                    "預測價格": h_pred,
+                    "實際收盤價": h_actual,
+                    "準確率": acc
+                })
+            
+            # 顯示表格
+            st.table(accuracy_table)
         else:
-            # 無數據時的顯示
-            st.table([{"序號": i+1, "預測日期": "累計中...", "準確率": "累計中..."} for i in range(10)])
+            st.info("💡 尚未有歷史預測數據，系統累積中...")
+            
     except Exception as e:
-        st.caption(f"準確率讀取中... ({e})")
+        st.caption(f"數據讀取中... ({e})")
 
     st.markdown("---")
 
@@ -549,5 +558,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
