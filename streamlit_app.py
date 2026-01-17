@@ -186,15 +186,27 @@ def main():
     db_dict = init_db() 
     if db_dict is None: return
 
-    # --- #4. 頁面顯示邏輯 ---
+    # --- #4. 頁面顯示邏輯 (加入自動跳脫) ---
     if not st.session_state["logged_in"]:
-        # 【關鍵攔截】如果不是剛登出，但 saved_user 還是 None，代表 Cookie 還在讀取中
-        if not st.session_state.get("just_logged_out", False) and saved_user is None:
+        # 檢查是否需要攔截（增加一個嘗試次數判斷）
+        # 如果嘗試次數太多（例如超過 2 次重整），就直接顯示登入頁
+        auth_attempts = st.session_state.get("auth_attempts", 0)
+        
+        if not st.session_state.get("just_logged_out", False) and saved_user is None and auth_attempts < 2:
+            st.session_state["auth_attempts"] = auth_attempts + 1
             with st.status("🚀 正在恢復您的加密連線...", expanded=False):
                 st.write("檢查瀏覽器憑證中...")
-            st.stop() # 暫停執行，等待下一秒 Cookie 到位自動觸發 Rerun
+            
+            # 給一點點時間嘗試最後一次抓取
+            import time
+            time.sleep(1.0) 
+            st.rerun() 
+            st.stop() 
 
-        # 只有在「確定沒 Cookie」或「剛登出」的情況下，才顯示登入分頁
+        # 如果走到這裡，代表真的沒 Cookie，重設嘗試計數
+        st.session_state["auth_attempts"] = 0
+        
+        # 顯示登入分頁
         st.markdown("<h1 style='text-align: center;'>🔮 股市輔助決策系統-進化型AI</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
@@ -654,6 +666,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
