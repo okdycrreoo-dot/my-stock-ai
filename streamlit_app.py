@@ -96,7 +96,7 @@ def chapter_1_registration(db_ws):
                 st.error(f"❌ 帳號 '{u}' 已被使用")
             else:
                 # 【關鍵修改】在帳號與密碼前加上單引號，保留開頭的 0
-                db_ws.append_row([f"'{u}", f"'{p}"]) 
+                db_ws.append_row([str(u), str(p)]) # 直接存，不加單引號
                 st.success("🎉 註冊成功！請切換到登入分頁。")
         else:
             st.warning("請檢查輸入內容是否完整且格式正確。")
@@ -120,7 +120,11 @@ def chapter_2_login(db_ws, cookie_manager): # <-- 這裡多接收了參數
         if u and p:
             # 2.4 核對邏輯
             data = db_ws.get_all_values()
-            match = any(str(row[0]).strip() == u and str(row[1]).strip() == p for row in data)
+            match = any(
+                str(row[0]).strip().lstrip("'") == str(u).strip() and 
+                str(row[1]).strip().lstrip("'") == str(p).strip() 
+                for row in data
+            )
             
             if match:
                 # A. 原有的 Session 登入
@@ -622,6 +626,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
