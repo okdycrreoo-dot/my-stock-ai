@@ -256,7 +256,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
         st.markdown("---")
         
         # 3.4 下半部：清單管理
-        st.write("### 📋 監控清單管理")
+        st.write("### 📋 自選股清單")
         if not user_stocks:
             st.info("目前清單中沒有股票")
         else:
@@ -476,7 +476,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
     sentiment_raw = row[36] if len(row) > 36 else "數據累積中"
     s_icon = "🧘" if "冷靜" in sentiment_raw else "🔥" if "過熱" in sentiment_raw else "📊"
     
-    st.markdown(f"### 🔮 隔日價格預演 (基準日：{analysis_date}) {s_icon} <small>{sentiment_raw}</small>", unsafe_allow_html=True)
+    st.markdown(f"### 🔮 價格預演 (基準日：{analysis_date}) {s_icon} <small>{sentiment_raw}</small>", unsafe_allow_html=True)
 
     # --- 2. 核心預測數據 ---
     c1, c2 = st.columns(2)
@@ -588,6 +588,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
