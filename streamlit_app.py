@@ -318,20 +318,27 @@ def process_analysis(symbol, pred_ws):
     found_row = next((row for row in all_data if len(row) > 1 and row[1] == symbol and row[0] == latest_market_date), None)
 
     if found_row:
-        return found_row
+        return found_row 
     else:
-        # 這裡不使用 st.status，改用安靜的提示
-        msg = st.info(f"📡 正在請求雲端分析 {symbol}...")
+        # 3. 如果沒資料，安靜地觸發 GitHub
         if trigger_github_analysis(symbol):
-            # 輪詢等待
-            for i in range(30):
+            placeholder = st.empty() # 建立一個臨時顯示區
+            placeholder.info(f"⏳ 雲端大腦正在計算 {symbol}，請稍候...")
+            
+            max_retries = 30
+            for i in range(max_retries):
                 time.sleep(4)
                 current_data = pred_ws.get_all_values()
                 new_row = next((r for r in current_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
+                
                 if new_row:
-                    msg.empty() # 成功後把提示刪掉
-                    return new_row
-        msg.error("❌ 分析逾時")
+                    placeholder.empty() # 成功後清除提示
+                    return new_row 
+                
+                # 更新進度提示，確保縮排正確
+                placeholder.info(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
+            
+            placeholder.error("❌ 分析逾時，請稍後再試")
         return None
                 
                 sync_area.write(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
@@ -367,6 +374,7 @@ def delete_stock(user, symbol, watchlist_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
