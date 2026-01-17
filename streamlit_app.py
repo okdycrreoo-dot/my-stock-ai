@@ -516,7 +516,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
     
     st.markdown("---")
 
-    # --- 4. 最新 10 筆預測準確率驗證 ---
+    # --- 3. 最新 10 筆預測準確率驗證 ---
     st.write("### 📈 最新 10 筆預測準確率驗證")
     try:
         all_data = pred_ws.get_all_values()
@@ -551,7 +551,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 
     st.markdown("---")
     
-    # --- 3. 核心指標儀表板 (精確索引對應 AH:33, AI:34, AJ:35) ---
+    # --- 4. 核心指標儀表板 (精確索引對應 AH:33, AI:34, AJ:35) ---
     st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
     col_a, col_b, col_c = st.columns(3)
 
@@ -588,6 +588,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
