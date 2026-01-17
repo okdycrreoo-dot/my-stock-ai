@@ -171,43 +171,27 @@ def main():
             attempt += 1
     # -----------------------------------------------
 
-    # --- #3. 持久化判斷邏輯 (攔截優化版) ---
+    # --- #3. 持久化判斷邏輯 (非阻塞優化版) ---
     if "logged_in" not in st.session_state:
         if saved_user:
-            # A. 抓到 Cookie，直接恢復登入
             st.session_state["logged_in"] = True
             st.session_state["user"] = saved_user
             st.rerun()
         else:
-            # B. 沒抓到 Cookie，暫時設為 False
             st.session_state["logged_in"] = False
 
-    # 資料庫初始化
     db_dict = init_db() 
     if db_dict is None: return
 
-    # --- #4. 頁面顯示邏輯 (加入自動跳脫) ---
+    # --- #4. 頁面顯示邏輯 ---
     if not st.session_state["logged_in"]:
-        # 檢查是否需要攔截（增加一個嘗試次數判斷）
-        # 如果嘗試次數太多（例如超過 2 次重整），就直接顯示登入頁
-        auth_attempts = st.session_state.get("auth_attempts", 0)
-        
-        if not st.session_state.get("just_logged_out", False) and saved_user is None and auth_attempts < 2:
-            st.session_state["auth_attempts"] = auth_attempts + 1
-            with st.status("🚀 正在恢復您的加密連線...", expanded=False):
-                st.write("檢查瀏覽器憑證中...")
-            
-            # 給一點點時間嘗試最後一次抓取
-            import time
-            time.sleep(1.0) 
-            st.rerun() 
-            st.stop() 
-
-        # 如果走到這裡，代表真的沒 Cookie，重設嘗試計數
-        st.session_state["auth_attempts"] = 0
-        
-        # 顯示登入分頁
+        # 顯示歡迎標題
         st.markdown("<h1 style='text-align: center;'>🔮 股市輔助決策系統-進化型AI</h1>", unsafe_allow_html=True)
+        
+        # 【修正點】如果不是剛登出且沒抓到 Cookie，僅顯示小提醒而不卡死畫面
+        if not st.session_state.get("just_logged_out", False) and saved_user is None:
+            st.caption("ℹ️ 正在嘗試自動恢復連線... 若未跳轉請手動登入。")
+
         tab1, tab2 = st.tabs(["帳號登入", "帳號申請"])
         with tab1:
             chapter_2_login(db_dict["users"], cookie_manager)
@@ -666,6 +650,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
