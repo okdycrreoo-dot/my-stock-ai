@@ -128,38 +128,41 @@ def main():
             chapter_1_registration(db)
             
     else:
-        # --- 登入後：最上方緊湊佈局 (文字 + 50% 小按鈕) ---
-        # 建立欄位，讓內容靠左排列，剩餘空間留白
-        c1, c2, c3 = st.columns([0.4, 0.2, 0.4], vertical_alignment="bottom")
+        # --- 登入後：橫向緊湊佈局 (文字與按鈕 50% 縮小) ---
+        # 1. 注入 CSS 縮小按鈕實體大小與字體
+        st.markdown("""
+            <style>
+            div[data-testid="column"] { width: fit-content !important; flex: unset !important; }
+            div[data-testid="stHorizontalBlock"] { gap: 10px; }
+            /* 讓按鈕變小、字體變小、內距縮減 */
+            .stButton > button {
+                padding: 2px 10px !important;
+                font-size: 12px !important;
+                height: auto !important;
+                min-height: 25px !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # 2. 使用小比例欄位達成橫向緊靠
+        c1, c2 = st.columns([0.1, 0.9], vertical_alignment="center")
         
         with c1:
-            # 縮小字體級別 (使用 h4)，讓畫面更精緻
-            st.markdown(f"#### ✅ 歡迎回來，{st.session_state['user']}！")
+            # 使用 span 標籤讓文字不換行，並縮小標題等級
+            st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅ 歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
             
         with c2:
-            # 透過 CSS 讓按鈕寬度減半並調整邊距
-            st.markdown("""
-                <style>
-                div[data-testid="stButton"] button {
-                    width: 50% !important;
-                    padding: 2px 5px !important;
-                    font-size: 14px !important;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-            
             if st.button("🚪 登出", key="main_logout"):
                 st.session_state["logged_in"] = False
                 st.rerun()
-        
-        # c3 留空作為右側緩衝
 
         # --- 第三章：監控清單管理預留區 ---
         st.markdown("---")
         st.subheader("📍 第三章：監控清單管理")
-        st.info("導覽列已精簡，請開始設計股票清單物件。")
+        st.info("導覽列已恢復橫向並縮小，準備進入功能開發。")
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
