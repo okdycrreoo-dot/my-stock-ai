@@ -575,11 +575,22 @@ def chapter_5_ai_decision_report(row, pred_ws):
     with c1:
         st.metric("預計收盤價", f"{row[2]}") 
         st.markdown(f"<p style='color:gray; font-size:0.9rem; margin-top:-15px;'>波動區間：{row[3]} ~ {row[4]}</p>", unsafe_allow_html=True)
+    
     with c2:
+        # --- 注意：以下代碼必須縮排進來 ---
         st.write("**AI 辨識信心度**")
-        st.progress(0.9) 
-        st.caption("信心值：90.0%")
-
+        
+        # row[37] 對應試算表的 AL 欄
+        raw_conf = row[37] if len(row) > 37 else "0.9" 
+        conf_score = safe_float(raw_conf)
+        
+        # 自動判斷是 0.85 還是 85 (處理 Google Sheets 的百分比格式)
+        display_conf = conf_score / 100 if conf_score > 1 else conf_score
+        
+        # 限制在 0~1 之間並顯示進度條
+        st.progress(min(max(display_conf, 0.0), 1.0)) 
+        st.caption(f"信心值：{display_conf * 100:.1f}%")
+    
     st.markdown("---")
 
     # --- 2.5 策略預估價位表格 ---
@@ -689,6 +700,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
