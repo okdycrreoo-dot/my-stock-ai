@@ -280,8 +280,8 @@ def run_daily_sync(target_symbol=None):
             print("❌ 名單為空，終止同步。")
             return
 
-        # 2. 【核心功能：隔日回填校準 - 最終正確對位版】
-        print("🔍 正在執行回填校準：比對「預測日」與「次一交易日實際價」...")
+        # 2. 【核心功能：回填舊資料準確率 - 抓取當日之「昨日收盤」版】
+        print("🔍 正在執行回填校準：鎖定 F(Status), Y(Actual), Z(Error)...")
         all_logs = ws_predict.get_all_values()
         
         COL_F_STATUS = 6   # F 欄
@@ -294,38 +294,41 @@ def run_daily_sync(target_symbol=None):
             current_status = str(row[COL_F_STATUS-1]).strip()
             
             if "待更新" in current_status:
-                old_date = row[0] # T日 (預測日)
+                old_date = row[0] # 預測產生日 (T)
                 old_sym = row[1]
                 
-                # --- 【核心邏輯：日期鎖定】 ---
-                # 如果預測日期(T)就是今天，代表明天(T+1)還沒到，絕對不能更新。
+                # 保護機制：如果是當天剛產生的預測，還沒有「昨日收盤」可以比對，跳過
                 if old_date == today_str:
                     continue
 
                 try:
                     old_pred_price = float(row[2])
-                    print(f"📡 正在校準 {old_sym}：拿今日實際價回填至 {old_date} 的預測列...")
+                    print(f"📡 正在校準 {old_sym} ({old_date})：抓取今日行情中的「昨日收盤價」...")
                     
                     ticker_ob = yf.Ticker(old_sym)
-                    # 抓取「現在」最正確的成交價 (即 T+1 日的開獎價)
-                    actual_close = round(float(ticker_ob.fast_info['last_price']), 2)
+                    
+                    # --- 【關鍵修改點】 ---
+                    # 抓取 fast_info 裡的 previous_close，這就是你 ST 介面上的 1360
+                    actual_close = round(float(ticker_ob.fast_info['previous_close']), 2)
 
                     if actual_close > 0:
-                        # 誤差 = (今日實際價 - 預測價) / 預測價
+                        # 誤差計算
                         error_val = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
                         
                         row_num = i + 1
+                        # 寫入 F, Y, Z 欄位
                         ws_predict.update_cell(row_num, COL_F_STATUS, actual_close) 
                         time.sleep(1.2) 
                         ws_predict.update_cell(row_num, COL_Y_ACTUAL, actual_close) 
                         time.sleep(1.2)
                         ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     
                         
-                        print(f"✅ {old_sym} 校準完成：{old_date} 預測之開獎價為 {actual_close}")
+                        print(f"✅ {old_sym} 校準完成：回填昨日收盤價 {actual_close}")
                         time.sleep(2.5) 
                         
                 except Exception as e:
                     print(f"⚠️ {old_sym} 校準出錯: {e}")
+                    time.sleep(5)
         # 3. 執行今日新預測 (具備自動補漏洞與偵測功能)
         market_df = fetch_market_context()
         for sym in symbols_set:
