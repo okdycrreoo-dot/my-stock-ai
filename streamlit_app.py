@@ -600,7 +600,12 @@ def chapter_5_ai_decision_report(row, pred_ws):
     
     st.markdown("---")
 
-    # --- 3. 最新 10 筆預測準確率驗證 (修復縮排與索引) ---
+    這是一個非常細心的發現。在原有的邏輯中，因為 1-19 的收盤價尚未揭曉，試算表可能填入「待更新」或「0」，這會導致計算誤差時因為數值異常或預設為 0 而跑出「100%」的錯誤結論。
+
+為了確保 1-19 顯示為「累積中...」，我加強了對 h_actual 的字串過濾邏輯。以下是修正後的完整代碼段落，請直接整段覆蓋您目前的第三部分：
+
+Python
+    # --- 3. 最新 10 筆預測準確率驗證 (精準過濾版) ---
     st.write("### 📈 最新 10 筆預測準確率驗證")
     try:
         all_data = pred_ws.get_all_values()
@@ -612,17 +617,34 @@ def chapter_5_ai_decision_report(row, pred_ws):
         if display_rows:
             acc_data = []
             for h_row in display_rows:
-                # 【修正點】抓取 F 欄 (索引 5) 作為實際收盤價基準
-                h_actual = h_row[5] if (len(h_row) > 5 and h_row[5] not in ["", "0", "0.0"]) else "累積中..."
+                # 1. 抓取 F 欄 (索引 5) 的原始數值並清洗
+                raw_val = str(h_row[5]).strip() if len(h_row) > 5 else ""
                 
-                acc_display = "累積中..."
-                if h_actual != "累積中...":
+                # 2. 判斷是否為無效數據 (空值、0、或是包含"更新"、"累積"字眼)
+                is_invalid = (
+                    raw_val in ["", "0", "0.0", "None", "-"] or 
+                    "更新" in raw_val or 
+                    "累積" in raw_val
+                )
+                
+                if is_invalid:
+                    h_actual = "累積中..."
+                    acc_display = "累積中..."
+                else:
+                    h_actual = raw_val
+                    # 只有數據有效時，才計算準確率
                     try:
                         # 抓取 Z 欄 (索引 25) 的誤差百分比
-                        err = safe_float(h_row[25])
-                        acc_display = f"{100 - abs(err):.2f}%"
+                        err_val = h_row[25] if len(h_row) > 25 else "0"
+                        err = safe_float(err_val)
+                        
+                        # 如果誤差和價格異常吻合但數值過小，也做防呆
+                        if err == 0 and h_actual == "累積中...":
+                            acc_display = "累積中..."
+                        else:
+                            acc_display = f"{100 - abs(err):.2f}%"
                     except:
-                        pass
+                        acc_display = "累積中..."
                 
                 acc_data.append({
                     "預測日期": h_row[0],
@@ -634,7 +656,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
         else:
             st.info("💡 尚未有歷史預測數據")
     except Exception as e:
-        st.caption(f"準確率數據讀取中...")
+        st.caption(f"準確率數據更新中...")
 
     st.markdown("---")
     
@@ -672,5 +694,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
