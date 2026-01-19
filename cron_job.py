@@ -280,47 +280,67 @@ def run_daily_sync(target_symbol=None):
             print("❌ 名單為空，終止同步。")
             return
 
-        # 2. 【核心功能：回填校準 - 同步回補 Y 欄版】
+        # 2. 【核心功能：回填校準 - 同步修正 Y 欄與開獎 F 欄】
+        # 邏輯：掃描 "待更新"，F 欄填今日成交價，Y 欄補回該列預測時的昨日收盤價
         print("🔍 正在執行回填校準：補齊 F(Status), Y(Actual), Z(Error)...")
         all_logs = ws_predict.get_all_values()
         
-        COL_F_STATUS = 6   
-        COL_Y_ACTUAL = 25  
-        COL_Z_ERROR = 26   
+        COL_F_STATUS = 6   # F 欄：開獎結果 (T+1日當前價)
+        COL_Y_ACTUAL = 25  # Y 欄：參考基準 (T日當時的昨日收盤)
+        COL_Z_ERROR = 26   # Z 欄：誤差百分比
 
         for i, row in enumerate(all_logs):
             if i == 0: continue 
+            
             current_status = str(row[COL_F_STATUS-1]).strip()
             
+            # 偵測到待更新，啟動開獎與補正程序
             if "待更新" in current_status:
-                old_date = row[0]
+                old_date = row[0] # 預測產生日 (T)
                 old_sym = row[1]
-                if old_date == today_str: continue
+                
+                # 跳過今天剛產生的預測
+                if old_date == today_str:
+                    continue
 
                 try:
                     old_pred_price = float(row[2])
-                    ticker_ob = yf.Ticker(old_sym)
+                    print(f"📡 正在校準 {old_sym} ({old_date})：精確比對歷史 K 線...")
                     
-                    # 抓取開獎價 (今日成交價)
-                    actual_now = round(float(ticker_ob.fast_info['last_price']), 2)
-                    # 抓取參考價 (今日看到的昨日收盤價，補回 Y 欄)
-                    prev_close_to_fix = round(float(ticker_ob.fast_info['previous_close']), 2)
+                    # 抓取最近 5 天資料，確保能拿到昨收與前收
+                    temp_df = yf.download(old_sym, period="5d", progress=False)
+                    if isinstance(temp_df.columns, pd.MultiIndex):
+                        temp_df.columns = temp_df.columns.get_level_values(0)
+                    
+                    if not temp_df.empty and len(temp_df) >= 2:
+                        # --- 【精確對位邏輯】 ---
+                        # actual_now (F欄): 今日最新收盤價 (例如 1/19 的 1280)
+                        actual_now = round(float(temp_df['Close'].iloc[-1]), 2)
+                        
+                        # prev_to_fix (Y欄): 該股票「今日的昨日收盤」(例如 1/19 看到的昨日收盤是 1/16 的 1360)
+                        # 注意：若要補 1/16 那一列的 Y 欄 (當時的昨收)，則是 1/15 的價格。
+                        # 這裡統一採用 temp_df 的 iloc 邏輯來導正：
+                        prev_close_to_fix = round(float(temp_df['Close'].iloc[-2]), 2)
 
-                    if actual_now > 0:
+                        # 計算準確率 (實際F - 預測B) / 預測B
                         error_val = round(((actual_now - old_pred_price) / old_pred_price) * 100, 2)
+                        
                         row_num = i + 1
-                        
-                        # 同步寫入 F, Y, Z 三個欄位
-                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_now) 
+                        # 執行三位一體同步更新
+                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_now)     # 更新 F
                         time.sleep(1.2)
-                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, prev_close_to_fix) # 補填 Y 欄
+                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, prev_close_to_fix) # 更新 Y
                         time.sleep(1.2)
-                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     
+                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)         # 更新 Z
                         
-                        print(f"✅ {old_sym} 已同步補齊 Y 欄與 F 欄數據")
-                        time.sleep(2.5) 
+                        print(f"✅ {old_sym} ({old_date}) 校準成功：F={actual_now}, Y={prev_close_to_fix}, Z={error_val}%")
+                        time.sleep(1.5) 
+                    else:
+                        print(f"⚠️ {old_sym} 歷史數據不足，無法校準。")
+                        
                 except Exception as e:
-                    print(f"⚠️ 校準錯誤: {e}")
+                    print(f"⚠️ {old_sym} 校準出錯: {e}")
+                    time.sleep(2)
                     
         # 3. 執行今日新預測 (具備自動補漏洞與偵測功能)
         market_df = fetch_market_context()
@@ -358,18 +378,20 @@ def run_daily_sync(target_symbol=None):
                 # --- [執行 AI 預測核心] ---
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # 【關鍵補強】立刻抓取 Y 欄需要的「昨日收盤價」
-                ticker_now = yf.Ticker(final_id)
-                # 這就是你要求的：1/19 執行時抓到 1/16 的收盤價
-                yesterday_close_val = round(float(ticker_now.fast_info['previous_close']), 2)
-                
+                # 【精確修正 Y 欄】不再信任 fast_info，改從歷史 K 線 df 抓取
+                # df.iloc[-1] 是今天(例如1/19)的價，df.iloc[-2] 就是上個交易日(例如1/16)的收盤價
+                if len(stock_df) >= 2:
+                    yesterday_close_val = round(float(stock_df['Close'].iloc[-2]), 2)
+                else:
+                    yesterday_close_val = round(float(stock_df['Close'].iloc[-1]), 2)
+
                 # A-F: 基本資訊 (F 欄填待更新)
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                 
                 # G-X: 戰略水位 (18 欄位)
                 col_levels = (list(p_levels) + [0]*18)[:18] 
                 
-                # Y-Z: 【修正重點】Y 欄填入剛剛抓到的昨日收盤價，Z 欄初始為 0
+                # Y-Z: 【修正重點】Y 欄填入剛剛從 df 抓到的上個交易日收盤價
                 col_calib = [yesterday_close_val, 0] 
                 
                 # AA-AK: 其餘 AI 文本與專家指標
@@ -377,7 +399,7 @@ def run_daily_sync(target_symbol=None):
                 col_bias = (list(p_bias) + [0]*4)[:4]
                 col_expert = (list(p_experts) + [0]*4)[:4]
 
-                # 最終拼裝
+                # 最終拼裝 A-AK 37 欄位
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 if len(final_upload_row) == 37:
