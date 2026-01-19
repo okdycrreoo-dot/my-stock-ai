@@ -347,56 +347,43 @@ def run_daily_sync(target_symbol=None):
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
                 # --- [數據拼裝區：精準對位 A-AK 37 欄位] ---
-                
-                # A-F: 基本資訊 (6 欄) -> F 欄填 "待更新"
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
-                
-                # G-X: 戰略水位 (必須剛好 18 欄) -> 防止 Y 欄以後的數據位移
                 col_levels = (list(p_levels) + [0]*18)[:18] 
-                
-                # Y-Z: 實際與誤差 (2 欄) -> 初始填 0，由回填邏輯校準
                 col_calib = [0, 0] 
-                
-                # AA-AC: AI 文本 (3 欄)
                 col_ai_txt = [p_path, p_diag, p_out]
-                
-                # AD-AG: 乖離率 (4 欄)
                 col_bias = (list(p_bias) + [0]*4)[:4]
-                
-                # AH-AK: 專家指標 (4 欄)
                 col_expert = (list(p_experts) + [0]*4)[:4]
 
-                # 最終合成 37 欄
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 今日預測同步成功 (A-AK 37欄位)。")
+                    print(f"✅ {final_id} 今日預測同步成功。")
                 else:
-                    print(f"❌ {final_id} 欄位數異常: {len(final_upload_row)}，拒絕寫入。")
+                    print(f"❌ {final_id} 欄位數異常: {len(final_upload_row)}")
                 
                 time.sleep(3) 
 
             except Exception as e:
                 print(f"❌ 標的 {sym} 處理異常: {e}")
 
+    except Exception as e:
+        print(f"💥 程式執行核心錯誤: {e}")
+
 
 # =================================================================
-# 第五章：啟動入口 (EntryPoint) (第五章)
+# 第五章：啟動入口 (EntryPoint)
 # =================================================================
 
 if __name__ == "__main__":
-    # 1. 從環境變數中讀取 GitHub Actions 傳入的目標代號
-    # 這裡的 "TARGET_SYMBOL" 必須對應 YAML 檔案中 env 區塊設定的名稱
-    import os
+    # 1. 取得目標代號 (由 GitHub Actions 傳入)
     target_stock = os.environ.get("TARGET_SYMBOL", "").strip().upper()
 
     # 2. 執行同步邏輯
-    # 如果 target_stock 為空字串，代表是定時任務
-    # 如果 target_stock 有值（如 '2330.TW'），代表是 ST 傳來的即時請求
     if target_stock:
         print(f"🚀 偵測到即時分析請求，目標標的: {target_stock}")
         run_daily_sync(target_stock)
     else:
+        # 如果是定時任務 (沒傳 TARGET_SYMBOL)，執行全清單掃描
         print("📅 偵測到定時任務啟動，將執行全清單掃描。")
         run_daily_sync()
