@@ -244,26 +244,23 @@ def god_mode_engine(df, symbol, mkt_df):
 
 
 # =================================================================
-# 第四章：自動同步作業 (精確 A-AK 37 欄位)
+# 第四章：自動同步作業 (精確 A-AK 37 欄位 - 含舊資料回填邏輯)
 # =================================================================
 
-def run_daily_sync(target_symbol=None): # <--- 改動1：增加接收參數
+def run_daily_sync(target_symbol=None):
     try:
         tz = pytz.timezone('Asia/Taipei')
         now_time = datetime.now(tz)
+        today_str = now_time.strftime('%Y-%m-%d')
         
-        # 改動2：判定是否為急件
         is_urgent = (target_symbol is not None and target_symbol != "")
 
-        # 如果不是急件，才執行原本的時間擋箭牌
+        # 時間檢查
         if not is_urgent:
             if now_time.hour < 14 or (now_time.hour == 14 and now_time.minute < 30):
                 print(f"⌛ 定時任務：目前時間 {now_time.strftime('%H:%M')}，未達更新時間，不執行。")
                 return
-        else:
-            print(f"⚡ 即時任務：跳過時間檢查，準備分析 {target_symbol}")
 
-        # 初始化連線
         client = init_gspread()
         spreadsheet = client.open("users")
         ws_predict = spreadsheet.worksheet("predictions")
@@ -272,83 +269,83 @@ def run_daily_sync(target_symbol=None): # <--- 改動1：增加接收參數
         # 1. 抓取名單
         symbols_set = set()
         if is_urgent:
-            # 急件模式：名單只有 ST 指定的那一支
             symbols_set.add(str(target_symbol).strip().upper())
         else:
-            # 定時模式：才執行你原本的抓取全清單邏輯
             watch_data = ws_watch.get_all_values()[1:]
             for row in watch_data:
                 if len(row) >= 2 and row[1]:
                     symbols_set.add(str(row[1]).strip().upper())
         
-        # --- [重點提醒：20支股票上限] ---
-        if len(symbols_set) > 20:
-            print(f"\n" + "!"*30)
-            print(f"⚠️  Oracle 提醒：目前名單共有 {len(symbols_set)} 支標的")
-            print(f"已超出您的 20 支 Watchlist 上限，請考慮精簡名單。")
-            print("!"*30 + "\n")
-        
         if not symbols_set:
             print("❌ 名單為空，終止同步。")
             return
 
-        # 2. 準備運算環境
-        existing_logs = ws_predict.get_all_values()
-        market_df = fetch_market_context()
+        # 2. 【核心功能：回填舊資料準確率】
+        print("🔍 正在檢查是否有待更新的舊預測資料...")
+        all_logs = ws_predict.get_all_values()
+        # 遍歷所有列（跳過標題），尋找 F 欄 (index 5) 為 "待更新" 的列
+        for i, row in enumerate(all_logs):
+            if i == 0: continue # 跳過標題
+            if len(row) >= 6 and row[5] == "待更新":
+                old_date = row[0]
+                old_sym = row[1]
+                old_pred_price = float(row[2])
+                
+                # 如果這筆舊資料的日期就是今天，則先不更新（等明天收盤）
+                if old_date == today_str: continue 
+                
+                try:
+                    # 抓取該日期的實際收盤價
+                    hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
+                    if isinstance(hist.columns, pd.MultiIndex): hist.columns = hist.columns.get_level_values(0)
+                    
+                    if not hist.empty:
+                        # 找到該日期或之後的第一筆收盤價
+                        actual_close = float(hist['Close'].iloc[0])
+                        error_pct = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
+                        
+                        # 更新 Google Sheets: F 欄為實際價, Y 欄(index 24)為誤差%
+                        row_num = i + 1
+                        ws_predict.update_cell(row_num, 6, actual_close) # F 欄: 實際收盤價
+                        ws_predict.update_cell(row_num, 25, error_pct)  # Y 欄: 誤差 %
+                        print(f"📈 已完成 {old_sym} ({old_date}) 的準確率校準: {error_pct}%")
+                except Exception as ex:
+                    print(f"⚠️ 無法更新 {old_sym} 舊資料: {ex}")
 
-        # 3. 逐一處理標的
+        # 3. 執行今日新預測
+        market_df = fetch_market_context()
         for sym in symbols_set:
             try:
-                # 抓取數據
                 stock_df, final_id = fetch_comprehensive_data(sym)
-                if stock_df is None:
-                    continue
+                if stock_df is None: continue
                 
-                # 日期判定
-                last_date = stock_df.index[-1].strftime("%Y-%m-%d")
+                # 檢查今日是否已存在（避免重複寫入）
+                # 重新獲取最新 logs 避免剛才回填後 index 變動
+                current_logs = ws_predict.get_all_values()
+                duplicate = any(len(l) >= 2 and l[0] == today_str and l[1] == final_id for l in current_logs)
                 
-                # 去重檢查 (日期 + 代號)
-                duplicate = False
-                if not is_urgent: # 只有定時任務才需要跳過已存在的
-                    for log in existing_logs:
-                        if len(log) >= 2 and log[0] == last_date and log[1] == final_id:
-                            duplicate = True
-                            break
-                
-                if duplicate:
-                    print(f"⏩ {final_id} 今日數據已存在，跳過。")
+                if duplicate and not is_urgent:
+                    print(f"⏩ {final_id} 今日({today_str})數據已存在，跳過。")
                     continue
 
                 # 執行預測核心
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # --- [數據拼裝區：A-AK 共 37 欄位] ---
-                # --- 修改這一段以確保 100% 同步 ---
-                # A-F: 基本資訊 (6 欄)
-                col_base = [last_date, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
-                # G-X: 戰略水位 (18 欄)
+                # --- 數據拼裝 A-AK (37欄) ---
+                col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                 col_levels = p_levels 
-                # Y-Z: 實際與誤差 (2 欄) 
-                col_calib = [0, 0] 
-                # AA-AC: AI 文本 (3 欄)
+                col_calib = [0, 0] # Y, Z 欄初始為 0
                 col_ai_txt = [p_path, p_diag, p_out]
-                # AD-AG: 乖離率 (4 欄)
                 col_bias = p_bias
-                # AH-AK: 專家指標 (4 欄)
-                col_expert = p_experts # 包含最後一欄 AK 的市場情緒
+                col_expert = p_experts 
 
-                # 最終精準組合
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
-                # 最終物理長度校驗
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 同步成功 (A-AK 37欄位)。")
-                else:
-                    print(f"❌ {final_id} 欄位數異常: {len(final_upload_row)}，拒絕寫入。")
+                    print(f"✅ {final_id} 今日預測同步成功。")
                 
-                # 避免觸發 API 限流
-                time.sleep(3) 
+                time.sleep(2) # 避開 API 限流
 
             except Exception as e:
                 print(f"❌ 標的 {sym} 處理異常: {e}")
