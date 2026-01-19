@@ -314,15 +314,27 @@ def run_daily_sync(target_symbol=None):
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
                 if not exists_idx:
-                    # 修正：將 p_experts 抓取長度從 [:4] 改為 [:5]，確保信心度寫入 AL 欄
+                    # 原有的新增邏輯 (保持不變)
                     row_data = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"] + \
                                (p_levels + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
                                (p_bias + [0]*4)[:4] + (p_experts + [0]*5)[:5]
                     ws_predict.append_row(row_data)
                     print(f"✅ {final_id} 新增成功，AI 信心度: {p_experts[4]}")
                 else:
+                    # --- 優化：即使存在，也檢查並補填數據 ---
+                    # 1. 補填 Y 欄 (第 25 欄)
                     ws_predict.update_cell(exists_idx, 25, y_val)
-                    print(f"⚡ {final_id} 已存在，補齊 Y 欄: {y_val}")
+                    
+                    # 2. 檢查 AL 欄 (第 38 欄) 是否為空或 0
+                    existing_row = current_logs[exists_idx-1]
+                    # 判斷 AL 欄 (索引 37) 是否沒有數據
+                    if len(existing_row) <= 37 or not str(existing_row[37]).strip() or str(existing_row[37]) == "0":
+                        conf_val = p_experts[4]
+                        ws_predict.update_cell(exists_idx, 38, conf_val) # 第 38 欄就是 AL
+                        print(f"⚡ {final_id} 已存在，但補填 AL 欄信心度: {conf_val}")
+                    else:
+                        print(f"⚡ {final_id} 已存在且已有數據，僅更新 Y 欄。")
+                
                 time.sleep(2)
             except Exception as e:
                 print(f"❌ {sym} 處理異常: {e}")
