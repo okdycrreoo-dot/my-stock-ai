@@ -550,14 +550,13 @@ def chapter_4_stock_basic_info(symbol):
     st.markdown("---") # 章節結束線
 
 # ==========================================
-# 第五章：AI 深度決策報告 (修正索引與防錯)
+# 第五章：AI 深度決策報告 (最終修正版)
 # ==========================================
 def chapter_5_ai_decision_report(row, pred_ws):
-    # --- 內部工具函數：放在這裡確保不會發生 NameError ---
+    # --- 內部工具函數 ---
     def safe_float(value):
         try:
             if value is None: return 0.0
-            # 移除可能干擾轉換的符號
             clean_val = str(value).replace('%', '').replace(',', '').strip()
             if clean_val == "" or clean_val == "-": return 0.0
             return float(clean_val)
@@ -566,7 +565,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 
     # --- 1. 標題與市場情緒 (抓取 AK 欄位索引 36) ---
     analysis_date = row[0]
-    # 根據截圖 AK 欄位是索引 36
     sentiment_raw = row[36] if len(row) > 36 else "數據累積中"
     s_icon = "🧘" if "冷靜" in sentiment_raw else "🔥" if "過熱" in sentiment_raw else "📊"
     
@@ -579,19 +577,13 @@ def chapter_5_ai_decision_report(row, pred_ws):
         st.markdown(f"<p style='color:gray; font-size:0.9rem; margin-top:-15px;'>波動區間：{row[3]} ~ {row[4]}</p>", unsafe_allow_html=True)
     with c2:
         st.write("**AI 辨識信心度**")
-        st.progress(0.9) # 這裡可改為動態比例
+        st.progress(0.9) 
         st.caption("信心值：90.0%")
 
     st.markdown("---")
 
-    # --- 2.5 策略預估價位表格 (補回此區塊) ---
+    # --- 2.5 策略預估價位表格 ---
     st.write("### 🎯 策略預估價位矩陣")
-    
-    # 根據試算表索引精確對應：
-    # 建議買價：buy_5d(6), buy_10d(7), buy_20d(9)
-    # 建議賣價：sell_5d(12), sell_10d(13), sell_20d(15)
-    # 壓力價位：res_5d(18), res_10d(19), res_20d(21)
-    # 乖離率：bias_5d(29), bias_10d(30), bias_20d(32)
     
     price_matrix = {
         "時序": ["5日建議", "10日建議", "20日建議"],
@@ -604,83 +596,81 @@ def chapter_5_ai_decision_report(row, pred_ws):
             f"{row[32]}%" if len(row) > 32 else "-"
         ]
     }
-    
-    # 使用 dataframe 顯示並隱藏索引，讓介面更專業
     st.dataframe(price_matrix, hide_index=True, use_container_width=True)
     
     st.markdown("---")
 
-    # --- 3. 最新 10 筆預測準確率驗證 ---
-st.write("### 📈 最新 10 筆預測準確率驗證")
-try:
-    all_data = pred_ws.get_all_values()
-    symbol = row[1]
-    history_rows = [r for r in all_data[1:] if len(r) > 1 and r[1] == symbol]
-    display_rows = list(reversed(history_rows))[:10]
-    
-    if display_rows:
-        acc_data = []
-        for h_row in display_rows:
-            # 【修正點】將索引 24 (Y欄) 改為 5 (F欄)，這才是真正的收盤價 (status 欄位)
-            h_actual = h_row[5] if (len(h_row) > 5 and h_row[5] not in ["", "0", "0.0"]) else "累積中..."
-            
-            # 準確率在 Z 欄 (索引 25 保持不變)
-            acc = "累積中..."
-            if h_actual != "累積中...":
-                try:
-                    # 抓取 Z 欄的誤差值進行計算
-                    err = safe_float(h_row[25])
-                    acc = f"{100 - abs(err):.2f}%"
-                except: pass
-            
-            acc_data.append({
-                "預測日期": h_row[0],
-                "預測價格": h_row[2],
-                "實際收盤價": h_actual, # 現在會正確顯示 F 欄的數值
-                "準確率": acc
-            })
-        st.dataframe(acc_data, hide_index=True, use_container_width=True)
+    # --- 3. 最新 10 筆預測準確率驗證 (修復縮排與索引) ---
+    st.write("### 📈 最新 10 筆預測準確率驗證")
+    try:
+        all_data = pred_ws.get_all_values()
+        symbol = row[1]
+        # 過濾該股票的歷史資料
+        history_rows = [r for r in all_data[1:] if len(r) > 1 and r[1] == symbol]
+        display_rows = list(reversed(history_rows))[:10]
+        
+        if display_rows:
+            acc_data = []
+            for h_row in display_rows:
+                # 【修正點】抓取 F 欄 (索引 5) 作為實際收盤價基準
+                h_actual = h_row[5] if (len(h_row) > 5 and h_row[5] not in ["", "0", "0.0"]) else "累積中..."
+                
+                acc_display = "累積中..."
+                if h_actual != "累積中...":
+                    try:
+                        # 抓取 Z 欄 (索引 25) 的誤差百分比
+                        err = safe_float(h_row[25])
+                        acc_display = f"{100 - abs(err):.2f}%"
+                    except:
+                        pass
+                
+                acc_data.append({
+                    "預測日期": h_row[0],
+                    "預測價格": h_row[2],
+                    "實際收盤價": h_actual,
+                    "準確率": acc_display
+                })
+            st.dataframe(acc_data, hide_index=True, use_container_width=True)
+        else:
             st.info("💡 尚未有歷史預測數據")
     except Exception as e:
-        st.caption(f"準確率加載中...")
+        st.caption(f"準確率數據讀取中...")
 
     st.markdown("---")
     
-    # --- 4. 核心指標儀表板 (精確索引對應 AH:33, AI:34, AJ:35) ---
+    # --- 4. 核心指標儀表板 ---
     st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
     col_a, col_b, col_c = st.columns(3)
 
     with col_a:
-        # AH 欄 (索引 33): atr_value
         atr_v = safe_float(row[33]) if len(row) > 33 else 0.0
         st.metric("股價活潑度 (ATR)", f"{atr_v:.2f}")
-        st.caption("💡 數字大代表股價跳動大，機會多但洗盤也兇。")
+        st.caption("💡 數字大代表機會多但洗盤兇。")
 
     with col_b:
-        # AI 欄 (索引 34): vol_bias
         vol_b = safe_float(row[34]) if len(row) > 34 else 0.0
         v_status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
         st.metric("資金追價意願", v_status, delta=f"{vol_b}%")
-        st.caption("💡 正數代表大家肯拿錢追高；負數代表只是虛漲。")
+        st.caption("💡 正數代表主力願意追高。")
 
     with col_c:
-        # AJ 欄 (索引 35): rr_ratio
         rr_v = safe_float(row[35]) if len(row) > 35 else 0.0
         rr_txt = "💎 極具價值" if rr_v > 1.5 else "⚠️ 風險偏高"
         st.metric("投資性價比 (R/R)", rr_txt)
-        st.caption(f"💡 目前為 {rr_v:.1f}。代表賠 1 塊的風險能換 {rr_v:.1f} 塊獲利。")
+        st.caption(f"💡 風險報酬比為 {rr_v:.1f}。")
 
     st.markdown("---")
 
-    # --- 5. AI 診斷與展望 (AB:27, AC:28) ---
+    # --- 5. AI 診斷與展望 ---
     st.write("### 🧠 Oracle 深度診斷")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        st.info(f"**【AI 臨床診斷】**\n\n{row[27]}")
+        st.info(f"**【AI 臨床診斷】**\n\n{row[27] if len(row) > 27 else '計算中'}")
     with col_d2:
-        st.success(f"**【未來展望評估】**\n\n{row[28]}")
+        st.success(f"**【未來展望評估】**\n\n{row[28] if len(row) > 28 else '計算中'}")
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
