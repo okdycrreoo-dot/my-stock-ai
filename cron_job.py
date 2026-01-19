@@ -285,30 +285,37 @@ def run_daily_sync(target_symbol=None):
         all_logs = ws_predict.get_all_values()
         # 遍歷所有列（跳過標題），尋找 F 欄 (index 5) 為 "待更新" 的列
         for i, row in enumerate(all_logs):
-            if i == 0: continue # 跳過標題
-            if len(row) >= 6 and row[5] == "待更新":
+            if i == 0: continue 
+            if len(row) >= 6 and row[5] == "待更新": # F欄目前是字串 "待更新"
                 old_date = row[0]
                 old_sym = row[1]
                 old_pred_price = float(row[2])
                 
-                # 如果這筆舊資料的日期就是今天，則先不更新（等明天收盤）
                 if old_date == today_str: continue 
                 
                 try:
                     # 抓取該日期的實際收盤價
                     hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
-                    if isinstance(hist.columns, pd.MultiIndex): hist.columns = hist.columns.get_level_values(0)
-                    
+                    # 處理 MultiIndex 結構 (yfinance 特性)
+                    if isinstance(hist.columns, pd.MultiIndex): 
+                        hist.columns = hist.columns.get_level_values(0)
+
                     if not hist.empty:
-                        # 找到該日期或之後的第一筆收盤價
-                        actual_close = float(hist['Close'].iloc[0])
+                        # 1. 取得實際收盤價並四捨五入到小數兩位
+                        actual_close = round(float(hist['Close'].iloc[0]), 2) 
+                        
+                        # 2. 計算誤差百分比
                         error_pct = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
                         
-                        # 更新 Google Sheets: F 欄為實際價, Y 欄(index 24)為誤差%
                         row_num = i + 1
-                        ws_predict.update_cell(row_num, 6, actual_close) # F 欄: 實際收盤價
-                        ws_predict.update_cell(row_num, 25, error_pct)  # Y 欄: 誤差 %
-                        print(f"📈 已完成 {old_sym} ({old_date}) 的準確率校準: {error_pct}%")
+                        # 修正：F 欄是第 6 欄，填入實際收盤價 (解決小數點過長問題)
+                        ws_predict.update_cell(row_num, 6, actual_close) 
+                        
+                        # 修正：根據您的表格，誤差填在 Y 欄 (第 25 欄)
+                        ws_predict.update_cell(row_num, 25, error_pct) 
+                        
+                        print(f"📈 {old_sym} 校準完成：實際 {actual_close}，誤差 {error_pct}%")
+                        time.sleep(1) # 避開 Google API 限流
                 except Exception as ex:
                     print(f"⚠️ 無法更新 {old_sym} 舊資料: {ex}")
 
