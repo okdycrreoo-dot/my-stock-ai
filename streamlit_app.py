@@ -335,19 +335,20 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
-                    # 無論結果如何，按下的一瞬間就標記為「收合」
+                    # 關鍵：按下按鈕後，強制將控制台狀態設為 False (收合)
                     st.session_state["menu_expanded"] = False
                     
                     with st.spinner("正在處理請求..."):
+                        # 呼叫我們剛剛優化過的執行員 (會自動找全表最新日期或提示新股)
                         result = process_analysis(selected_stock, predictions_ws)
+                        
                         if result:
-                            # 拿到資料，存入 session 並重整頁面顯示報告
+                            # 情況 A：成功拿到資料 (定錨資料或新分析結果)
                             st.session_state["current_analysis"] = result
                             st.rerun()
                         else:
-                            # 沒拿到資料 (例如保護期警告)
-                            # 雖然沒有 result，但因為上面已經設為 False，
-                            # 所以頁面重跑後，控制台會收起，警告訊息會直接顯示在頁面上
+                            # 情況 B：沒拿到資料 (例如：新加入股票，顯示待收盤分析提示)
+                            # 因為 menu_expanded 已經是 False，rerun 後控制台會保持收起
                             st.rerun()
             
             with c3:
@@ -689,6 +690,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
