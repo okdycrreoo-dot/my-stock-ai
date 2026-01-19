@@ -2,21 +2,25 @@ name: Daily AI Prediction Sync
 
 on:
   schedule:
-    # 台灣時間 (UTC+8) 14:30 = UTC 06:30
+    # 台灣時間 14:30 (開獎掃描)
     - cron: '30 6 * * 1-5'
-    # 台灣時間 (UTC+8) 23:00 = UTC 15:00
+    # 台灣時間 17:30 (自動補漏保險) - 新增
+    - cron: '30 9 * * 1-5'
+    # 台灣時間 23:00 (最終確認校準)
     - cron: '0 15 * * 1-5'
   
   workflow_dispatch:
     inputs:
       target_symbol:
-        description: 'ST 傳入的即時更新代號'
+        description: '手動輸入代號 (例如 2330.TW)'
         required: false
-        default: ''  # 預設為空，代表定時全更
+        default: '' 
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 設定超時 30 分鐘，防止 Google API 死鎖浪費額度
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -25,17 +29,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' # 這裡已經升級為 3.10 以相容最新 yfinance 語法
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 確保包含 yfinance, gspread, google-auth, pytz
           pip install yfinance pandas numpy gspread google-auth pytz
 
       - name: Run AI Oracle Engine
         env:
+          # 這裡必須與 Python os.environ.get("GCP_SERVICE_ACCOUNT_JSON") 對應
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
-          # 新增下面這一行，讓 Python 讀得到 ST 傳進來的參數
+          # 這裡必須與 Python os.environ.get("TARGET_SYMBOL") 對應
           TARGET_SYMBOL: ${{ github.event.inputs.target_symbol }}
         run: python cron_job.py
