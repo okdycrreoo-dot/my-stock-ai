@@ -611,34 +611,35 @@ def chapter_5_ai_decision_report(row, pred_ws):
     st.markdown("---")
 
     # --- 3. 最新 10 筆預測準確率驗證 ---
-    st.write("### 📈 最新 10 筆預測準確率驗證")
-    try:
-        all_data = pred_ws.get_all_values()
-        symbol = row[1]
-        history_rows = [r for r in all_data[1:] if len(r) > 1 and r[1] == symbol]
-        display_rows = list(reversed(history_rows))[:10]
-        
-        if display_rows:
-            acc_data = []
-            for h_row in display_rows:
-                # 實際收盤價在 Y 欄 (索引 24)
-                h_actual = h_row[24] if (len(h_row) > 24 and h_row[24] not in ["", "0", "0.0"]) else "累積中..."
-                # 準確率在 Z 欄 (索引 25)
-                acc = "累積中..."
-                if h_actual != "累積中...":
-                    try:
-                        err = safe_float(h_row[25])
-                        acc = f"{100 - abs(err):.2f}%"
-                    except: pass
-                
-                acc_data.append({
-                    "預測日期": h_row[0],
-                    "預測價格": h_row[2],
-                    "實際收盤價": h_actual,
-                    "準確率": acc
-                })
-            st.dataframe(acc_data, hide_index=True, use_container_width=True)
-        else:
+st.write("### 📈 最新 10 筆預測準確率驗證")
+try:
+    all_data = pred_ws.get_all_values()
+    symbol = row[1]
+    history_rows = [r for r in all_data[1:] if len(r) > 1 and r[1] == symbol]
+    display_rows = list(reversed(history_rows))[:10]
+    
+    if display_rows:
+        acc_data = []
+        for h_row in display_rows:
+            # 【修正點】將索引 24 (Y欄) 改為 5 (F欄)，這才是真正的收盤價 (status 欄位)
+            h_actual = h_row[5] if (len(h_row) > 5 and h_row[5] not in ["", "0", "0.0"]) else "累積中..."
+            
+            # 準確率在 Z 欄 (索引 25 保持不變)
+            acc = "累積中..."
+            if h_actual != "累積中...":
+                try:
+                    # 抓取 Z 欄的誤差值進行計算
+                    err = safe_float(h_row[25])
+                    acc = f"{100 - abs(err):.2f}%"
+                except: pass
+            
+            acc_data.append({
+                "預測日期": h_row[0],
+                "預測價格": h_row[2],
+                "實際收盤價": h_actual, # 現在會正確顯示 F 欄的數值
+                "準確率": acc
+            })
+        st.dataframe(acc_data, hide_index=True, use_container_width=True)
             st.info("💡 尚未有歷史預測數據")
     except Exception as e:
         st.caption(f"準確率加載中...")
@@ -682,3 +683,4 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
