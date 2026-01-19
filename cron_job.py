@@ -328,25 +328,32 @@ def run_daily_sync(target_symbol=None):
 
                 # 檢查今日是否已存在
                 if any(r[0] == today_str and r[1] == final_id for r in current_logs) and not is_urgent:
+                    print(f"⏭️ {final_id} 今日已存在，跳過。")
                     continue
 
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # Y 欄導正：今日 1/19 預測列，Y 填 1/16 價 (iloc[-2])
+                # --- Y 欄關鍵邏輯：今日 1/19 預測列，Y 必須填 1/16 的收盤價 ---
+                # 使用 iloc[-2] 取得前一個交易日(1/16)的價格
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
+                # 組合 A-AK (共 37 欄)
                 row_data = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"] + \
                            (list(p_levels) + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
                            (list(p_bias) + [0]*4)[:4] + (list(p_experts) + [0]*4)[:4]
                 
+                # 執行寫入
                 ws_predict.append_row(row_data)
-                print(f"✅ {final_id} 預測成功。Y 欄: {y_val}")
-                time.sleep(3)
+                
+                # [強化檢查]：如果 append 後發現 Y 欄還是空的，強制補寫最後一列的第 25 欄
+                time.sleep(1.5) 
+                last_row_idx = len(ws_predict.get_all_values())
+                ws_predict.update_cell(last_row_idx, 25, y_val) 
+                
+                print(f"✅ {final_id} 預測成功。基準價(Y欄)已填入 1/16 價格: {y_val}")
+                time.sleep(2)
             except Exception as e:
                 print(f"❌ {sym} 處理異常: {e}")
-
-    except Exception as e:
-        print(f"💥 全域錯誤: {e}")
 
 # =================================================================
 # 第五章：啟動入口 (EntryPoint)
