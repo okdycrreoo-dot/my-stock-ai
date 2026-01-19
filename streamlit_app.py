@@ -682,12 +682,3 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
