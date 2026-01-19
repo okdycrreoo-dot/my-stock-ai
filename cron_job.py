@@ -281,43 +281,52 @@ def run_daily_sync(target_symbol=None):
             return
 
         # 2. 【核心功能：回填舊資料準確率】
-        print("🔍 正在檢查是否有待更新的舊預測資料...")
+        print("🔍 正在執行回填校準：鎖定 F(Status), Y(Actual), Z(Error)...")
         all_logs = ws_predict.get_all_values()
-        # 遍歷所有列（跳過標題），尋找 F 欄 (index 5) 為 "待更新" 的列
+        
+        # 根據您的截圖，精確鎖定欄位索引（Google Sheets 從 1 開始計算）
+        COL_F_STATUS = 6
+        COL_Y_ACTUAL = 25
+        COL_Z_ERROR = 26
+
         for i, row in enumerate(all_logs):
-            if i == 0: continue 
-            if len(row) >= 6 and row[5] == "待更新": # F欄目前是字串 "待更新"
+            if i == 0: continue # 跳過標題列
+            
+            # 檢查 F 欄是否需要更新
+            # 注意：如果您已經手動改回 "待更新"，程式就會跑。
+            # 如果 F 欄現在是數字，但您想重新校準，請先在試算表手動將 F 欄改為 "待更新"
+            current_status = str(row[COL_F_STATUS-1]).strip()
+            
+            if "待更新" in current_status:
                 old_date = row[0]
                 old_sym = row[1]
-                old_pred_price = float(row[2])
-                
-                if old_date == today_str: continue 
-                
                 try:
-                    # 抓取該日期的實際收盤價
+                    old_pred_price = float(row[2])
+                    
+                    if old_date == today_str: continue 
+                    
                     hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
-                    # 處理 MultiIndex 結構 (yfinance 特性)
                     if isinstance(hist.columns, pd.MultiIndex): 
                         hist.columns = hist.columns.get_level_values(0)
 
                     if not hist.empty:
-                        # 1. 取得實際收盤價並四捨五入到小數兩位
-                        actual_close = round(float(hist['Close'].iloc[0]), 2) 
+                        # 抓取實際值
+                        raw_actual = float(hist['Close'].iloc[0])
+                        actual_close = round(raw_actual, 2)
                         
-                        # 2. 計算誤差百分比
-                        error_pct = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
+                        # 計算誤差 %
+                        error_val = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
                         
                         row_num = i + 1
-                        # 修正：F 欄是第 6 欄，填入實際收盤價 (解決小數點過長問題)
-                        ws_predict.update_cell(row_num, 6, actual_close) 
+                        # 同步更新三個關鍵位置
+                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_close) # F 欄
+                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, actual_close) # Y 欄
+                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     # Z 欄
                         
-                        # 修正：根據您的表格，誤差填在 Y 欄 (第 25 欄)
-                        ws_predict.update_cell(row_num, 25, error_pct) 
-                        
-                        print(f"📈 {old_sym} 校準完成：實際 {actual_close}，誤差 {error_pct}%")
-                        time.sleep(1) # 避開 Google API 限流
-                except Exception as ex:
-                    print(f"⚠️ 無法更新 {old_sym} 舊資料: {ex}")
+                        print(f"✅ {old_sym} 校準完成：實際 {actual_close}, 誤差 {error_val}%")
+                        time.sleep(1) # 穩定 API 寫入
+                except Exception as e:
+                    print(f"⚠️ {old_sym} 校準出錯: {e}")
 
         # 3. 執行今日新預測
         market_df = fetch_market_context()
@@ -326,8 +335,7 @@ def run_daily_sync(target_symbol=None):
                 stock_df, final_id = fetch_comprehensive_data(sym)
                 if stock_df is None: continue
                 
-                # 檢查今日是否已存在（避免重複寫入）
-                # 重新獲取最新 logs 避免剛才回填後 index 變動
+                # 重新獲取最新 logs 確保去重檢查精準
                 current_logs = ws_predict.get_all_values()
                 duplicate = any(len(l) >= 2 and l[0] == today_str and l[1] == final_id for l in current_logs)
                 
@@ -338,27 +346,39 @@ def run_daily_sync(target_symbol=None):
                 # 執行預測核心
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # --- 數據拼裝 A-AK (37欄) ---
+                # --- [數據拼裝區：精準對位 A-AK 37 欄位] ---
+                
+                # A-F: 基本資訊 (6 欄) -> F 欄填 "待更新"
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
-                col_levels = p_levels 
-                col_calib = [0, 0] # Y, Z 欄初始為 0
+                
+                # G-X: 戰略水位 (必須剛好 18 欄) -> 防止 Y 欄以後的數據位移
+                col_levels = (list(p_levels) + [0]*18)[:18] 
+                
+                # Y-Z: 實際與誤差 (2 欄) -> 初始填 0，由回填邏輯校準
+                col_calib = [0, 0] 
+                
+                # AA-AC: AI 文本 (3 欄)
                 col_ai_txt = [p_path, p_diag, p_out]
-                col_bias = p_bias
-                col_expert = p_experts 
+                
+                # AD-AG: 乖離率 (4 欄)
+                col_bias = (list(p_bias) + [0]*4)[:4]
+                
+                # AH-AK: 專家指標 (4 欄)
+                col_expert = (list(p_experts) + [0]*4)[:4]
 
+                # 最終合成 37 欄
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 今日預測同步成功。")
+                    print(f"✅ {final_id} 今日預測同步成功 (A-AK 37欄位)。")
+                else:
+                    print(f"❌ {final_id} 欄位數異常: {len(final_upload_row)}，拒絕寫入。")
                 
-                time.sleep(2) # 避開 API 限流
+                time.sleep(3) 
 
             except Exception as e:
                 print(f"❌ 標的 {sym} 處理異常: {e}")
-                
-    except Exception as e:
-        print(f"💥 程式執行核心錯誤: {e}")
 
 
 # =================================================================
