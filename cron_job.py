@@ -252,16 +252,34 @@ def god_mode_engine(df, symbol, mkt_df):
 
 
 # =================================================================
-# 第四章：自動同步作業 (修復縮排與 1-19 邏輯)
+# 第四章：自動同步作業 (加入保護期停機邏輯)
 # =================================================================
 
 def run_daily_sync(target_symbol=None):
     try:
+        # --- [核心保護機制：23:00 - 14:30 大腦強制熔斷] ---
+        # 取得台北時間
         tz = pytz.timezone('Asia/Taipei')
         now_time = datetime.now(tz)
+        current_time = now_time.time()
+        
+        # 設定保護時間界限
+        start_lock = datetime.strptime("23:00", "%H:%M").time()
+        end_lock = datetime.strptime("14:30", "%H:%M").time()
+        
+        # 判斷是否處於保護期
+        if current_time >= start_lock or current_time <= end_lock:
+            print(f"🚫 【大腦絕對保護中】")
+            print(f"目前台北時間：{now_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print("保護期規則：每日 23:00 至隔日 14:30 期間，大腦拒絕任何分析、計算與寫入動作。")
+            return # 強制結束，不執行下方所有代碼
+        # -----------------------------------------------
+
+        # 只有在非保護期，大腦才會繼續往下執行
         today_str = now_time.strftime('%Y-%m-%d')
         is_urgent = bool(target_symbol)
 
+        # 開始連線 (這之後才會動到 Google Sheets)
         client = init_gspread()
         spreadsheet = client.open("users")
         ws_predict = spreadsheet.worksheet("predictions")
