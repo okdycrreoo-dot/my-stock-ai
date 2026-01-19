@@ -374,7 +374,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             st.markdown("<p style='color:#FF4B4B; font-weight:bold;'>🔒 管理者專用後台</p>", unsafe_allow_html=True)
             col_adm, _ = st.columns([2, 1])
             with col_adm:
-                if st.button("🔄 強制啟動 AI 全量補修 (修復 1-19 空白)", key="admin_manual_trigger"):
+                if st.button("🔄 啟動 AI 全量補修 (Get Hub Action) ", key="admin_manual_trigger"):
                     with st.spinner("正在喚醒雲端大腦..."):
                         if trigger_admin_manual_sync():
                             st.success("✅ 指令已送出！GitHub 正在執行修補程序。")
@@ -734,6 +734,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
