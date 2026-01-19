@@ -325,7 +325,13 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom")
             
             with c1:
-                selected_stock = st.selectbox("選擇要操作的股票", options=user_stocks, key="stock_selector")
+                # 使用 radio 代替 selectbox，在手機上操作最流暢
+                selected_stock = st.radio(
+                    "選擇要操作的股票", 
+                    options=user_stocks, 
+                    key="stock_selector",
+                    horizontal=True  # 讓選項橫向排列，節省空間
+                )
             
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
@@ -679,5 +685,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
