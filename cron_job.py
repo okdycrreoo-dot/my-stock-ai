@@ -315,49 +315,52 @@ def run_daily_sync(target_symbol=None):
                 except Exception as e:
                     print(f"❌ {old_sym} 校準失敗: {e}")
 
-        # 3. 【核心功能：執行今日新預測】
+        # 3. 【核心功能：執行今日新預測與自動補位】
         market_df = fetch_market_context()
         if len(symbols_set) > 20:
             print(f"⚠️ 提醒：Watchlist 已達 {len(symbols_set)} 支，超過上限！")
 
         for sym in symbols_set:
             try:
-                # 重新獲取最新表格狀態，確保能精準定位最後一行
+                # 重新抓取最新資料以精確對位
                 current_logs = ws_predict.get_all_values()
                 stock_df, final_id = fetch_comprehensive_data(sym)
                 if stock_df is None: continue
 
-                # 檢查今日 (1-19) 是否已存在且非空白
-                # 如果已經有 1-19 的資料但 Y 欄是空的，我們會補寫它而非跳過
+                # 關鍵：找出 1-19 資料是否已存在
                 exists = False
-                existing_row_idx = -1
+                target_row_idx = -1
                 for idx, r in enumerate(current_logs):
                     if r[0] == today_str and r[1] == final_id:
                         exists = True
-                        existing_row_idx = idx + 1 # 轉為 Google Sheets 的 Row Index
+                        target_row_idx = idx + 1 # 轉為 Sheets 行號
                         break
 
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # --- Y 欄關鍵邏輯：今日 1-19 預測列，Y 必須填 1-16 的收盤價 ---
-                # iloc[-2] 是上個交易日 (1-16) 的價格
+                # Y 欄對位邏輯：今日 1-19 預測列，Y 必須填入 1-16 的收盤價 (iloc[-2])
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
                 if not exists:
+                    # 正常新增流程
                     row_data = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"] + \
                                (list(p_levels) + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
                                (list(p_bias) + [0]*4)[:4] + (list(p_experts) + [0]*4)[:4]
                     ws_predict.append_row(row_data)
-                    print(f"✅ {final_id} 新增成功。Y 欄已帶入 1-16 價格: {y_val}")
+                    print(f"✅ {final_id} 1-19 資料新增成功。Y 欄: {y_val}")
                 else:
-                    # 如果今日資料已存在但 Y 欄空白，強制更新該行的 Y 欄
-                    ws_predict.update_cell(existing_row_idx, 25, y_val) 
-                    print(f"⚡ {final_id} 今日已存在，已強制補齊 Y 欄基準價: {y_val}")
+                    # 自動補位流程：如果 1-19 已經在那，但 Y 欄是空的，直接去填它
+                    # 檢查 Y 欄 (第 25 欄) 是否需要填寫
+                    current_y_val = current_logs[target_row_idx-1][24] if len(current_logs[target_row_idx-1]) >= 25 else ""
+                    if not str(current_y_val).strip():
+                        ws_predict.update_cell(target_row_idx, 25, y_val)
+                        print(f"⚡ {final_id} 1-19 已存在，已補全 Y 欄基準價: {y_val}")
+                    else:
+                        print(f"⏭️ {final_id} 1-19 資料已完備，跳過。")
                 
                 time.sleep(2)
             except Exception as e:
                 print(f"❌ {sym} 處理異常: {e}")
-
 # =================================================================
 # 第五章：啟動入口 (EntryPoint)
 # =================================================================
