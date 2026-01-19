@@ -64,34 +64,34 @@ def calculate_rsi(df, periods=14):
 
 def fetch_comprehensive_data(symbol):
     """ 
-    抓取個股數據，並自動針對台股代號 (.TW / .TWO) 進行模糊搜尋 
+    抓取個股數據，並自動針對台股代號進行模糊搜尋 (.TW 或 .TWO) 
     """
     raw_s = str(symbol).strip().upper()
-    search_list = [raw_s]
     
-    # 自動補全台股後置碼邏輯
-    if not (raw_s.endswith(".TW") or raw_s.endswith(".TWO")):
+    # 如果使用者已經寫了後綴，就直接用
+    if raw_s.endswith(".TW") or raw_s.endswith(".TWO"):
+        search_list = [raw_s]
+    else:
+        # 如果沒寫，優先嘗試 .TW，失敗再嘗試 .TWO
         search_list = [f"{raw_s}.TW", f"{raw_s}.TWO"]
         
     for s in search_list:
         try:
-            print(f"📡 正在抓取 {s} 歷史數據...")
+            print(f"📡 正在嘗試抓取 {s} 歷史數據...")
             df = yf.download(s, period="2y", interval="1d", auto_adjust=True, progress=False)
             
             if df is not None and not df.empty and len(df) > 40:
-                # 處理 yfinance 可能產生的 MultiIndex 欄位結構
                 if isinstance(df.columns, pd.MultiIndex): 
                     df.columns = df.columns.get_level_values(0)
                 
-                # 強制轉換資料型態為 float 確保計算不報錯
                 df = df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+                print(f"✅ 成功獲取 {s} 數據。")
                 return df, s
         except Exception as e:
-            print(f"⚠️ {s} 抓取嘗試失敗: {e}")
             continue
             
+    print(f"❌ {raw_s} 在 .TW 與 .TWO 均無法獲取數據。")
     return None, raw_s
-
 
 def fetch_market_context():
     """ 
@@ -344,10 +344,10 @@ def run_daily_sync(target_symbol=None):
                     print(f"❌ {old_sym} 校準過程發生 ERROR: {e}")
                     continue # 發生錯誤時跳過該標的，繼續執行下一個
                     
-        # 3. 【核心功能：執行今日新預測 - 具備容錯機制與 20 支上限提醒】
+        # 3. 【核心功能：執行今日新預測 - 具備自動補碼容錯與 20 支上限提醒】
         market_df = fetch_market_context()
         
-        # --- [個人化提醒：Watchlist 上限檢查] ---
+        # --- [個人化提醒：依照您的設定，檢查 Watchlist 是否超過 20 支] ---
         if len(symbols_set) > 20:
             print(f"⚠️ 提醒：目前 Watchlist 共有 {len(symbols_set)} 支股票，已超過設定的 20 支上限！")
 
@@ -356,14 +356,12 @@ def run_daily_sync(target_symbol=None):
                 # 每一輪循環都獲取最新 logs，確保偵測最精準
                 current_logs = ws_predict.get_all_values()
                 
-                # 偵錯與防護：若 fetch 失敗，直接跳過該代號，不讓程式崩潰
-                try:
-                    stock_df, final_id = fetch_comprehensive_data(sym)
-                    if stock_df is None or stock_df.empty:
-                        print(f"⚠️ 跳過無效代號: {sym}")
-                        continue
-                except Exception as e:
-                    print(f"❌ 無法抓取 {sym} 的數據 (可能已下市): {e}")
+                # --- [重點修正：自動補碼抓取] ---
+                # 這裡會調用具備嘗試 .TW 與 .TWO 功能的 fetch_comprehensive_data
+                stock_df, final_id = fetch_comprehensive_data(sym)
+                
+                if stock_df is None or stock_df.empty:
+                    print(f"❌ 無法獲取 {sym} 的數據，已嘗試 .TW 與 .TWO 均失敗，跳過。")
                     continue
 
                 # --- 【自動確認與補漏邏輯】 ---
@@ -390,40 +388,40 @@ def run_daily_sync(target_symbol=None):
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
                 # --- 【Y 欄最精準修正邏輯】 ---
-                # 直接比對日期來抓昨日收盤，避免 iloc 受到盤中數據干擾
-                # 1/19 執行時，我們要找「小於 1/19」的第一個收盤價 (即 1/16)
-                all_closes = stock_df['Close']
-                # 確保我們拿到的不是今天的即時價，而是上個交易日的完整收盤
-                if len(all_closes) >= 2:
-                    # 通常 iloc[-2] 是上個交易日，iloc[-1] 是今天
-                    yesterday_close_val = round(float(all_closes.iloc[-2]), 2)
+                # 1/19 執行時：iloc[-1] 是 1/19, iloc[-2] 是 1/16 (目標 Y 欄)
+                # 修正：確保 Y 欄填入的是「上個交易日」的完整收盤價
+                if len(stock_df) >= 2:
+                    yesterday_close_val = round(float(stock_df['Close'].iloc[-2]), 2)
                 else:
-                    yesterday_close_val = round(float(all_closes.iloc[-1]), 2)
+                    yesterday_close_val = round(float(stock_df['Close'].iloc[-1]), 2)
 
-                # A-F: 基本資訊
+                # A-F: 基本資訊 (F 欄填待更新)
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                 
-                # G-X: 戰略水位
+                # G-X: 戰略水位 (18 欄位)
                 col_levels = (list(p_levels) + [0]*18)[:18] 
                 
-                # Y-Z: 【修正重點】Y 欄填入上個交易日收盤價
+                # Y-Z: 【修正重點】Y 欄填入剛剛抓到的上個交易日收盤價
                 col_calib = [yesterday_close_val, 0] 
                 
-                # AA-AK: 其餘欄位
+                # AA-AK: 其餘 AI 文本與專家指標
                 col_ai_txt = [p_path, p_diag, p_out]
                 col_bias = (list(p_bias) + [0]*4)[:4]
                 col_expert = (list(p_experts) + [0]*4)[:4]
 
+                # 最終拼裝 A-AK 37 欄位
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 預測成功。Y欄對位價: {yesterday_close_val}")
+                    print(f"✅ {final_id} 預測成功。Y欄(1/16收盤): {yesterday_close_val}")
+                else:
+                    print(f"❌ {final_id} 欄位數量異常: {len(final_upload_row)}")
                 
-                time.sleep(3) 
+                time.sleep(3) # 保護 API 頻率限制
 
             except Exception as e:
-                print(f"❌ 標的 {sym} 處理異常: {e}")
+                print(f"❌ 標的 {sym} 處理異常 (ERROR): {e}")
 
 # =================================================================
 # 第五章：啟動入口 (EntryPoint)
