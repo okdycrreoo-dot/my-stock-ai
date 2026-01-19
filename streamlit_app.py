@@ -368,49 +368,71 @@ def display_analysis_results(row):
         st.write(row[4:])
 
 # ==========================================
-# 拼圖 B：執行員 (完整覆蓋你給我的那段)
+# 拼圖 B：執行員 (優化版：時間攔截與預測保護)
 # ==========================================
 def process_analysis(symbol, pred_ws):
     """
-    靜默版執行員：負責背景同步與拿取數據，不直接顯示 UI
+    優化版執行員：具備時間攔截功能。
+    23:00 - 14:30 期間為「預測保護期」，僅讀取舊有數據，不觸發 AI 計算。
     """
+    import datetime
     import time
     import yfinance as yf
-    import datetime
 
-    # 1. 取得市場最新收盤日
-    try:
-        stock_data = yf.Ticker(symbol)
-        latest_market_date = stock_data.history(period="1d").index[0].strftime("%Y-%m-%d")
-    except:
-        latest_market_date = datetime.date.today().strftime("%Y-%m-%d")
+    # --- 1. 時間邏輯判定 ---
+    now = datetime.datetime.now()
+    current_time = now.time()
+    
+    # 判斷是否處於「保護區間」 (23:00 到 隔天 14:30)
+    # 注意：14:30 是台股盤後整理大致完成的時間
+    is_readonly_period = (current_time >= datetime.time(23, 0)) or (current_time <= datetime.time(14, 30))
 
-    # 2. 搜尋表格
+    # --- 2. 決定要搜尋哪一天的數據 ---
+    # 如果現在是 00:00~14:30，我們該看的是「昨晚 23:00」算好的報告
+    if current_time <= datetime.time(14, 30):
+        target_date = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        # 如果是 14:31~23:59，我們看的是「今天」的報告
+        target_date = now.strftime("%Y-%m-%d")
+
+    # --- 3. 從試算表搜尋定錨數據 ---
     all_data = pred_ws.get_all_values()
-    found_row = next((row for row in all_data if len(row) > 1 and row[1] == symbol and row[0] == latest_market_date), None)
+    # 搜尋符合 股票代號 且 日期為 target_date 的那一列
+    found_row = next((row for row in all_data if len(row) > 1 and row[1] == symbol and row[0] == target_date), None)
 
+    # --- 4. 執行分支策略 ---
     if found_row:
+        # 情況 A：試算表已有昨晚或今天的預測，直接回傳顯示
         return found_row 
     else:
-        # 3. 如果沒資料，安靜地觸發 GitHub
+        # 情況 B：沒找到數據，且處於「保護期」
+        # 為避免 AI 抓到盤中變動資料去偷改預測，此時禁止計算
+        if is_readonly_period:
+            st.warning(f"⚠️ 目前為預測保護期 (尋找 {target_date} 之結算報告)。")
+            st.info("雲端尚未存有該日結算數據。為確保預測準確度，盤中不開放重新計算。")
+            return None
+        
+        # 情況 C：沒找到數據，且在「允許計算區間」 (14:31 - 22:59)
+        # 此時可以呼叫 GitHub 大腦進行今日盤後運算
         if trigger_github_analysis(symbol):
-            placeholder = st.empty() # 建立一個臨時顯示區
-            placeholder.info(f"⏳ 雲端大腦正在計算 {symbol}，請稍候...")
+            placeholder = st.empty()
+            placeholder.info(f"⏳ 雲端大腦正在進行今日盤後運算 {symbol}，請稍候...")
             
             max_retries = 30
             for i in range(max_retries):
                 time.sleep(4)
+                # 重新抓取數據
                 current_data = pred_ws.get_all_values()
-                new_row = next((r for r in current_data if len(r) > 1 and r[1] == symbol and r[0] == latest_market_date), None)
+                # 這次找的是當天的數據
+                new_row = next((r for r in current_data if len(r) > 1 and r[1] == symbol and r[0] == now.strftime("%Y-%m-%d")), None)
                 
                 if new_row:
-                    placeholder.empty() # 成功後清除提示
+                    placeholder.empty()
                     return new_row 
                 
-                # 更新進度提示，確保縮排正確
                 placeholder.info(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
             
-            placeholder.error("❌ 分析逾時，請稍後再試")
+            placeholder.error("❌ 分析逾時，請檢查雲端大腦 GitHub Actions 狀態")
         return None
                 
 
@@ -650,9 +672,3 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
