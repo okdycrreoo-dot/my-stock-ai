@@ -264,8 +264,8 @@ def run_daily_sync(target_symbol=None):
         current_time = now_time.time()
         
         # 設定保護時間界限
-        start_lock = datetime.strptime("23:00", "%H:%M").time()
-        end_lock = datetime.strptime("14:30", "%H:%M").time()
+        start_lock = datetime.strptime("23:50", "%H:%M").time()
+        end_lock = datetime.strptime("14:00", "%H:%M").time()
         
         # 判斷是否處於保護期
         if current_time >= start_lock or current_time <= end_lock:
