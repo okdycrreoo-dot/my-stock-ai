@@ -201,12 +201,12 @@ def god_mode_engine(df, symbol, mkt_df):
     # 轉為字串儲存
     path_string = ",".join([str(round(float(x), 2)) for x in avg_path])
 
-    # --- [E] 專家級指標體系 (AH, AI, AJ, AK 欄位) ---
+    # --- [E] 專家級指標體系 (AH, AI, AJ, AK, AL 欄位) ---
     # ATR 波動指標
     atr_val = (df['High'].tail(14).max() - df['Low'].tail(14).min()) / 14
-    # 量比指標 (當日成交量 / 20日平均量)
+    # 量比指標
     volume_ratio = df['Volume'].iloc[-1] / (df['Volume'].tail(20).mean() + 1e-9)
-    # 盈虧比評估 (預期漲幅 / 預期回撤)
+    # 盈虧比評估
     max_upside = avg_path.max() - curr_p
     min_downside = curr_p - buy_levels[0]
     risk_reward = round(float(max_upside / (abs(min_downside) + 1e-9)), 2)
@@ -215,19 +215,27 @@ def god_mode_engine(df, symbol, mkt_df):
     rsi_series = calculate_rsi(df)
     current_rsi = float(rsi_series.iloc[-1])
     
-    # AI 情緒邏輯 (這會放在 AK 欄位)
     market_sentiment = "冷靜"
     if bias_list[0] > 7 or current_rsi > 75:
         market_sentiment = "過熱"
     elif bias_list[0] < -7 or current_rsi < 25:
         market_sentiment = "恐慌"
+
+    # --- 新增：AI 信心度計算 (對位 AL 欄) ---
+    base_conf = 0.85
+    # 根據風險回報比調整：R/R 高於 1.5 加分，低於 0.8 扣分
+    conf_bonus = 0.05 if risk_reward > 1.5 else (-0.05 if risk_reward < 0.8 else 0)
+    # 根據 RSI 穩定度調整：過於極端則信心下降
+    conf_adj = -0.1 if current_rsi > 85 or current_rsi < 15 else 0.02
+    final_confidence = round(min(max(base_conf + conf_bonus + conf_adj, 0.5), 0.98), 2)
         
-    # 封裝專家數據 (4 欄位)
+    # 封裝專家數據 (5 欄位：ATR, 量比, 盈虧比, 情緒, 信心度)
     expert_metrics = [
         float(round(atr_val, 2)), 
         float(round(volume_ratio, 2)), 
         float(risk_reward), 
-        market_sentiment
+        market_sentiment,
+        final_confidence
     ]
 
     # --- [F] AI 綜合診斷文本 (AB, AC 欄位) ---
@@ -306,11 +314,12 @@ def run_daily_sync(target_symbol=None):
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
                 if not exists_idx:
+                    # 修正：將 p_experts 抓取長度從 [:4] 改為 [:5]，確保信心度寫入 AL 欄
                     row_data = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"] + \
                                (p_levels + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
-                               (p_bias + [0]*4)[:4] + (p_experts + [0]*4)[:4]
+                               (p_bias + [0]*4)[:4] + (p_experts + [0]*5)[:5]
                     ws_predict.append_row(row_data)
-                    print(f"✅ {final_id} 新增成功，Y 欄: {y_val}")
+                    print(f"✅ {final_id} 新增成功，AI 信心度: {p_experts[4]}")
                 else:
                     ws_predict.update_cell(exists_idx, 25, y_val)
                     print(f"⚡ {final_id} 已存在，補齊 Y 欄: {y_val}")
