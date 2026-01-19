@@ -51,6 +51,26 @@ def trigger_github_analysis(symbol):
     except Exception as e:
         st.error(f"連線 GitHub 失敗: {e}")
         return False
+
+def trigger_admin_manual_sync():
+    """【新增】管理者專用：啟動整個 YML 進行全量同步/修復"""
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        repo = st.secrets["GITHUB_REPO"]
+        # 注意：全域觸發使用的是 dispatches 接口，不是 workflows/{id}/dispatches
+        url = f"https://api.github.com/repos/{repo}/dispatches"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        # event_type 必須與 YML 中的 repository_dispatch -> types 一致
+        data = {"event_type": "manual_trigger"}
+        
+        response = requests.post(url, headers=headers, json=data)
+        return response.status_code == 204
+    except Exception as e:
+        st.error(f"管理員指令發送失敗: {e}")
+        return False
         
 # ==========================================
 # 工具章節：資料庫連線 (解決 NameError 的關鍵)
@@ -347,6 +367,22 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                         st.session_state.pop("target_analysis_stock", None)
                         st.session_state.pop("current_analysis", None)
                     delete_stock(user_name, selected_in_radio, watchlist_ws)
+
+        # === 3.5 管理者隱藏控制區 ===
+        if st.session_state.get("user") == "admin":
+            st.markdown("---")
+            st.markdown("<p style='color:#FF4B4B; font-weight:bold;'>🔒 管理者專用後台</p>", unsafe_allow_html=True)
+            col_adm, _ = st.columns([2, 1])
+            with col_adm:
+                if st.button("🔄 強制啟動 AI 全量補修 (修復 1-19 空白)", key="admin_manual_trigger"):
+                    with st.spinner("正在喚醒雲端大腦..."):
+                        if trigger_admin_manual_sync():
+                            st.success("✅ 指令已送出！GitHub 正在執行修補程序。")
+                            st.toast("系統已接收指令，請稍後重整。")
+                            time.sleep(2)
+                            st.rerun() # 重置按鈕狀態
+                        else:
+                            st.error("❌ 觸發失敗。請檢查 Secrets 設定。")
                     
 # ==========================================
 # 拼圖 A：顯示器 (專門解決你看到的紅字問題)
@@ -450,7 +486,8 @@ def process_analysis(symbol, pred_ws):
 # 補強工人 1：格式檢查 (防止新增報錯)
 # ==========================================
 def is_valid_format(text):
-    import re
+    """1.5 & 2.5 限制章節：僅限英數"""
+    if not text: return False
     return bool(re.match("^[a-zA-Z0-9]*$", text))
 
 # ==========================================
@@ -577,19 +614,16 @@ def chapter_5_ai_decision_report(row, pred_ws):
         st.markdown(f"<p style='color:gray; font-size:0.9rem; margin-top:-15px;'>波動區間：{row[3]} ~ {row[4]}</p>", unsafe_allow_html=True)
     
     with c2:
-        # --- 注意：以下代碼必須縮排進來 ---
         st.write("**AI 辨識信心度**")
+        raw_conf = row[37] if len(row) > 37 else ""
         
-        # row[37] 對應試算表的 AL 欄
-        raw_conf = row[37] if len(row) > 37 else "0.9" 
-        conf_score = safe_float(raw_conf)
-        
-        # 自動判斷是 0.85 還是 85 (處理 Google Sheets 的百分比格式)
-        display_conf = conf_score / 100 if conf_score > 1 else conf_score
-        
-        # 限制在 0~1 之間並顯示進度條
-        st.progress(min(max(display_conf, 0.0), 1.0)) 
-        st.caption(f"信心值：{display_conf * 100:.1f}%")
+        if raw_conf in ["", "0", "0.0", None]:
+            st.warning("⏳ 數據同步中...")
+        else:
+            conf_score = safe_float(raw_conf)
+            display_conf = conf_score / 100 if conf_score > 1 else conf_score
+            st.progress(min(max(display_conf, 0.0), 1.0)) 
+            st.caption(f"信心值：{display_conf * 100:.1f}%")
     
     st.markdown("---")
 
@@ -700,6 +734,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
