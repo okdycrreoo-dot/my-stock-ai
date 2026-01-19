@@ -285,16 +285,14 @@ def run_daily_sync(target_symbol=None):
         all_logs = ws_predict.get_all_values()
         
         # 根據您的截圖，精確鎖定欄位索引（Google Sheets 從 1 開始計算）
-        COL_F_STATUS = 6
-        COL_Y_ACTUAL = 25
-        COL_Z_ERROR = 26
+        COL_F_STATUS = 6   # F 欄
+        COL_Y_ACTUAL = 25  # Y 欄
+        COL_Z_ERROR = 26   # Z 欄
 
         for i, row in enumerate(all_logs):
             if i == 0: continue # 跳過標題列
             
-            # 檢查 F 欄是否需要更新
-            # 注意：如果您已經手動改回 "待更新"，程式就會跑。
-            # 如果 F 欄現在是數字，但您想重新校準，請先在試算表手動將 F 欄改為 "待更新"
+            # 檢查 F 欄是否包含 "待更新"
             current_status = str(row[COL_F_STATUS-1]).strip()
             
             if "待更新" in current_status:
@@ -303,8 +301,10 @@ def run_daily_sync(target_symbol=None):
                 try:
                     old_pred_price = float(row[2])
                     
+                    # 跳過當天剛產生的資料
                     if old_date == today_str: continue 
                     
+                    print(f"📡 正在校準 {old_sym} ({old_date})...")
                     hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
                     if isinstance(hist.columns, pd.MultiIndex): 
                         hist.columns = hist.columns.get_level_values(0)
@@ -318,51 +318,79 @@ def run_daily_sync(target_symbol=None):
                         error_val = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
                         
                         row_num = i + 1
-                        # 同步更新三個關鍵位置
-                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_close) # F 欄
-                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, actual_close) # Y 欄
-                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     # Z 欄
+                        # --- 穩定性寫入：分段更新並加入間隔 ---
+                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_close) # 更新 F
+                        time.sleep(1.2) 
+                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, actual_close) # 更新 Y
+                        time.sleep(1.2)
+                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     # 更新 Z
                         
                         print(f"✅ {old_sym} 校準完成：實際 {actual_close}, 誤差 {error_val}%")
-                        time.sleep(1) # 穩定 API 寫入
+                        # 每次處理完一支股票，休息 2.5 秒，確保 Google API 不會崩潰
+                        time.sleep(2.5) 
                 except Exception as e:
                     print(f"⚠️ {old_sym} 校準出錯: {e}")
+                    time.sleep(5) # 遇到錯誤休息久一點
 
-        # 3. 執行今日新預測
+        # 3. 執行今日新預測 (具備自動補漏洞與偵測功能)
         market_df = fetch_market_context()
         for sym in symbols_set:
             try:
+                # 每一輪循環都獲取最新 logs，確保偵測最精準
+                current_logs = ws_predict.get_all_values()
                 stock_df, final_id = fetch_comprehensive_data(sym)
                 if stock_df is None: continue
-                
-                # 重新獲取最新 logs 確保去重檢查精準
-                current_logs = ws_predict.get_all_values()
-                duplicate = any(len(l) >= 2 and l[0] == today_str and l[1] == final_id for l in current_logs)
-                
-                if duplicate and not is_urgent:
-                    print(f"⏩ {final_id} 今日({today_str})數據已存在，跳過。")
-                    continue
 
-                # 執行預測核心
+                # --- 【自動確認與補漏邏輯】 ---
+                existing_row_idx = -1
+                is_data_perfect = False
+                
+                for idx, row_data in enumerate(current_logs):
+                    # 匹配日期與代號
+                    if len(row_data) >= 2 and row_data[0] == today_str and row_data[1] == final_id:
+                        existing_row_idx = idx + 1 
+                        # 檢查第 37 欄 (AK欄) 是否有值，確保資料不是殘缺的
+                        if len(row_data) >= 37 and str(row_data[36]).strip() != "":
+                            is_data_perfect = True
+                        break
+
+                # 只有資料完整時才跳過
+                if is_data_perfect and not is_urgent:
+                    print(f"⏩ {final_id} 今日數據已完整填寫，跳過。")
+                    continue
+                
+                # 如果有殘缺數據（例如上次執行到一半斷掉），先自動刪除舊列
+                if existing_row_idx != -1:
+                    print(f"🛠️ {final_id} 偵測到殘缺數據，正在自動清除並重新修復...")
+                    ws_predict.delete_row(existing_row_idx)
+                    time.sleep(2) 
+
+                # --- 執行 AI 預測核心 ---
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # --- [數據拼裝區：精準對位 A-AK 37 欄位] ---
+                # A-F: 基本資訊 (F填待更新)
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
+                # G-X: 戰略水位 (固定 18 欄位，防位移)
                 col_levels = (list(p_levels) + [0]*18)[:18] 
+                # Y-Z: 實際與誤差
                 col_calib = [0, 0] 
+                # AA-AC: AI 文本分析
                 col_ai_txt = [p_path, p_diag, p_out]
+                # AD-AG: 乖離率
                 col_bias = (list(p_bias) + [0]*4)[:4]
+                # AH-AK: 專家指標
                 col_expert = (list(p_experts) + [0]*4)[:4]
 
+                # 最終拼裝 A-AK 37 欄位
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 今日預測同步成功。")
+                    print(f"✅ {final_id} 今日預測自動同步/修復成功 (37欄)。")
                 else:
-                    print(f"❌ {final_id} 欄位數異常: {len(final_upload_row)}")
+                    print(f"❌ {final_id} 拼裝異常，欄位數為: {len(final_upload_row)}")
                 
-                time.sleep(3) 
+                time.sleep(3) # 保護 API
 
             except Exception as e:
                 print(f"❌ 標的 {sym} 處理異常: {e}")
