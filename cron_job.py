@@ -281,18 +281,16 @@ def run_daily_sync(target_symbol=None):
             return
 
         # 2. 【核心功能：回填校準 - 修正 Y 欄絕對對位版】
-        # 目標：針對標記為「待更新」的舊列，補齊 F 欄(今日價) 與 Y 欄(當時預測時的昨日價)
+        # 目標：針對 F 欄標記為「待更新」的列，補齊今日價 (F) 與當時基準價 (Y)
         print("🔍 正在執行回填校準：補齊 F(Status), Y(Actual), Z(Error)...")
         all_logs = ws_predict.get_all_values()
         
-        COL_F_STATUS = 6   # F 欄：開獎價
-        COL_Y_ACTUAL = 25  # Y 欄：基準價
-        COL_Z_ERROR = 26   # Z 欄：誤差百分比
+        COL_F_STATUS = 6   # F 欄索引 (從 1 開始)
+        COL_Y_ACTUAL = 25  # Y 欄索引
+        COL_Z_ERROR = 26   # Z 欄索引
 
         for i, row in enumerate(all_logs):
             if i == 0: continue 
-            
-            # 確保讀取的資料長度足以判斷狀態
             if len(row) < COL_F_STATUS: continue
             
             current_status = str(row[COL_F_STATUS-1]).strip()
@@ -300,20 +298,21 @@ def run_daily_sync(target_symbol=None):
             if "待更新" in current_status:
                 old_date = row[0]
                 old_sym = row[1]
-                # 防止誤觸今天剛產生的預測
+                # 跳過「今天剛產生的列」，避免重疊
                 if old_date == today_str: continue
 
                 try:
                     old_pred_price = float(row[2])
-                    # 下載較長區間的歷史數據，確保索引 iloc[-3] 存在
+                    # 下載足夠長的歷史數據，確保索引 iloc[-3] 與 iloc[-1] 存在
                     hist_df = yf.download(old_sym, period="10d", progress=False)
                     if isinstance(hist_df.columns, pd.MultiIndex):
                         hist_df.columns = hist_df.columns.get_level_values(0)
                     
                     if not hist_df.empty and len(hist_df) >= 3:
-                        # --- 精確對位邏輯 ---
-                        # 今天是 1/19 (iloc[-1]) -> 填入 F 欄開獎
-                        # 補 1/16 那一列的 Y 欄：當時的昨日是 1/15 (iloc[-3])
+                        # --- 精準對位邏輯說明 ---
+                        # 以 1/19 執行補 1/16 為例：
+                        # 今日 1/19 的價格為 iloc[-1] (填入 1/16 列的 F 欄)
+                        # 1/16 預測時的基準日為 1/15，即 iloc[-3] (填入 1/16 列的 Y 欄)
                         actual_now = round(float(hist_df['Close'].iloc[-1]), 2)
                         y_val_fixed = round(float(hist_df['Close'].iloc[-3]), 2)
                         error_val = round(((actual_now - old_pred_price) / old_pred_price) * 100, 2)
@@ -324,31 +323,34 @@ def run_daily_sync(target_symbol=None):
                         ws_predict.update_cell(row_num, COL_Y_ACTUAL, y_val_fixed) 
                         time.sleep(1.2)
                         ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)
-                        print(f"✅ {old_sym} ({old_date}) 校準成功：Y={y_val_fixed}, F={actual_now}")
+                        print(f"✅ {old_sym} ({old_date}) 校準成功：Y(昨日)={y_val_fixed}, F(今日)={actual_now}")
                     else:
-                        print(f"⚠️ {old_sym} 數據不足(需3日以上)，無法校準。")
+                        print(f"⚠️ {old_sym} 數據不足，無法執行校準。")
                 except Exception as e:
-                    print(f"❌ {old_sym} 校準出錯: {e}")
+                    print(f"❌ {old_sym} 校準過程異常: {e}")
                     continue
 
-        # 3. 【核心功能：執行今日新預測 - 具備自動補碼與 20 支上限提醒】
-        # 確保此處縮排與上方 for 循環平級
+        # 3. 【核心功能：執行今日新預測 - 具備自動補碼容錯】
+        # 確保此處縮排與上方 for 循環平級，避免 IndentationError
         market_df = fetch_market_context()
+        
+        # 檢查清單是否超過 20 支
         if len(symbols_set) > 20:
-            print(f"⚠️ 提醒：您的 Watchlist 已達 {len(symbols_set)} 支，超過 20 支上限設定！")
+            print(f"⚠️ 提醒：目前 Watchlist 共有 {len(symbols_set)} 支標的，已超過上限提醒！")
 
         for sym in symbols_set:
             try:
-                # 重新讀取 logs 以避免重複寫入
+                # 重新讀取表格現狀，防止重複寫入
                 current_logs = ws_predict.get_all_values()
-                # 嘗試獲取數據（自動辨識 .TW 或 .TWO）
+                
+                # 調用 fetch 函式 (會自動在 .TW 與 .TWO 之間嘗試)
                 stock_df, final_id = fetch_comprehensive_data(sym)
                 
                 if stock_df is None or stock_df.empty:
-                    print(f"❌ 無法獲取 {sym} 數據，跳過。")
+                    print(f"❌ 跳過標的 {sym}：無法獲取有效數據。")
                     continue
 
-                # 自動補漏偵測與舊列刪除邏輯
+                # 偵測今日是否已有資料
                 existing_row_idx = -1
                 is_data_perfect = False
                 for idx, row_data in enumerate(current_logs):
@@ -359,24 +361,25 @@ def run_daily_sync(target_symbol=None):
                         break
 
                 if is_data_perfect and not is_urgent:
-                    print(f"⏩ {final_id} 今日數據已完整，跳過。")
+                    print(f"⏩ {final_id} 今日數據已完整，跳過執行。")
                     continue
                 
                 if existing_row_idx != -1:
-                    print(f"🛠️ {final_id} 數據殘缺，重新修復中...")
+                    print(f"🛠️ {final_id} 偵測到殘缺數據，刪除舊行以準備重新寫入...")
                     ws_predict.delete_row(existing_row_idx)
                     time.sleep(2) 
 
-                # 執行核心 AI 引擎
+                # --- 執行 AI 核心引擎 ---
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # --- Y 欄導正：今日 1/19 的列，Y 欄填 1/16 的收盤價 ---
+                # --- Y 欄導正：今日新列應填入「上個交易日」收盤價 ---
+                # 今日 1/19 預測時，基準日 (Y) 應為 1/16，即 iloc[-2]
                 if len(stock_df) >= 2:
                     yesterday_close_val = round(float(stock_df['Close'].iloc[-2]), 2)
                 else:
                     yesterday_close_val = round(float(stock_df['Close'].iloc[-1]), 2)
 
-                # 拼裝 37 欄位
+                # 組裝 37 欄位資料 (A-AK)
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                 col_levels = (list(p_levels) + [0]*18)[:18] 
                 col_calib = [yesterday_close_val, 0] 
@@ -388,17 +391,17 @@ def run_daily_sync(target_symbol=None):
                 
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 預測成功。昨日收盤(Y): {yesterday_close_val}")
+                    print(f"✅ {final_id} 預測完畢。Y 欄對位價: {yesterday_close_val}")
                 else:
-                    print(f"❌ {final_id} 欄位異常，長度為: {len(final_upload_row)}")
+                    print(f"❌ {final_id} 資料欄位長度錯誤: {len(final_upload_row)}")
                 
-                time.sleep(3) # 保護 API 頻率
+                time.sleep(3) # 保護 API 請求頻率限制
 
             except Exception as e:
                 print(f"❌ 標的 {sym} 處理異常: {e}")
 
     except Exception as e:
-        print(f"💥 程式執行核心錯誤: {e}")
+        print(f"💥 全域核心錯誤: {e}")
 
 if __name__ == "__main__":
     run_daily_sync()
