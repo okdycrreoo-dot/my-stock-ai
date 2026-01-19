@@ -233,37 +233,42 @@ def main():
 
         st.markdown("---")
 
-        # 【核心修正】在這裡呼叫第三章，縮放按鈕才會出現！
+        # 1. 執行第三章 (控制台與監控清單管理)
         chapter_3_watchlist_management(
             db_dict["users"], 
             db_dict["watchlist"], 
             db_dict["predictions"]
         )
-        # 2. 【關鍵補位】執行第四章 (基本行情觀測)
-        # 我們從 session_state 抓取使用者在第三章選中的股票
+
+        # 2. 獲取目前選中的股票 (從第三章的 radio 按鈕取得)
         selected_stock = st.session_state.get("stock_selector")
+        
         if selected_stock:
+            # 【核心修正】如果使用者在清單換了股票，但目前的報告還是舊股票的，就先清掉它
+            # 這樣可以強迫使用者按下「開始分析」，進而觸發控制台的自動收合
+            if "current_analysis" in st.session_state:
+                if st.session_state["current_analysis"][1] != selected_stock:
+                    st.session_state.pop("current_analysis")
+            
+            # 3. 執行第四章 (顯示即時行情觀測)
             chapter_4_stock_basic_info(selected_stock)
 
-        # 3. 執行第五章 (AI 深度報告)
-            # 只有當我們有點擊「開始分析」取得結果後才顯示
+            # 4. 執行第五章 (AI 深度報告)
+            # 只有當使用者點擊「開始分析」並成功取得結果 (存入 session_state) 後才會顯示
             if "current_analysis" in st.session_state:
-                # 確保分析的股票跟目前選中的股票是同一支
-                if st.session_state["current_analysis"][1] == selected_stock:
-                    chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
+                chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
                     
 # ==========================================
 # 第三章：監控清單管理功能 (Control Panel)
 # ==========================================
-
 def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     import yfinance as yf
     import datetime
     user_name = st.session_state["user"]
     
-    # --- 防困邏輯 1：初始化展開狀態 (僅在不存在時設定) ---
+    # --- 防困邏輯 1：初始化展開狀態 ---
     if "menu_expanded" not in st.session_state:
-        st.session_state["menu_expanded"] = True # 初始進入預設開啟
+        st.session_state["menu_expanded"] = True 
 
     # 1. 取得目前使用者的自選清單
     try:
@@ -275,10 +280,10 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     stock_count = len(user_stocks)
 
     # --- 3.1 使用變數控制 expanded 狀態 ---
-    with st.expander("🛠️ 開啟股票控制台", expanded=st.session_state["menu_expanded"]):
+    with st.expander(f"🛠️ 股票控制台 ({stock_count}/20)", expanded=st.session_state["menu_expanded"]):
         
         # 3.2 上半部：新增功能
-        st.write(f"### 📥 新增自選股 ({stock_count}/20)")
+        st.write("### 📥 新增自選股")
         
         col_input, col_add = st.columns([3, 1])
         with col_input:
@@ -288,14 +293,15 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             st.write("##") # 對齊
             add_btn = st.button("確認新增", key="add_stock_btn")
             
-        # 3.3 新增邏輯：維持展開狀態
+        # 3.3 新增邏輯：維持展開狀態 + 20支上限提醒
         if add_btn:
             if not new_stock:
                 st.warning("⚠️ 請先輸入代號")
             elif not is_valid_format(new_stock):
                 st.error("🚫 格式錯誤：僅限輸入英文或數字")
             elif stock_count >= 20:
-                st.warning("⚠️ 已達上限：最多只能 20 筆自選股")
+                # 【重要提醒】當超過 20 支時顯示紅色錯誤
+                st.error("❌ 已達上限：最多只能 20 筆自選股。請先刪除不用的股票。")
             elif any(s.startswith(new_stock) for s in user_stocks):
                 st.info("💡 提醒：此股票已在清單中")
             else:
@@ -310,7 +316,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     if not test_data.empty:
                         watchlist_ws.append_row([user_name, full_code])
                         st.success(f"✅ {full_code} 已加入清單")
-                        # 防困：此處 rerun 會依據 session_state["menu_expanded"] (此時為 True) 保持開啟
+                        # 保持開啟以便確認
                         st.rerun()
                     else:
                         st.error(f"❌ 查無此股票：市場中找不到代號 {new_stock}")
@@ -322,38 +328,30 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
         if not user_stocks:
             st.info("目前清單中沒有股票")
         else:
-            c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+            # 這裡調整為兩行顯示，讓 Radio 更明顯
+            selected_stock = st.radio(
+                "選擇要操作的股票", 
+                options=user_stocks, 
+                key="stock_selector",
+                horizontal=True
+            )
             
-            with c1:
-                # 使用 radio 代替 selectbox，在手機上操作最流暢
-                selected_stock = st.radio(
-                    "選擇要操作的股票", 
-                    options=user_stocks, 
-                    key="stock_selector",
-                    horizontal=True  # 讓選項橫向排列，節省空間
-                )
-            
+            c2, c3 = st.columns(2)
             with c2:
-                if st.button("🚀 開始分析", key="ana_btn_main"):
-                    # 關鍵：按下按鈕後，強制將控制台狀態設為 False (收合)
+                if st.button("🚀 開始分析", key="ana_btn_main", use_container_width=True):
+                    # 【核心】按下按鈕後，強制將控制台狀態設為 False (收合)
                     st.session_state["menu_expanded"] = False
                     
                     with st.spinner("正在處理請求..."):
-                        # 呼叫我們剛剛優化過的執行員 (會自動找全表最新日期或提示新股)
                         result = process_analysis(selected_stock, predictions_ws)
-                        
                         if result:
-                            # 情況 A：成功拿到資料 (定錨資料或新分析結果)
                             st.session_state["current_analysis"] = result
-                            st.rerun()
-                        else:
-                            # 情況 B：沒拿到資料 (例如：新加入股票，顯示待收盤分析提示)
-                            # 因為 menu_expanded 已經是 False，rerun 後控制台會保持收起
-                            st.rerun()
+                        st.rerun()
             
             with c3:
-                if st.button("🗑️ 刪除", key="del_btn_main"):
-                    # 執行刪除，狀態維持為 True
+                if st.button("🗑️ 刪除", key="del_btn_main", use_container_width=True):
+                    # 刪除時通常希望繼續操作，保持開啟
+                    st.session_state["menu_expanded"] = True
                     delete_stock(user_name, selected_stock, watchlist_ws)
 
 # ==========================================
@@ -690,6 +688,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
