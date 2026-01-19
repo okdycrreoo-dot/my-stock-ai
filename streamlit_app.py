@@ -329,19 +329,20 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
-                    with st.spinner("正在啟動 AI 運算..."):
-                        # 呼叫剛才優化過的 process_analysis (具備時間攔截功能)
+                    # 無論結果如何，按下的一瞬間就標記為「收合」
+                    st.session_state["menu_expanded"] = False
+                    
+                    with st.spinner("正在處理請求..."):
                         result = process_analysis(selected_stock, predictions_ws)
-                        
                         if result:
-                            # 只要有抓到資料 (不管是舊的定錨資料還是新算的)
+                            # 拿到資料，存入 session 並重整頁面顯示報告
                             st.session_state["current_analysis"] = result
-                            # 強制將展開狀態設為 False，讓控制台收起來
-                            st.session_state["menu_expanded"] = False
                             st.rerun()
                         else:
-                            # 如果沒結果 (例如在保護期且沒資料)，保持開啟讓使用者看到警告訊息
-                            st.session_state["menu_expanded"] = True
+                            # 沒拿到資料 (例如保護期警告)
+                            # 雖然沒有 result，但因為上面已經設為 False，
+                            # 所以頁面重跑後，控制台會收起，警告訊息會直接顯示在頁面上
+                            st.rerun()
             
             with c3:
                 if st.button("🗑️ 刪除", key="del_btn_main"):
@@ -678,4 +679,5 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
