@@ -380,67 +380,75 @@ def display_analysis_results(row):
         # 顯示從第 5 欄開始的所有詳細技術指標
         st.write(row[4:])
 
-# ==========================================
-# 拼圖 B：執行員 (終極版：保護期自動掛載舊資料)
-# ==========================================
 def process_analysis(symbol, pred_ws):
     """
-    終極版執行員：
-    1. 23:00 - 14:30 (保護期)：自動搜尋「前一晚」資料回傳，不觸發 AI。
-    2. 14:31 - 22:59 (分析期)：搜尋「今日」資料，若無則觸發 GitHub AI。
+    全表定錨最終版：
+    1. 保護期內 (23:00-14:30)：定錨於全表最新日期，若完全無紀錄則判定為今日新股。
+    2. 非保護期 (14:31-22:59)：正常觸發 AI 大腦更新。
     """
     import datetime
     import time
-
     now = datetime.datetime.now()
     current_time = now.time()
     
-    # 判斷是否處於「保護期」
+    # 判斷是否處於「保護期」 (23:00 到 隔天 14:30)
     is_readonly_period = (current_time >= datetime.time(23, 0)) or (current_time <= datetime.time(14, 30))
+    today_str = now.strftime("%Y-%m-%d")
 
-    # --- 關鍵：自動切換目標日期 ---
-    if current_time <= datetime.time(14, 30):
-        # 盤中點擊：目標是「昨晚」算好的定錨報告
-        target_date = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    else:
-        # 盤後點擊：目標是「今天」收盤後的全新報告
-        target_date = now.strftime("%Y-%m-%d")
-
-    # 1. 先去試算表找看看有沒有這份 target_date 的資料
+    # 1. 抓取所有資料
     all_data = pred_ws.get_all_values()
-    found_row = next((row for row in all_data if len(row) > 1 and row[1] == symbol and row[0] == target_date), None)
+    if not all_data or len(all_data) < 2:
+        st.warning("試算表尚無任何數據。")
+        return None
 
-    # 2. 執行分支策略
-    if found_row:
-        # 情況 A：找到資料了 (可能是昨晚的舊資料，也可能是下午剛算好的)
-        if is_readonly_period:
-            st.success(f"📌 已載入 {target_date} 23:00 定錨預測報告")
-        return found_row 
-    else:
-        # 情況 B：沒找到資料，且處於「保護期」
-        if is_readonly_period:
-            st.warning(f"⚠️ 預測保護期中 (尋找 {target_date} 結算報告)。")
-            st.info("試算表內尚無該日定錨數據，盤中不開放重新計算以確保準確度。")
-            return None
+    # 2. 找出全表「最新的一個日期」 (作為保護期的定錨點)
+    all_dates = [row[0] for row in all_data[1:] if row[0]]
+    latest_date_in_sheet = max(all_dates) if all_dates else today_str
+
+    # 3. 執行分支策略
+    if is_readonly_period:
+        # --- [保護期：讀取模式] ---
+        # 搜尋 符合該股票 且 日期等於「全表最新日期」的那一行
+        found_row = next((r for r in all_data if len(r) > 1 and str(r[1]).strip() == str(symbol).strip() and r[0] == latest_date_in_sheet), None)
         
-        # 情況 C：沒找到資料，且在「分析期」 (14:31~22:59)，啟動 AI 大腦
+        if found_row:
+            st.success(f"📌 已載入定錨預測報告 (參考最新結算日: {latest_date_in_sheet})")
+            return found_row
+        else:
+            # 如果找不到該日期的資料，檢查這支股票是否「完全沒歷史紀錄」
+            all_history = [r for r in all_data if len(r) > 1 and str(r[1]).strip() == str(symbol).strip()]
+            
+            if not all_history:
+                # 這是使用者昨天或剛加入的股票
+                st.info(f"🆕 偵測到新加入股票：{symbol}")
+                st.warning(f"⚠️ 試算表內尚無 {symbol} 的歷史定錨數據。")
+                st.info("💡 因目前為保護期，請待今日 14:30 收盤後，再執行分析以建立首份報告。")
+            else:
+                # 雖然最新日期沒資料，但以前有算過，就拿最近的一次出來
+                st.info(f"ℹ️ {latest_date_in_sheet} 無紀錄，載入該股最近一次歷史報告 ({all_history[-1][0]})")
+                return all_history[-1]
+            return None
+            
+    else:
+        # --- [分析期：更新模式] ---
+        # 看看今天是不是已經分析過了
+        today_row = next((r for r in all_data if len(r) > 1 and str(r[1]).strip() == str(symbol).strip() and r[0] == today_str), None)
+        
+        if today_row:
+            return today_row
+        
+        # 今天還沒算，通知 AI 大腦啟動
         if trigger_github_analysis(symbol):
             placeholder = st.empty()
             placeholder.info(f"⏳ 雲端大腦正在進行今日盤後運算 {symbol}...")
-            
-            max_retries = 30
-            for i in range(max_retries):
+            for i in range(30):
                 time.sleep(4)
                 current_data = pred_ws.get_all_values()
-                # 重新找一次今天的資料
-                new_row = next((r for r in current_data if len(r) > 1 and r[1] == symbol and r[0] == now.strftime("%Y-%m-%d")), None)
-                
+                new_row = next((r for r in current_data if len(r) > 1 and str(r[1]).strip() == str(symbol).strip() and r[0] == today_str), None)
                 if new_row:
                     placeholder.empty()
                     return new_row 
-                
-                placeholder.info(f"⏳ 雲端計算中... (進度: {i+1}/{max_retries})")
-            
+                placeholder.info(f"⏳ 雲端計算中... (進度: {i+1}/30)")
             placeholder.error("❌ 分析逾時，請檢查 GitHub Action 狀態")
         return None
                 
@@ -681,6 +689,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
