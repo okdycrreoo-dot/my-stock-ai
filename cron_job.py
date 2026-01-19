@@ -244,7 +244,7 @@ def god_mode_engine(df, symbol, mkt_df):
 
 
 # =================================================================
-# 第四章：自動同步作業 (精確 A-AK 37 欄位 - 含舊資料回填邏輯)
+# 第四章：自動同步作業 (修復縮排與 1-19 邏輯)
 # =================================================================
 
 def run_daily_sync(target_symbol=None):
@@ -252,24 +252,17 @@ def run_daily_sync(target_symbol=None):
         tz = pytz.timezone('Asia/Taipei')
         now_time = datetime.now(tz)
         today_str = now_time.strftime('%Y-%m-%d')
-        
-        is_urgent = (target_symbol is not None and target_symbol != "")
-
-        # 時間檢查
-        if not is_urgent:
-            if now_time.hour < 14 or (now_time.hour == 14 and now_time.minute < 30):
-                print(f"⌛ 定時任務：目前時間 {now_time.strftime('%H:%M')}，未達更新時間，不執行。")
-                return
+        is_urgent = bool(target_symbol)
 
         client = init_gspread()
         spreadsheet = client.open("users")
         ws_predict = spreadsheet.worksheet("predictions")
         ws_watch = spreadsheet.worksheet("watchlist")
         
-        # 1. 抓取名單
+        # 1. 抓取名單 (支援 3105.TWO 等上櫃代碼)
         symbols_set = set()
         if is_urgent:
-            symbols_set.add(str(target_symbol).strip().upper())
+            symbols_set.add(target_symbol.strip().upper())
         else:
             watch_data = ws_watch.get_all_values()[1:]
             for row in watch_data:
@@ -277,98 +270,62 @@ def run_daily_sync(target_symbol=None):
                     symbols_set.add(str(row[1]).strip().upper())
         
         if not symbols_set:
-            print("❌ 名單為空，終止同步。")
+            print("❌ 名單為空。")
             return
 
-        # 2. 【核心功能：回填校準 - 修正 Y 欄絕對對位版】
-        print("🔍 正在執行回填校準：補齊 F(Status), Y(Actual), Z(Error)...")
+        # 2. 回填校準 (1-16 的 F, Y, Z)
         all_logs = ws_predict.get_all_values()
-        
-        COL_F_STATUS = 6   # F 欄
-        COL_Y_ACTUAL = 25  # Y 欄
-        COL_Z_ERROR = 26   # Z 欄
-
         for i, row in enumerate(all_logs[1:], 1):
-            if len(row) < COL_F_STATUS: continue
-            current_status = str(row[COL_F_STATUS-1]).strip()
-            
-            if "待更新" in current_status:
-                old_date, old_sym = row[0], row[1]
-                if old_date == today_str: continue
-
+            if len(row) >= 6 and "待更新" in row[5] and row[0] != today_str:
                 try:
-                    # 校準：抓取歷史數據來對位
-                    h_df = yf.download(old_sym, period="10d", progress=False)
-                    if not h_df.empty and len(h_df) >= 3:
-                        if isinstance(h_df.columns, pd.MultiIndex): h_df.columns = h_df.columns.get_level_values(0)
-                        
-                        actual_now = round(float(h_df['Close'].iloc[-1]), 2) # 今日 1/19 價
-                        y_val_fixed = round(float(h_df['Close'].iloc[-3]), 2) # 1/16 列應對位之 1/15 價
-                        error_val = round(((actual_now - float(row[2])) / float(row[2])) * 100, 2)
-                        
-                        ws_predict.update_cell(i+1, COL_F_STATUS, actual_now) 
-                        time.sleep(1.2)
-                        ws_predict.update_cell(i+1, COL_Y_ACTUAL, y_val_fixed) 
-                        time.sleep(1.2)
-                        ws_predict.update_cell(i+1, COL_Z_ERROR, error_val)
-                        print(f"✅ {old_sym} ({old_date}) 校準成功。")
-                except Exception as e:
-                    print(f"❌ {old_sym} 校準失敗: {e}")
+                    h_df, _ = fetch_comprehensive_data(row[1])
+                    if h_df is not None and len(h_df) >= 3:
+                        actual_now = round(float(h_df['Close'].iloc[-1]), 2)
+                        y_val_fixed = round(float(h_df['Close'].iloc[-3]), 2)
+                        err = round(((actual_now - float(row[2])) / float(row[2])) * 100, 2)
+                        ws_predict.update_cell(i+1, 6, actual_now)
+                        ws_predict.update_cell(i+1, 25, y_val_fixed)
+                        ws_predict.update_cell(i+1, 26, err)
+                        time.sleep(1)
+                except: continue
 
-        # 3. 【核心功能：執行今日新預測與自動補位】
+        # 3. 執行今日新預測 (1-19 補齊 Y 欄)
         market_df = fetch_market_context()
         if len(symbols_set) > 20:
             print(f"⚠️ 提醒：Watchlist 已達 {len(symbols_set)} 支，超過上限！")
 
         for sym in symbols_set:
             try:
-                # 重新抓取最新資料以精確對位
-                current_logs = ws_predict.get_all_values()
                 stock_df, final_id = fetch_comprehensive_data(sym)
                 if stock_df is None: continue
-
-                # 關鍵：找出 1-19 資料是否已存在
-                exists = False
-                target_row_idx = -1
-                for idx, r in enumerate(current_logs):
-                    if r[0] == today_str and r[1] == final_id:
-                        exists = True
-                        target_row_idx = idx + 1 # 轉為 Sheets 行號
-                        break
+                
+                current_logs = ws_predict.get_all_values()
+                exists_idx = next((idx+1 for idx, r in enumerate(current_logs) if r[0] == today_str and r[1] == final_id), None)
 
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
-                
-                # Y 欄對位邏輯：今日 1-19 預測列，Y 必須填入 1-16 的收盤價 (iloc[-2])
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
-                if not exists:
-                    # 正常新增流程
+                if not exists_idx:
                     row_data = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"] + \
-                               (list(p_levels) + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
-                               (list(p_bias) + [0]*4)[:4] + (list(p_experts) + [0]*4)[:4]
+                               (p_levels + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
+                               (p_bias + [0]*4)[:4] + (p_experts + [0]*4)[:4]
                     ws_predict.append_row(row_data)
-                    print(f"✅ {final_id} 1-19 資料新增成功。Y 欄: {y_val}")
+                    print(f"✅ {final_id} 新增成功，Y 欄: {y_val}")
                 else:
-                    # 自動補位流程：如果 1-19 已經在那，但 Y 欄是空的，直接去填它
-                    # 檢查 Y 欄 (第 25 欄) 是否需要填寫
-                    current_y_val = current_logs[target_row_idx-1][24] if len(current_logs[target_row_idx-1]) >= 25 else ""
-                    if not str(current_y_val).strip():
-                        ws_predict.update_cell(target_row_idx, 25, y_val)
-                        print(f"⚡ {final_id} 1-19 已存在，已補全 Y 欄基準價: {y_val}")
-                    else:
-                        print(f"⏭️ {final_id} 1-19 資料已完備，跳過。")
-                
+                    ws_predict.update_cell(exists_idx, 25, y_val)
+                    print(f"⚡ {final_id} 已存在，補齊 Y 欄: {y_val}")
                 time.sleep(2)
             except Exception as e:
                 print(f"❌ {sym} 處理異常: {e}")
+
+    except Exception as e:
+        print(f"💥 全域錯誤: {e}")
 # =================================================================
 # 第五章：啟動入口 (EntryPoint)
 # =================================================================
 
 if __name__ == "__main__":
-    # 取得由 GitHub Actions 傳入的環境變數
     target_stock = os.environ.get("TARGET_SYMBOL", "").strip().upper()
-
     if target_stock:
         print(f"🚀 即時分析啟動: {target_stock}")
         run_daily_sync(target_stock)
