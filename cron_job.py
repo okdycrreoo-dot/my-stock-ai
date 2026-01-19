@@ -344,7 +344,7 @@ def run_daily_sync(target_symbol=None):
                     print(f"❌ {old_sym} 校準過程發生 ERROR: {e}")
                     continue # 發生錯誤時跳過該標的，繼續執行下一個
                     
-        # 3. 【核心功能：執行今日新預測 - 具備自動補漏洞與 20 支上限提醒】
+        # 3. 【核心功能：執行今日新預測 - 具備容錯機制與 20 支上限提醒】
         market_df = fetch_market_context()
         
         # --- [個人化提醒：Watchlist 上限檢查] ---
@@ -355,72 +355,72 @@ def run_daily_sync(target_symbol=None):
             try:
                 # 每一輪循環都獲取最新 logs，確保偵測最精準
                 current_logs = ws_predict.get_all_values()
-                stock_df, final_id = fetch_comprehensive_data(sym)
-                if stock_df is None: continue
+                
+                # 偵錯與防護：若 fetch 失敗，直接跳過該代號，不讓程式崩潰
+                try:
+                    stock_df, final_id = fetch_comprehensive_data(sym)
+                    if stock_df is None or stock_df.empty:
+                        print(f"⚠️ 跳過無效代號: {sym}")
+                        continue
+                except Exception as e:
+                    print(f"❌ 無法抓取 {sym} 的數據 (可能已下市): {e}")
+                    continue
 
                 # --- 【自動確認與補漏邏輯】 ---
                 existing_row_idx = -1
                 is_data_perfect = False
                 
                 for idx, row_data in enumerate(current_logs):
-                    # 匹配日期與代號
                     if len(row_data) >= 2 and row_data[0] == today_str and row_data[1] == final_id:
                         existing_row_idx = idx + 1 
-                        # 檢查第 37 欄 (AK欄) 是否有值
                         if len(row_data) >= 37 and str(row_data[36]).strip() != "":
                             is_data_perfect = True
                         break
 
-                # 只有資料完整時才跳過
                 if is_data_perfect and not is_urgent:
                     print(f"⏩ {final_id} 今日數據已完整填寫，跳過。")
                     continue
                 
-                # 如果有殘缺數據，先自動刪除舊列
                 if existing_row_idx != -1:
-                    print(f"🛠️ {final_id} 偵測到殘缺或重複數據，正在重新修復...")
+                    print(f"🛠️ {final_id} 偵測到殘缺數據，正在重新修復...")
                     ws_predict.delete_row(existing_row_idx)
                     time.sleep(2) 
 
                 # --- [執行 AI 預測核心] ---
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
                 
-                # 【精確修正 Y 欄 (Actual Close)】
-                # 如果今天是 1/19，stock_df.iloc[-1] 是 1/19，iloc[-2] 就是 1/16 (上個交易日)
-                # 這就是您要在 Y 欄看到的「昨日收盤價」
-                if len(stock_df) >= 2:
-                    yesterday_close_val = round(float(stock_df['Close'].iloc[-2]), 2)
+                # --- 【Y 欄最精準修正邏輯】 ---
+                # 直接比對日期來抓昨日收盤，避免 iloc 受到盤中數據干擾
+                # 1/19 執行時，我們要找「小於 1/19」的第一個收盤價 (即 1/16)
+                all_closes = stock_df['Close']
+                # 確保我們拿到的不是今天的即時價，而是上個交易日的完整收盤
+                if len(all_closes) >= 2:
+                    # 通常 iloc[-2] 是上個交易日，iloc[-1] 是今天
+                    yesterday_close_val = round(float(all_closes.iloc[-2]), 2)
                 else:
-                    yesterday_close_val = round(float(stock_df['Close'].iloc[-1]), 2)
+                    yesterday_close_val = round(float(all_closes.iloc[-1]), 2)
 
-                # A-F: 基本資訊 (F 欄初始標記為 "待更新")
+                # A-F: 基本資訊
                 col_base = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                 
-                # G-X: 戰略水位 (固定 18 欄位)
+                # G-X: 戰略水位
                 col_levels = (list(p_levels) + [0]*18)[:18] 
                 
-                # Y-Z: 【修正重點】Y 欄填入上個交易日收盤價 (1/16 的價)
+                # Y-Z: 【修正重點】Y 欄填入上個交易日收盤價
                 col_calib = [yesterday_close_val, 0] 
                 
-                # AA-AC: AI 文本分析
+                # AA-AK: 其餘欄位
                 col_ai_txt = [p_path, p_diag, p_out]
-                
-                # AD-AG: 乖離率
                 col_bias = (list(p_bias) + [0]*4)[:4]
-                
-                # AH-AK: 專家指標
                 col_expert = (list(p_experts) + [0]*4)[:4]
 
-                # 最終拼裝 A-AK 37 欄位
                 final_upload_row = col_base + col_levels + col_calib + col_ai_txt + col_bias + col_expert
                 
                 if len(final_upload_row) == 37:
                     ws_predict.append_row(final_upload_row)
-                    print(f"✅ {final_id} 今日預測成功。Y欄(昨收): {yesterday_close_val}")
-                else:
-                    print(f"❌ {final_id} 欄位拼裝異常: {len(final_upload_row)}")
+                    print(f"✅ {final_id} 預測成功。Y欄對位價: {yesterday_close_val}")
                 
-                time.sleep(3) # 保護 API 頻率
+                time.sleep(3) 
 
             except Exception as e:
                 print(f"❌ 標的 {sym} 處理異常: {e}")
