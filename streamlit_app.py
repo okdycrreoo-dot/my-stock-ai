@@ -231,8 +231,6 @@ def main():
                 time.sleep(0.5)
                 st.rerun()
 
-        st.markdown("---")
-
         # 1. 執行第三章 (控制台與監控清單管理)
         chapter_3_watchlist_management(
             db_dict["users"], 
@@ -240,30 +238,30 @@ def main():
             db_dict["predictions"]
         )
 
-        # 2. 獲取目前選中的股票 (從第三章的 radio 按鈕取得)
-        selected_stock = st.session_state.get("stock_selector")
-        
-        if selected_stock:
-            # 【核心修正】如果使用者在清單換了股票，但目前的報告還是舊股票的，就先清掉它
-            # 這樣可以強迫使用者按下「開始分析」，進而觸發控制台的自動收合
-            if "current_analysis" in st.session_state:
-                if st.session_state["current_analysis"][1] != selected_stock:
-                    st.session_state.pop("current_analysis")
-            
-            # 3. 執行第四章 (顯示即時行情觀測)
-            chapter_4_stock_basic_info(selected_stock)
+        # --- 2. 核心修正：判斷顯示條件 ---
+        # active_stock 是「按下分析按鈕後」鎖定的股票
+        # current_selection 是「目前 Radio 選中」的股票
+        active_stock = st.session_state.get("target_analysis_stock")
+        current_selection = st.session_state.get("stock_selector")
 
-            # 4. 執行第五章 (AI 深度報告)
-            # 只有當使用者點擊「開始分析」並成功取得結果 (存入 session_state) 後才會顯示
-            if "current_analysis" in st.session_state:
-                chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
+        if active_stock:
+            # 只有當「目前選的」跟「分析過的」是同一支，才顯示行情和報告
+            if active_stock == current_selection:
+                # 3. 執行第四章 (顯示即時行情觀測)
+                chapter_4_stock_basic_info(active_stock)
+
+                # 4. 執行第五章 (AI 深度報告)
+                if "current_analysis" in st.session_state:
+                    chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
+            else:
+                # 如果使用者切換了 Radio 但還沒按分析按鈕
+                st.info(f"💡 您切換到了 {current_selection}，請點擊「開始分析」以更新下方報表。")
                     
 # ==========================================
-# 第三章：監控清單管理功能 (Control Panel) - 穩定收合版
+# 第三章：監控清單管理功能 (Control Panel) - 邏輯修正版
 # ==========================================
 def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     import yfinance as yf
-    import datetime
     user_name = st.session_state["user"]
     
     # --- 防困邏輯 1：初始化展開狀態 ---
@@ -279,7 +277,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     
     stock_count = len(user_stocks)
 
-    # --- 3.1 關鍵：使用 session_state 直接驅動 expander ---
+    # --- 3.1 使用變數控制 expanded 狀態 ---
     with st.expander(f"🛠️ 股票控制台 ({stock_count}/20)", expanded=st.session_state["menu_expanded"]):
         
         # 3.2 上半部：新增功能
@@ -290,11 +288,9 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             new_stock = st.text_input("輸入股票代號 (英數)", key="new_stock_input").strip().upper()
         
         with col_add:
-            st.write("##") # 對齊
+            st.write("##") 
             if st.button("確認新增", key="add_stock_btn"):
-                # 新增前確保狀態設為 True，防止誤收合
                 st.session_state["menu_expanded"] = True
-                
                 if not new_stock:
                     st.warning("⚠️ 請先輸入代號")
                 elif not is_valid_format(new_stock):
@@ -308,7 +304,6 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                         suffix = ".TW" if len(new_stock) == 4 and new_stock[0] in ['2', '3'] else ".TWO"
                         full_code = f"{new_stock}{suffix}"
                         test_data = yf.Ticker(full_code).history(period="1d")
-                        
                         if not test_data.empty:
                             watchlist_ws.append_row([user_name, full_code])
                             st.success(f"✅ {full_code} 已加入清單")
@@ -323,7 +318,8 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
         if not user_stocks:
             st.info("目前清單中沒有股票")
         else:
-            selected_stock = st.radio(
+            # 此 radio 僅作選取，不直接觸發下方章節
+            selected_in_radio = st.radio(
                 "選擇要操作的股票", 
                 options=user_stocks, 
                 key="stock_selector",
@@ -332,27 +328,26 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             c2, c3 = st.columns(2)
             with c2:
-                # 【開始分析按鈕】
                 if st.button("🚀 開始分析", key="ana_btn_main", use_container_width=True):
-                    # 第一步：立刻變更狀態為 False
+                    # 【核心修正】按下按鈕才將選中的股票存入「分析目標」
+                    st.session_state["target_analysis_stock"] = selected_in_radio
                     st.session_state["menu_expanded"] = False
                     
                     with st.spinner("正在處理請求..."):
-                        result = process_analysis(selected_stock, predictions_ws)
+                        result = process_analysis(selected_in_radio, predictions_ws)
                         if result:
                             st.session_state["current_analysis"] = result
-                    
-                    # 第二步：帶領新的 False 狀態重整頁面，Expander 就會收起
                     st.rerun()
             
             with c3:
-                # 【刪除按鈕】
                 if st.button("🗑️ 刪除", key="del_btn_main", use_container_width=True):
-                    # 刪除時確保狀態為 True，維持展開
                     st.session_state["menu_expanded"] = True
-                    delete_stock(user_name, selected_stock, watchlist_ws)
-                    # delete_stock 內部若有 rerun，會讀到上面的 True
-
+                    # 如果刪除的是目前正在看的，就清掉狀態
+                    if st.session_state.get("target_analysis_stock") == selected_in_radio:
+                        st.session_state.pop("target_analysis_stock", None)
+                        st.session_state.pop("current_analysis", None)
+                    delete_stock(user_name, selected_in_radio, watchlist_ws)
+                    
 # ==========================================
 # 拼圖 A：顯示器 (專門解決你看到的紅字問題)
 # ==========================================
@@ -687,6 +682,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
