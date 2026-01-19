@@ -330,12 +330,18 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main"):
                     with st.spinner("正在啟動 AI 運算..."):
+                        # 呼叫剛才優化過的 process_analysis (具備時間攔截功能)
                         result = process_analysis(selected_stock, predictions_ws)
+                        
                         if result:
+                            # 只要有抓到資料 (不管是舊的定錨資料還是新算的)
                             st.session_state["current_analysis"] = result
-                            # --- 關鍵防困：只有分析完成才將展開狀態設為 False ---
+                            # 強制將展開狀態設為 False，讓控制台收起來
                             st.session_state["menu_expanded"] = False
-                            st.rerun() 
+                            st.rerun()
+                        else:
+                            # 如果沒結果 (例如在保護期且沒資料)，保持開啟讓使用者看到警告訊息
+                            st.session_state["menu_expanded"] = True
             
             with c3:
                 if st.button("🗑️ 刪除", key="del_btn_main"):
@@ -672,3 +678,4 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
