@@ -259,7 +259,7 @@ def main():
                 chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
                     
 # ==========================================
-# 第三章：監控清單管理功能 (Control Panel)
+# 第三章：監控清單管理功能 (Control Panel) - 穩定收合版
 # ==========================================
 def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     import yfinance as yf
@@ -279,7 +279,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     
     stock_count = len(user_stocks)
 
-    # --- 3.1 使用變數控制 expanded 狀態 ---
+    # --- 3.1 關鍵：使用 session_state 直接驅動 expander ---
     with st.expander(f"🛠️ 股票控制台 ({stock_count}/20)", expanded=st.session_state["menu_expanded"]):
         
         # 3.2 上半部：新增功能
@@ -291,35 +291,30 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
         
         with col_add:
             st.write("##") # 對齊
-            add_btn = st.button("確認新增", key="add_stock_btn")
-            
-        # 3.3 新增邏輯：維持展開狀態 + 20支上限提醒
-        if add_btn:
-            if not new_stock:
-                st.warning("⚠️ 請先輸入代號")
-            elif not is_valid_format(new_stock):
-                st.error("🚫 格式錯誤：僅限輸入英文或數字")
-            elif stock_count >= 20:
-                # 【重要提醒】當超過 20 支時顯示紅色錯誤
-                st.error("❌ 已達上限：最多只能 20 筆自選股。請先刪除不用的股票。")
-            elif any(s.startswith(new_stock) for s in user_stocks):
-                st.info("💡 提醒：此股票已在清單中")
-            else:
-                with st.spinner(f"🔍 正在驗證市場代號 {new_stock}..."):
-                    # 簡易判斷台灣市場後綴
-                    suffix = ".TW" if len(new_stock) == 4 and new_stock[0] in ['2', '3'] else ".TWO"
-                    full_code = f"{new_stock}{suffix}"
-                    
-                    test_ticker = yf.Ticker(full_code)
-                    test_data = test_ticker.history(period="1d")
-                    
-                    if not test_data.empty:
-                        watchlist_ws.append_row([user_name, full_code])
-                        st.success(f"✅ {full_code} 已加入清單")
-                        # 保持開啟以便確認
-                        st.rerun()
-                    else:
-                        st.error(f"❌ 查無此股票：市場中找不到代號 {new_stock}")
+            if st.button("確認新增", key="add_stock_btn"):
+                # 新增前確保狀態設為 True，防止誤收合
+                st.session_state["menu_expanded"] = True
+                
+                if not new_stock:
+                    st.warning("⚠️ 請先輸入代號")
+                elif not is_valid_format(new_stock):
+                    st.error("🚫 格式錯誤：僅限輸入英文或數字")
+                elif stock_count >= 20:
+                    st.error("❌ 已達上限：最多只能 20 筆自選股。請先刪除不用的股票。")
+                elif any(s.startswith(new_stock) for s in user_stocks):
+                    st.info("💡 提醒：此股票已在清單中")
+                else:
+                    with st.spinner(f"🔍 正在驗證市場代號 {new_stock}..."):
+                        suffix = ".TW" if len(new_stock) == 4 and new_stock[0] in ['2', '3'] else ".TWO"
+                        full_code = f"{new_stock}{suffix}"
+                        test_data = yf.Ticker(full_code).history(period="1d")
+                        
+                        if not test_data.empty:
+                            watchlist_ws.append_row([user_name, full_code])
+                            st.success(f"✅ {full_code} 已加入清單")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ 查無此股票代號 {new_stock}")
 
         st.markdown("---")
         
@@ -328,7 +323,6 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
         if not user_stocks:
             st.info("目前清單中沒有股票")
         else:
-            # 這裡調整為兩行顯示，讓 Radio 更明顯
             selected_stock = st.radio(
                 "選擇要操作的股票", 
                 options=user_stocks, 
@@ -338,21 +332,26 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             
             c2, c3 = st.columns(2)
             with c2:
+                # 【開始分析按鈕】
                 if st.button("🚀 開始分析", key="ana_btn_main", use_container_width=True):
-                    # 【核心】按下按鈕後，強制將控制台狀態設為 False (收合)
+                    # 第一步：立刻變更狀態為 False
                     st.session_state["menu_expanded"] = False
                     
                     with st.spinner("正在處理請求..."):
                         result = process_analysis(selected_stock, predictions_ws)
                         if result:
                             st.session_state["current_analysis"] = result
-                        st.rerun()
+                    
+                    # 第二步：帶領新的 False 狀態重整頁面，Expander 就會收起
+                    st.rerun()
             
             with c3:
+                # 【刪除按鈕】
                 if st.button("🗑️ 刪除", key="del_btn_main", use_container_width=True):
-                    # 刪除時通常希望繼續操作，保持開啟
+                    # 刪除時確保狀態為 True，維持展開
                     st.session_state["menu_expanded"] = True
                     delete_stock(user_name, selected_stock, watchlist_ws)
+                    # delete_stock 內部若有 rerun，會讀到上面的 True
 
 # ==========================================
 # 拼圖 A：顯示器 (專門解決你看到的紅字問題)
@@ -688,6 +687,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
