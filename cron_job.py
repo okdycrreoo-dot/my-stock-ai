@@ -280,63 +280,52 @@ def run_daily_sync(target_symbol=None):
             print("❌ 名單為空，終止同步。")
             return
 
-        # 2. 【核心功能：回填舊資料準確率 - 即時校準版】
-        print("🔍 正在執行回填校準：鎖定 F(Status), Y(Actual), Z(Error)...")
+        # 2. 【核心功能：隔日回填校準 - 最終正確對位版】
+        print("🔍 正在執行回填校準：比對「預測日」與「次一交易日實際價」...")
         all_logs = ws_predict.get_all_values()
         
-        # 欄位索引鎖定
         COL_F_STATUS = 6   # F 欄
         COL_Y_ACTUAL = 25  # Y 欄
         COL_Z_ERROR = 26   # Z 欄
 
         for i, row in enumerate(all_logs):
-            if i == 0: continue # 跳過標題列
+            if i == 0: continue 
             
-            # 只要 F 欄包含 "待更新"，不論日期，通通嘗試更新
             current_status = str(row[COL_F_STATUS-1]).strip()
             
             if "待更新" in current_status:
-                old_date = row[0]
+                old_date = row[0] # T日 (預測日)
                 old_sym = row[1]
+                
+                # --- 【核心邏輯：日期鎖定】 ---
+                # 如果預測日期(T)就是今天，代表明天(T+1)還沒到，絕對不能更新。
+                if old_date == today_str:
+                    continue
+
                 try:
                     old_pred_price = float(row[2])
-                    print(f"📡 正在校準 {old_sym} (預測日: {old_date})...")
+                    print(f"📡 正在校準 {old_sym}：拿今日實際價回填至 {old_date} 的預測列...")
                     
-                    actual_close = None
-                    
-                    # --- [優先嘗試抓取即時價格] ---
-                    try:
-                        ticker_ob = yf.Ticker(old_sym)
-                        # fast_info 可以拿到當前盤中或剛收盤的即時價 (例如 1280)
-                        actual_close = round(float(ticker_ob.fast_info['last_price']), 2)
-                    except:
-                        # 如果即時價失效，改用歷史數據備援
-                        hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
-                        if isinstance(hist.columns, pd.MultiIndex): 
-                            hist.columns = hist.columns.get_level_values(0)
-                        if not hist.empty:
-                            actual_close = round(float(hist['Close'].iloc[-1]), 2)
+                    ticker_ob = yf.Ticker(old_sym)
+                    # 抓取「現在」最正確的成交價 (即 T+1 日的開獎價)
+                    actual_close = round(float(ticker_ob.fast_info['last_price']), 2)
 
-                    if actual_close is not None:
-                        # 計算誤差 %
+                    if actual_close > 0:
+                        # 誤差 = (今日實際價 - 預測價) / 預測價
                         error_val = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
                         
                         row_num = i + 1
-                        # --- 穩定性寫入：分段更新並加入間隔 ---
-                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_close) # 更新 F
+                        ws_predict.update_cell(row_num, COL_F_STATUS, actual_close) 
                         time.sleep(1.2) 
-                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, actual_close) # 更新 Y
+                        ws_predict.update_cell(row_num, COL_Y_ACTUAL, actual_close) 
                         time.sleep(1.2)
-                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     # 更新 Z
+                        ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     
                         
-                        print(f"✅ {old_sym} 校準完成：當前價 {actual_close}, 誤差 {error_val}%")
+                        print(f"✅ {old_sym} 校準完成：{old_date} 預測之開獎價為 {actual_close}")
                         time.sleep(2.5) 
-                    else:
-                        print(f"⚠️ {old_sym} 無法獲取有效價格，跳過。")
                         
                 except Exception as e:
                     print(f"⚠️ {old_sym} 校準出錯: {e}")
-                    time.sleep(5)
         # 3. 執行今日新預測 (具備自動補漏洞與偵測功能)
         market_df = fetch_market_context()
         for sym in symbols_set:
