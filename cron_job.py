@@ -280,11 +280,11 @@ def run_daily_sync(target_symbol=None):
             print("❌ 名單為空，終止同步。")
             return
 
-        # 2. 【核心功能：回填舊資料準確率】
+        # 2. 【核心功能：回填舊資料準確率 - 即時校準版】
         print("🔍 正在執行回填校準：鎖定 F(Status), Y(Actual), Z(Error)...")
         all_logs = ws_predict.get_all_values()
         
-        # 根據您的截圖，精確鎖定欄位索引（Google Sheets 從 1 開始計算）
+        # 欄位索引鎖定
         COL_F_STATUS = 6   # F 欄
         COL_Y_ACTUAL = 25  # Y 欄
         COL_Z_ERROR = 26   # Z 欄
@@ -292,7 +292,7 @@ def run_daily_sync(target_symbol=None):
         for i, row in enumerate(all_logs):
             if i == 0: continue # 跳過標題列
             
-            # 檢查 F 欄是否包含 "待更新"
+            # 只要 F 欄包含 "待更新"，不論日期，通通嘗試更新
             current_status = str(row[COL_F_STATUS-1]).strip()
             
             if "待更新" in current_status:
@@ -300,20 +300,24 @@ def run_daily_sync(target_symbol=None):
                 old_sym = row[1]
                 try:
                     old_pred_price = float(row[2])
+                    print(f"📡 正在校準 {old_sym} (預測日: {old_date})...")
                     
-                    # 跳過當天剛產生的資料
-                    if old_date == today_str: continue 
+                    actual_close = None
                     
-                    print(f"📡 正在校準 {old_sym} ({old_date})...")
-                    hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
-                    if isinstance(hist.columns, pd.MultiIndex): 
-                        hist.columns = hist.columns.get_level_values(0)
+                    # --- [優先嘗試抓取即時價格] ---
+                    try:
+                        ticker_ob = yf.Ticker(old_sym)
+                        # fast_info 可以拿到當前盤中或剛收盤的即時價 (例如 1280)
+                        actual_close = round(float(ticker_ob.fast_info['last_price']), 2)
+                    except:
+                        # 如果即時價失效，改用歷史數據備援
+                        hist = yf.download(old_sym, start=old_date, period="5d", progress=False)
+                        if isinstance(hist.columns, pd.MultiIndex): 
+                            hist.columns = hist.columns.get_level_values(0)
+                        if not hist.empty:
+                            actual_close = round(float(hist['Close'].iloc[-1]), 2)
 
-                    if not hist.empty:
-                        # 抓取實際值
-                        raw_actual = float(hist['Close'].iloc[0])
-                        actual_close = round(raw_actual, 2)
-                        
+                    if actual_close is not None:
                         # 計算誤差 %
                         error_val = round(((actual_close - old_pred_price) / old_pred_price) * 100, 2)
                         
@@ -325,13 +329,14 @@ def run_daily_sync(target_symbol=None):
                         time.sleep(1.2)
                         ws_predict.update_cell(row_num, COL_Z_ERROR, error_val)     # 更新 Z
                         
-                        print(f"✅ {old_sym} 校準完成：實際 {actual_close}, 誤差 {error_val}%")
-                        # 每次處理完一支股票，休息 2.5 秒，確保 Google API 不會崩潰
+                        print(f"✅ {old_sym} 校準完成：當前價 {actual_close}, 誤差 {error_val}%")
                         time.sleep(2.5) 
+                    else:
+                        print(f"⚠️ {old_sym} 無法獲取有效價格，跳過。")
+                        
                 except Exception as e:
                     print(f"⚠️ {old_sym} 校準出錯: {e}")
-                    time.sleep(5) # 遇到錯誤休息久一點
-
+                    time.sleep(5)
         # 3. 執行今日新預測 (具備自動補漏洞與偵測功能)
         market_df = fetch_market_context()
         for sym in symbols_set:
