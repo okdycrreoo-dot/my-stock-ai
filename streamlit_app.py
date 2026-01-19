@@ -10,7 +10,7 @@ import time     # <-- 記得補上這行，後續等待檢查需要它
 # 基礎設定章節：強制白色主題與解鎖
 # ==========================================
 def setup_page():
-    st.set_page_config(page_title="智慧AI輔助", layout="centered")
+    st.set_page_config(page_title="AI智能自我進化中", layout="centered")
     st.markdown("""
         <style>
         /* 強制背景白色，並移除所有可能的灰色遮蓋層 */
@@ -689,6 +689,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
