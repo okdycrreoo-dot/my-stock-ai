@@ -792,9 +792,9 @@ def chapter_5_ai_decision_report(row, pred_ws):
     # 3. 視覺化紅綠燈顯示
     st.write("#### 🚥 避錯防護網")
     c1, c2, c3 = st.columns(3)
-    with c1: st.metric("📈 趨勢防護", "通過" if trend_ok else "攔截", delta=None, delta_color="normal")
-    with c2: st.metric("💰 資金防護", "通過" if money_ok else "攔截", delta=None, delta_color="normal")
-    with c3: st.metric("📏 空間防護", "通過" if space_ok else "攔截", delta=None, delta_color="normal")
+    with c1: st.metric("📈 股價趨勢", "看漲" if trend_ok else "跌勢", delta=None, delta_color="normal")
+    with c2: st.metric("💰 資金動向", "做多" if money_ok else "做空", delta=None, delta_color="normal")
+    with c3: st.metric("📏 獲利空間", "利多" if space_ok else "利少", delta=None, delta_color="normal")
 
     # 4. 細部診斷紀錄 (將 AI 數據轉化為白話條列)
     diag_details = []
@@ -856,5 +856,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
