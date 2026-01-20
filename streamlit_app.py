@@ -294,35 +294,38 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
         user_stocks = [row[1] for row in all_watch if len(row) > 1 and row[0] == user_name]
     except Exception:
         user_stocks = []
-    
     stock_count = len(user_stocks)
 
-    # --- 3.1 穩定且顯眼版控制台 (加入視覺美化) ---
+    # --- 3.1 穩定且顯眼版控制台 (加強 CSS 權限) ---
     st.markdown("""
         <style>
-        /* 讓收納框標題變藍底白字，增加辨識度 */
-        .streamlit-expanderHeader {
+        /* 1. 強制修改 expander 標題列背景與文字 */
+        div[data-testid="stExpander"] details summary {
             background-color: #1E88E5 !important;
             color: white !important;
             border-radius: 8px !important;
-            border: 1px solid #1565C0 !important;
+            padding: 10px !important;
         }
-        .streamlit-expanderHeader p {
+        /* 2. 確保標題內的文字 P 標籤也是白色 */
+        div[data-testid="stExpander"] details summary p {
             color: white !important;
             font-weight: bold !important;
+            font-size: 1.1rem !important;
         }
-        .streamlit-expanderHeader svg {
-            fill: white !important; /* 讓小箭頭也變白色 */
+        /* 3. 強制旋轉箭頭變白色 */
+        div[data-testid="stExpander"] details summary svg {
+            fill: white !important;
+            color: white !important;
+        }
+        /* 4. 滑鼠移上去稍微變深藍 */
+        div[data-testid="stExpander"] details summary:hover {
+            background-color: #1565C0 !important;
         }
         </style>
     """, unsafe_allow_html=True)
-
     panel_label = f"🛠️ 股票控制台 (管理員模式)" if user_name == "admin" else f"🛠️ 股票控制台 ({stock_count}/20)"
-    
-    # 【關鍵：緩衝保護】維持你現有的穩定邏輯
+    # 保持你現有的穩定緩衝邏輯
     current_expand_state = st.session_state.get("menu_expanded", True)
-
-    # 確保參數讀取的是變數 current_expand_state
     with st.expander(panel_label, expanded=current_expand_state):
         
         # 3.2 上半部：新增功能
@@ -760,6 +763,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
