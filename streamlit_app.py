@@ -300,11 +300,14 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     # --- 3.1 使用變數控制 expanded 狀態 ---
     # 根據身分顯示不同的控制台標題
     panel_label = f"🛠️ 股票控制台 (管理員模式)" if user_name == "admin" else f"🛠️ 股票控制台 ({stock_count}/20)"
-    # 建立一個動態 Key，當分析目標改變時，強迫 Expander 重新渲染
-    # 這樣可以物理性地重置 Expander 的手動點擊狀態
-    ctrl_key = f"ctrl_panel_{st.session_state.get('target_analysis_stock', 'none')}"
-    # 加上 key，並讓 key 隨股票名稱變化，這樣 rerun 時會強制重繪元件
-    with st.expander(panel_label, expanded=st.session_state["menu_expanded"], key=f"exp_{st.session_state.get('target_analysis_stock', 'init')}"):
+    # 1. 安全抓取分析對象，若無則設為 'default'
+    target_stock = st.session_state.get('target_analysis_stock', 'default')
+    # 2. 確保 expanded 是一個純粹的布林值 (避免收到 None)
+    is_open = bool(st.session_state.get("menu_expanded", True))
+    # 3. 建立動態 Key (將變數抽出來，確保格式正確)
+    ctrl_key = f"exp_panel_{target_stock}"
+    # 4. 執行 expander
+    with st.expander(panel_label, expanded=is_open, key=ctrl_key):
         
         # 3.2 上半部：新增功能
         st.write("### 📥 新增自選股")
@@ -359,16 +362,18 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     # 1. 鎖定分析對象
                     st.session_state["target_analysis_stock"] = selected_in_radio
                     
-                    # 2. 強制關閉選單狀態
+                    # 2. 【微調】強制將選單狀態設為 False (關閉)
+                    # 確保它是 Boolean 類型，避免引發剛才那個 TypeError
                     st.session_state["menu_expanded"] = False
                     
-                    # 3. 執行分析 (只保留這一個區塊)
+                    # 3. 執行分析
                     with st.spinner("正在處理請求..."):
+                        # 注意：這裡要確定 process_analysis 函數已經定義在 main 之前或之後可抓到的地方
                         result = process_analysis(selected_in_radio, predictions_ws)
                         if result:
                             st.session_state["current_analysis"] = result
                     
-                    # 4. 執行完畢後重整
+                    # 4. 執行完畢後重整，這會觸發 expander 使用新的 key 並讀取新的 False 狀態
                     st.rerun()
             
             with c3:
@@ -746,5 +751,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
