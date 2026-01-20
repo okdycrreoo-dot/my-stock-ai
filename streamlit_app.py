@@ -352,9 +352,18 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             c2, c3 = st.columns(2)
             with c2:
                 if st.button("🚀 開始分析", key="ana_btn_main", use_container_width=True):
-                    # 【核心修正】按下按鈕才將選中的股票存入「分析目標」
+                    # 1. 鎖定分析對象
                     st.session_state["target_analysis_stock"] = selected_in_radio
+                    
+                    # 2. 【核心修正】強制關閉選單，並更新 key 以重置元件狀態
                     st.session_state["menu_expanded"] = False
+                    
+                    # 3. 執行分析
+                    with st.spinner("正在處理請求..."):
+                        result = process_analysis(selected_in_radio, predictions_ws)
+                        if result:
+                            st.session_state["current_analysis"] = result
+                    st.rerun()
                     
                     with st.spinner("正在處理請求..."):
                         result = process_analysis(selected_in_radio, predictions_ws)
@@ -737,3 +746,4 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
