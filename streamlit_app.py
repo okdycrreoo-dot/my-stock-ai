@@ -297,10 +297,29 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     
     stock_count = len(user_stocks)
 
-    # --- 3.1 穩定版控制台 (修正 TypeError) ---
+    # --- 3.1 穩定且顯眼版控制台 (加入視覺美化) ---
+    st.markdown("""
+        <style>
+        /* 讓收納框標題變藍底白字，增加辨識度 */
+        .streamlit-expanderHeader {
+            background-color: #1E88E5 !important;
+            color: white !important;
+            border-radius: 8px !important;
+            border: 1px solid #1565C0 !important;
+        }
+        .streamlit-expanderHeader p {
+            color: white !important;
+            font-weight: bold !important;
+        }
+        .streamlit-expanderHeader svg {
+            fill: white !important; /* 讓小箭頭也變白色 */
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     panel_label = f"🛠️ 股票控制台 (管理員模式)" if user_name == "admin" else f"🛠️ 股票控制台 ({stock_count}/20)"
     
-    # 【關鍵：緩衝保護】先將狀態取出存入變數，不要在 expander 參數內直接讀取 session_state
+    # 【關鍵：緩衝保護】維持你現有的穩定邏輯
     current_expand_state = st.session_state.get("menu_expanded", True)
 
     # 確保參數讀取的是變數 current_expand_state
@@ -741,5 +760,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
