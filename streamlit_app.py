@@ -297,10 +297,14 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     
     stock_count = len(user_stocks)
 
-    # --- 3.1 使用變數控制 expanded 狀態 ---
-    # 根據身分顯示不同的控制台標題
+    # --- 3.1 穩定版控制台 (修正 TypeError) ---
     panel_label = f"🛠️ 股票控制台 (管理員模式)" if user_name == "admin" else f"🛠️ 股票控制台 ({stock_count}/20)"
-    with st.expander(panel_label, expanded=st.session_state["menu_expanded"]):
+    
+    # 【關鍵：緩衝保護】先將狀態取出存入變數，不要在 expander 參數內直接讀取 session_state
+    current_expand_state = st.session_state.get("menu_expanded", True)
+
+    # 確保參數讀取的是變數 current_expand_state
+    with st.expander(panel_label, expanded=current_expand_state):
         
         # 3.2 上半部：新增功能
         st.write("### 📥 新增自選股")
@@ -737,4 +741,5 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
