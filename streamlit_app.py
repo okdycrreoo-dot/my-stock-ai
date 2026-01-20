@@ -298,7 +298,9 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     stock_count = len(user_stocks)
 
     # --- 3.1 使用變數控制 expanded 狀態 ---
-    with st.expander(f"🛠️ 股票控制台 ({stock_count}/20)", expanded=st.session_state["menu_expanded"]):
+    # 根據身分顯示不同的控制台標題
+    panel_label = f"🛠️ 股票控制台 (管理員模式)" if user_name == "admin" else f"🛠️ 股票控制台 ({stock_count}/20)"
+    with st.expander(panel_label, expanded=st.session_state["menu_expanded"]):
         
         # 3.2 上半部：新增功能
         st.write("### 📥 新增自選股")
@@ -315,8 +317,9 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     st.warning("⚠️ 請先輸入代號")
                 elif not is_valid_format(new_stock):
                     st.error("🚫 格式錯誤：僅限輸入英文或數字")
-                elif stock_count >= 20:
-                    st.error("❌ 已達上限：最多只能 20 筆自選股。請先刪除不用的股票。")
+                # --- 權限分級：admin 無上限，一般使用者限制 20 支 ---
+                elif user_name != "admin" and stock_count >= 20:
+                    st.error("❌ 已達上限：一般帳戶最多只能 20 筆自選股。請先刪除不用的股票。")
                 elif any(s.startswith(new_stock) for s in user_stocks):
                     st.info("💡 提醒：此股票已在清單中")
                 else:
@@ -734,13 +737,3 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
