@@ -753,7 +753,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
     st.markdown("---")
 
     # --- 5. AI 診斷與展望 ---
-    st.write("### 🧠 Oracle 深度診斷")
+    st.write("### 🧠 AI 深度診斷")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
         st.info(f"**【AI 臨床診斷】**\n\n{row[27] if len(row) > 27 else '計算中'}")
@@ -763,6 +763,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
