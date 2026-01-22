@@ -349,16 +349,26 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                 elif any(s.startswith(new_stock) for s in user_stocks):
                     st.info("💡 提醒：此股票已在清單中")
                 else:
-                    with st.spinner(f"🔍 正在驗證市場代號 {new_stock}..."):
-                        suffix = ".TW" if len(new_stock) == 4 and new_stock[0] in ['2', '3'] else ".TWO"
-                        full_code = f"{new_stock}{suffix}"
-                        test_data = yf.Ticker(full_code).history(period="1d")
-                        if not test_data.empty:
-                            watchlist_ws.append_row([user_name, full_code])
-                            st.success(f"✅ {full_code} 已加入清單")
+                    with st.spinner(f"🔍 正在跨市場驗證代號 {new_stock}..."):
+                        # 1. 定義嘗試清單：先試上市(.TW)，再試上櫃(.TWO)
+                        # 如果你有特殊代碼需求(如 ^TWII)，也可以把 new_stock 直接加進去
+                        possible_codes = [f"{new_stock}.TW", f"{new_stock}.TWO"]
+                        valid_full_code = None
+                        
+                        # 2. 開始循環嘗試
+                        for code in possible_codes:
+                            test_data = yf.Ticker(code).history(period="1d")
+                            if not test_data.empty:
+                                valid_full_code = code
+                                break # 只要抓到有資料，就跳出循環
+                        
+                        # 3. 根據驗證結果執行寫入
+                        if valid_full_code:
+                            watchlist_ws.append_row([user_name, valid_full_code])
+                            st.success(f"✅ {valid_full_code} 已加入清單")
                             st.rerun()
                         else:
-                            st.error(f"❌ 查無此股票代號 {new_stock}")
+                            st.error(f"❌ 驗證失敗：在上市(.TW)與上櫃(.TWO)皆查無代號 {new_stock}")
 
         st.markdown("---")
         
@@ -856,6 +866,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
