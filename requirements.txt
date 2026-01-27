@@ -7,8 +7,9 @@ gspread
 google-auth
 pytz
 extra-streamlit-components
-https://github.com/twopirllc/pandas-ta/archive/refs/heads/development.zip
+ta
 requests
+
 
 
 
