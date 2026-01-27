@@ -7,5 +7,6 @@ gspread
 google-auth
 pytz
 extra-streamlit-components
-pandas_ta
+pandas-ta
 requests
+
