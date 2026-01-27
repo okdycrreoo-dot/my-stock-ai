@@ -1,3 +1,4 @@
+import pandas_ta as ta
 import os
 import time
 import json
@@ -213,6 +214,36 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     # 合併水位數據 (6+6+6 = 18 欄)
     strategic_data = buy_levels + sell_levels + resist_levels
 
+    # --- [技術指標全掃描：計算 Tech Score] ---
+    tech_score = 50  # 初始中性分
+    try:
+        # 1. 趨勢與動能組 (MACD, KDJ, RSI, DMI)
+        macd = df.ta.macd()
+        kdj = df.ta.kdj()
+        rsi_val = df.ta.rsi(length=14).iloc[-1]
+        adx = df.ta.adx()
+        
+        # 2. 能量與量價組 (OBV, NVI, PVI)
+        obv_increasing = df.ta.obv().tail(5).is_monotonic_increasing
+        nvi_val = df.ta.nvi().iloc[-1]
+        nvi_prev = df.ta.nvi().iloc[-2]
+        
+        # 3. 複合指標 (BBI)
+        bbi = (df['Close'].rolling(3).mean() + df['Close'].rolling(6).mean() + 
+               df['Close'].rolling(12).mean() + df['Close'].rolling(24).mean()) / 4
+
+        # --- 開始評分邏輯 ---
+        if macd.iloc[-1, 0] > 0: tech_score += 8       # MACD DIF > 0
+        if kdj.iloc[-1, 0] > kdj.iloc[-1, 1]: tech_score += 10  # K > D (金叉)
+        if rsi_val > 50: tech_score += 5              # RSI 偏強
+        if adx.iloc[-1, 1] > adx.iloc[-1, 2]: tech_score += 8  # +DI > -DI
+        if obv_increasing: tech_score += 10            # 成交量能推升
+        if nvi_val > nvi_prev: tech_score += 10        # 大戶能量 (NVI) 上升
+        if curr_p > bbi.iloc[-1]: tech_score += 7      # 站上 BBI 多空線
+        
+    except:
+        tech_score = 50 # 若計算失敗則維持中性
+    
     # --- [D] 蒙地卡羅模擬 7 日路徑 (強化籌碼修正) ---
     np.random.seed(int(time.time()))
     volatility = df['Close'].pct_change().tail(20).std()
@@ -226,7 +257,9 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         chip_boost = 0.97 - min(abs(chip_score) / 10000, 0.08)
 
     # 進化後的 drift 公式
-    drift = (df['Close'].pct_change().tail(10).mean() * mkt_trend * chip_boost) - (bias_list[3] * 0.005)
+    # 加入技術面修正因子 (Tech Boost)
+    tech_boost = 1.0 + (tech_score - 50) / 1000 
+    drift = (df['Close'].pct_change().tail(10).mean() * mkt_trend * chip_boost * tech_boost) - (bias_list[3] * 0.005)
     
     simulation_results = []
         
@@ -311,7 +344,8 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     limit_msg = " [!觸及極端限制]" if price_change_ratio > 0.098 else ""
 
     # 封裝診斷文本
-    diag_insight = (f"【Oracle 診斷】{symbol}({chip_msg}){limit_msg}。大盤環境{mkt_view}(Beta:{beta:.2f})。 "
+    # 範例：在診斷開頭加上 [分:xx]
+    diag_insight = (f"【Oracle 評分:{tech_score}】{symbol}({chip_msg}){limit_msg}。大盤環境{mkt_view}(Beta:{beta:.2f})。 "
                     f"5日乖離 {bias_list[0]}%，盈虧比 {risk_reward}。")
    
     forecast_outlook = f"AI 模擬 7 日目標價為 ${round(avg_path[-1], 2)}，短期支撐位參考 {buy_levels[0]}。"
