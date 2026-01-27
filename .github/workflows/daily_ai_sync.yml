@@ -38,12 +38,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 1. 強制解除安裝任何可能衝突的舊版
-          pip uninstall -y pandas-ta pandas_ta
-          # 2. 直接安裝所有核心套件，不讀取 requirements.txt 以避免檔案編碼問題
-          pip install streamlit pandas numpy yfinance plotly gspread google-auth pytz requests extra-streamlit-components --no-cache-dir
-          # 3. 最後安裝開發版的 pandas-ta (這行放在最後)
-          pip install https://github.com/twopirllc/pandas-ta/archive/refs/heads/development.zip --no-cache-dir
+          # 強制先安裝開發版 pandas-ta
+          pip install https://github.com/twopirllc/pandas-ta/archive/refs/heads/development.zip
+          # 再安裝其他剩餘套件
+          pip install -r requirements.txt --no-cache-dir
           
       - name: Run AI Oracle Engine
         env:
