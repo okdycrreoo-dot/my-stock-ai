@@ -47,7 +47,7 @@ def init_gspread():
 
 
 # =================================================================
-# 第二章：高階數據抓取引擎 (第二章)
+# 第二章：高階數據抓取引擎 (籌碼強化版)
 # =================================================================
 
 def calculate_rsi(df, periods=14):
@@ -68,11 +68,9 @@ def fetch_comprehensive_data(symbol):
     """
     raw_s = str(symbol).strip().upper()
     
-    # 如果使用者已經寫了後綴，就直接用
     if raw_s.endswith(".TW") or raw_s.endswith(".TWO"):
         search_list = [raw_s]
     else:
-        # 如果沒寫，優先嘗試 .TW，失敗再嘗試 .TWO
         search_list = [f"{raw_s}.TW", f"{raw_s}.TWO"]
         
     for s in search_list:
@@ -87,11 +85,12 @@ def fetch_comprehensive_data(symbol):
                 df = df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
                 print(f"✅ 成功獲取 {s} 數據。")
                 return df, s
-        except Exception as e:
+        except Exception:
             continue
             
     print(f"❌ {raw_s} 在 .TW 與 .TWO 均無法獲取數據。")
     return None, raw_s
+
 
 def fetch_market_context():
     """ 
@@ -108,11 +107,46 @@ def fetch_market_context():
         return None
 
 
+def fetch_chip_data(symbol, token):
+    """ 
+    [新增] 從 FinMind 抓取三大法人近 3 日買賣超數據
+    """
+    import requests
+    try:
+        # 轉換格式：從 "2330.TW" 提取出 "2330"
+        pure_id = symbol.split('.')[0]
+        
+        url = "https://api.finmindtrade.com/api/v4/data"
+        parameter = {
+            "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+            "data_id": pure_id,
+            "token": token
+        }
+        
+        print(f"📡 正在抓取 {pure_id} 三大法人籌碼面...")
+        res = requests.get(url, params=parameter)
+        data = res.json()
+        
+        if data.get('status') == 200 and data.get('data'):
+            df_chip = pd.DataFrame(data['data'])
+            # 取最近 3 個交易日
+            recent_chip = df_chip.tail(3)
+            # 計算淨買賣張數總和 (買進張數 - 賣出張數)
+            net_total = recent_chip['buy'].sum() - recent_chip['sell'].sum()
+            print(f"📊 {pure_id} 近三日法人淨買賣: {net_total} 張")
+            return float(net_total)
+            
+        print(f"⚠️ {pure_id} 查無籌碼數據，回傳 0")
+        return 0.0
+    except Exception as e:
+        print(f"❌ 籌碼抓取異常: {e}")
+        return 0.0
+
 # =================================================================
 # 第三章：預測之神大腦 - AI 核心運算 (第三章)
 # =================================================================
 
-def god_mode_engine(df, symbol, mkt_df):
+def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     """
     AI 核心：執行 Beta 修正、多週期戰略水位、蒙地卡羅預測路徑與專家指標診斷。
     """
@@ -179,12 +213,20 @@ def god_mode_engine(df, symbol, mkt_df):
     # 合併水位數據 (6+6+6 = 18 欄)
     strategic_data = buy_levels + sell_levels + resist_levels
 
-    # --- [D] 蒙地卡羅模擬 7 日路徑 (AA 欄位) ---
+    # --- [D] 蒙地卡羅模擬 7 日路徑 (強化籌碼修正) ---
     np.random.seed(int(time.time()))
-    # 波動率使用最近 20 日標準差
     volatility = df['Close'].pct_change().tail(20).std()
-    # 飄移率計算：近期 10 日均值 * 大盤係數 - 乖離率修正
-    drift = (df['Close'].pct_change().tail(10).mean() * mkt_trend) - (bias_list[3] * 0.005)
+    
+    # 籌碼動能加成：若法人大買，給予 1.02~1.15 的偏移加速
+    # 我們設定 1000 張為一個基準門檻 (可根據股本調整)
+    chip_boost = 1.0
+    if chip_score > 500: # 買超超過 500 張
+        chip_boost = 1.03 + min(chip_score / 10000, 0.12)
+    elif chip_score < -500: # 賣超超過 500 張
+        chip_boost = 0.97 - min(abs(chip_score) / 10000, 0.08)
+
+    # 進化後的 drift 公式
+    drift = (df['Close'].pct_change().tail(10).mean() * mkt_trend * chip_boost) - (bias_list[3] * 0.005)
     
     simulation_results = []
     # 執行 800 次路徑模擬
@@ -238,16 +280,28 @@ def god_mode_engine(df, symbol, mkt_df):
         final_confidence
     ]
 
-    # --- [F] AI 綜合診斷文本 (AB, AC 欄位) ---
-    money_flow = "資金流入" if (df['Close'].iloc[-1] > df['Open'].iloc[-1] and volume_ratio > 1.2) else "籌碼穩定"
+    # --- [F] AI 綜合診斷文本 (這裡就是你要加的地方) ---
     mkt_view = "看多" if mkt_trend > 1 else "保守"
     
-    diag_insight = (f"【Oracle 診斷】{symbol} 目前趨勢偏{money_flow}。大盤環境{mkt_view}(Beta:{beta:.2f})。 "
+    # 新增：籌碼狀態判定邏輯
+    if chip_score > 1500:
+        chip_msg = "🔥 法人強勢進場"
+    elif chip_score > 500:
+        chip_msg = "✅ 法人小幅買超"
+    elif chip_score < -1500:
+        chip_msg = "💀 法人集體拋售"
+    elif chip_score < -500:
+        chip_msg = "⚠️ 法人小幅賣超"
+    else:
+        chip_msg = "⚖️ 籌碼中性穩定"
+
+    # 封裝診斷文本
+    diag_insight = (f"【Oracle 診斷】{symbol}({chip_msg})。大盤環境{mkt_view}(Beta:{beta:.2f})。 "
                     f"5日乖離 {bias_list[0]}%，盈虧比 {risk_reward}。")
     
     forecast_outlook = f"AI 模擬 7 日目標價為 ${round(avg_path[-1], 2)}，短期支撐位參考 {buy_levels[0]}。"
 
-    # 回傳結果集
+    # 最後統一回傳所有結果
     return float(round(avg_path[0], 2)), path_string, diag_insight, forecast_outlook, bias_list, strategic_data, expert_metrics
 
 
@@ -257,6 +311,7 @@ def god_mode_engine(df, symbol, mkt_df):
 
 def run_daily_sync(target_symbol=None):
     try:
+        FINMIN_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wMS0yNyAxNTo0NDo0MSIsInVzZXJfaWQiOiJrZCIsImVtYWlsIjoib2tkeWNycmVvb0BnbWFpbC5jb20iLCJpcCI6IjEzNi4yMjYuMjQxLjk2In0.JUMtA2-Y98F-AUMgRtIa11o56WmX1Yx6T40q5RgM4oE" # 貼上你的 Token
         # --- [核心保護機制：23:00 - 14:30 大腦強制熔斷] ---
         # 取得台北時間
         tz = pytz.timezone('Asia/Taipei')
@@ -271,7 +326,7 @@ def run_daily_sync(target_symbol=None):
         if current_time >= start_lock or current_time <= end_lock:
             print(f"🚫 【大腦絕對保護中】")
             print(f"目前台北時間：{now_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print("保護期規則：每日 23:00 至隔日 14:30 期間，大腦拒絕任何分析、計算與寫入動作。")
+            print("保護期規則：每日 23:50 至隔日 14:00 期間，大腦拒絕任何分析、計算與寫入動作。")
             return # 強制結束，不執行下方所有代碼
         # -----------------------------------------------
 
@@ -324,11 +379,16 @@ def run_daily_sync(target_symbol=None):
             try:
                 stock_df, final_id = fetch_comprehensive_data(sym)
                 if stock_df is None: continue
-                
+                # --- [2. 在這裡插入：抓取籌碼分數] ---
+                # 呼叫第二章新增的函數
+                chip_score = fetch_chip_data(final_id, FINMIN_TOKEN)
+                # --- [3. 修改：將 chip_score 傳入大腦] ---
+                # 原本是 god_mode_engine(stock_df, final_id, market_df)
+                # 現在多加一個 chip_score 參數
                 current_logs = ws_predict.get_all_values()
                 exists_idx = next((idx+1 for idx, r in enumerate(current_logs) if r[0] == today_str and r[1] == final_id), None)
 
-                p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df)
+                p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df, chip_score)
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
                 if not exists_idx:
