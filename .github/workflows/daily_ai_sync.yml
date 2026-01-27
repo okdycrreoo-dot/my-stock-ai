@@ -1,5 +1,6 @@
 name: Daily AI Prediction Sync
 
+
 on:
   # 1. 保留原本的所有自動定時更新
   schedule:
