@@ -229,13 +229,24 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     drift = (df['Close'].pct_change().tail(10).mean() * mkt_trend * chip_boost) - (bias_list[3] * 0.005)
     
     simulation_results = []
+        
     # 執行 800 次路徑模擬
     for _ in range(800):
         temp_path = [curr_p]
         for _ in range(7):
             # 加入 Beta 敏感度修正
             random_shock = np.random.normal(drift, volatility * (1 + abs(beta-1)))
-            temp_path.append(temp_path[-1] * (1 + random_shock))
+            
+            # 計算下一日的原始預測價格
+            next_p = temp_path[-1] * (1 + random_shock)
+            
+            # --- [台股專屬：10% 漲跌幅強制限縮] ---
+            # 確保每一天的波動都不會超過前一天的 +-10%
+            upper_limit = temp_path[-1] * 1.10
+            lower_limit = temp_path[-1] * 0.90
+            next_p = max(min(next_p, upper_limit), lower_limit)
+            
+            temp_path.append(next_p)
         simulation_results.append(temp_path[1:])
     
     # 取模擬平均路徑
@@ -295,10 +306,14 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     else:
         chip_msg = "⚖️ 籌碼中性穩定"
 
+    # 判斷當日是否接近漲跌停 (增強診斷文本)
+    price_change_ratio = abs((curr_p - last['Open']) / (last['Open'] + 1e-9))
+    limit_msg = " [!觸及極端限制]" if price_change_ratio > 0.098 else ""
+
     # 封裝診斷文本
-    diag_insight = (f"【Oracle 診斷】{symbol}({chip_msg})。大盤環境{mkt_view}(Beta:{beta:.2f})。 "
+    diag_insight = (f"【Oracle 診斷】{symbol}({chip_msg}){limit_msg}。大盤環境{mkt_view}(Beta:{beta:.2f})。 "
                     f"5日乖離 {bias_list[0]}%，盈虧比 {risk_reward}。")
-    
+   
     forecast_outlook = f"AI 模擬 7 日目標價為 ${round(avg_path[-1], 2)}，短期支撐位參考 {buy_levels[0]}。"
 
     # 最後統一回傳所有結果
