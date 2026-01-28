@@ -8,8 +8,17 @@ import pandas as pd
 import yfinance as yf
 import gspread
 import pytz
+import requests
 from datetime import datetime
 from google.oauth2.service_account import Credentials
+# --- 移至最頂層：技術指標庫 (ta) 匯入區 ---
+from ta.trend import *
+from ta.momentum import *
+from ta.volatility import *
+from ta.volume import *
+# 這裡包含你額外指定的特定指標
+from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
+from ta.momentum import PercentagePriceOscillator, KAMAIndicator
 
 # =================================================================
 # 第一章：初始化與環境連線 (第一章)
@@ -233,13 +242,6 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     # --- [終極 AI 大腦：40+ 技術指標全維度共振系統] ---
     tech_score = 50 
     try:
-        from ta.trend import *
-        from ta.momentum import *
-        from ta.volatility import *
-        from ta.volume import *
-        from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
-        from ta.momentum import PercentagePriceOscillator, KAMAIndicator
-
         # 1. 核心趨勢與長線濾網 (Trend - 12項)
         macd = MACD(close=df['Close'])
         adx = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'])
