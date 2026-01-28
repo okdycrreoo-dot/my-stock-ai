@@ -109,40 +109,55 @@ def fetch_market_context():
         return None
 
 
-def fetch_chip_data(symbol, token):
+def fetch_chip_data(symbol, token, retries=3):
     """ 
-    [新增] 從 FinMind 抓取三大法人近 3 日買賣超數據
+    [強化版] 從 FinMind 抓取籌碼數據，保留原計算邏輯並加入自動重試機制
     """
     import requests
-    try:
-        # 轉換格式：從 "2330.TW" 提取出 "2330"
-        pure_id = symbol.split('.')[0]
-        
-        url = "https://api.finmindtrade.com/api/v4/data"
-        parameter = {
-            "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
-            "data_id": pure_id,
-            "token": token
-        }
-        
-        print(f"📡 正在抓取 {pure_id} 三大法人籌碼面...")
-        res = requests.get(url, params=parameter)
-        data = res.json()
-        
-        if data.get('status') == 200 and data.get('data'):
-            df_chip = pd.DataFrame(data['data'])
-            # 取最近 3 個交易日
-            recent_chip = df_chip.tail(3)
-            # 計算淨買賣張數總和 (買進張數 - 賣出張數)
-            net_total = recent_chip['buy'].sum() - recent_chip['sell'].sum()
-            print(f"📊 {pure_id} 近三日法人淨買賣: {net_total} 張")
-            return float(net_total)
+    import time
+    
+    # 1. 保留原有的格式轉換邏輯
+    pure_id = symbol.split('.')[0]
+    url = "https://api.finmindtrade.com/api/v4/data"
+    parameter = {
+        "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+        "data_id": pure_id,
+        "token": token
+    }
+
+    for i in range(retries):
+        try:
+            print(f"📡 正在抓取 {pure_id} 三大法人籌碼面 (第 {i+1}/{retries} 次嘗試)...")
+            # 增加 timeout 防止請求卡死
+            res = requests.get(url, params=parameter, timeout=10)
+            data = res.json()
             
-        print(f"⚠️ {pure_id} 查無籌碼數據，回傳 0")
-        return 0.0
-    except Exception as e:
-        print(f"❌ 籌碼抓取異常: {e}")
-        return 0.0
+            # 2. 保留原有的核心邏輯：成功獲取則計算近三日淨買賣
+            if data.get('status') == 200 and data.get('data'):
+                df_chip = pd.DataFrame(data['data'])
+                # 取最近 3 個交易日
+                recent_chip = df_chip.tail(3)
+                # 計算淨買賣張數總和 (買進張數 - 賣出張數)
+                net_total = recent_chip['buy'].sum() - recent_chip['sell'].sum()
+                print(f"📊 {pure_id} 近三日法人淨買賣: {net_total} 張")
+                return float(net_total)
+            
+            # 若 API 回傳 429 (頻率過高)，執行退避策略
+            if data.get('status') == 429:
+                wait_time = (i + 1) * 5
+                print(f"⚠️ 頻率限制，冷卻 {wait_time} 秒後重試...")
+                time.sleep(wait_time)
+            else:
+                print(f"⚠️ {pure_id} 回傳狀態異常，等待重試...")
+                time.sleep(2)
+                
+        except Exception as e:
+            print(f"❌ 第 {i+1} 次抓取異常: {e}")
+            time.sleep(2)
+
+    # 3. 若最終皆失敗，維持原邏輯回傳 0.0 中性值
+    print(f"🛑 {pure_id} 籌碼數據獲取最終失敗，回傳 0.0 (中性)")
+    return 0.0
 
 # =================================================================
 # 第三章：預測之神大腦 - AI 核心運算 (第三章)
@@ -215,35 +230,101 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     # 合併水位數據 (6+6+6 = 18 欄)
     strategic_data = buy_levels + sell_levels + resist_levels
 
-    # --- [技術指標全掃描：計算 Tech Score] ---
-    tech_score = 50  # 初始中性分
+    # --- [終極 AI 大腦：40+ 技術指標全維度共振系統] ---
+    tech_score = 50 
     try:
-        # 1. 趨勢與動能組 (MACD, KDJ, RSI, DMI)
-        macd = df.ta.macd()
-        kdj = df.ta.kdj()
-        rsi_val = df.ta.rsi(length=14).iloc[-1]
-        adx = df.ta.adx()
-        
-        # 2. 能量與量價組 (OBV, NVI, PVI)
-        obv_increasing = df.ta.obv().tail(5).is_monotonic_increasing
-        nvi_val = df.ta.nvi().iloc[-1]
-        nvi_prev = df.ta.nvi().iloc[-2]
-        
-        # 3. 複合指標 (BBI)
-        bbi = (df['Close'].rolling(3).mean() + df['Close'].rolling(6).mean() + 
-               df['Close'].rolling(12).mean() + df['Close'].rolling(24).mean()) / 4
+        from ta.trend import *
+        from ta.momentum import *
+        from ta.volatility import *
+        from ta.volume import *
+        from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
+        from ta.momentum import PercentagePriceOscillator, KAMAIndicator
 
-        # --- 開始評分邏輯 ---
-        if macd.iloc[-1, 0] > 0: tech_score += 8       # MACD DIF > 0
-        if kdj.iloc[-1, 0] > kdj.iloc[-1, 1]: tech_score += 10  # K > D (金叉)
-        if rsi_val > 50: tech_score += 5              # RSI 偏強
-        if adx.iloc[-1, 1] > adx.iloc[-1, 2]: tech_score += 8  # +DI > -DI
-        if obv_increasing: tech_score += 10            # 成交量能推升
-        if nvi_val > nvi_prev: tech_score += 10        # 大戶能量 (NVI) 上升
-        if curr_p > bbi.iloc[-1]: tech_score += 7      # 站上 BBI 多空線
+        # 1. 核心趨勢與長線濾網 (Trend - 12項)
+        macd = MACD(close=df['Close'])
+        adx = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        psar = PSARIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        ichi = IchimokuIndicator(high=df['High'], low=df['Low'])
+        aroon = AroonIndicator(close=df['Close'])
+        vortex = VortexIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        kst = KSTIndicator(close=df['Close'])
+        trix = TRIXIndicator(close=df['Close'])
+        cci = CCIIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        dpo = DPOIndicator(close=df['Close']) # 去趨勢震盪
         
-    except:
-        tech_score = 50 # 若計算失敗則維持中性
+        if macd.macd_diff().iloc[-1] > 0: tech_score += 4
+        if adx.adx().iloc[-1] > 25: tech_score += 3
+        if curr_p > psar.psar().iloc[-1]: tech_score += 4
+        if curr_p > ichi.ichimoku_a().iloc[-1]: tech_score += 3
+        if aroon.aroon_up().iloc[-1] > aroon.aroon_down().iloc[-1]: tech_score += 3
+        if vortex.vortex_indicator_pos().iloc[-1] > vortex.vortex_indicator_neg().iloc[-1]: tech_score += 4
+        if kst.kst().iloc[-1] > kst.kst_sig().iloc[-1]: tech_score += 3
+        if trix.trix().iloc[-1] > 0: tech_score += 3
+        if cci.cci().iloc[-1] > 100: tech_score += 3
+        if dpo.dpo().iloc[-1] > 0: tech_score += 2
+        if curr_p > df['Close'].rolling(200).mean().iloc[-1]: tech_score += 5 # 長線牛熊
+
+        # 2. 短線動能與噴發力道 (Momentum - 10項)
+        rsi_obj = RSIIndicator(close=df['Close'])
+        stoch = StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'])
+        williams = WilliamsRIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        uo = UltimateOscillator(high=df['High'], low=df['Low'], close=df['Close'])
+        tsi = TSIIndicator(close=df['Close'])
+        roc = ROCIndicator(close=df['Close'])
+        ppo = PercentagePriceOscillator(close=df['Close'])
+        kama = KAMAIndicator(close=df['Close'])
+        
+        cur_rsi = rsi_obj.rsi().iloc[-1]
+        if 50 < cur_rsi < 78: tech_score += 5 
+        if stoch.stoch().iloc[-1] > stoch.stoch_signal().iloc[-1]: tech_score += 4
+        if williams.williams_r().iloc[-1] > -20: tech_score += 3
+        if uo.ultimate_oscillator().iloc[-1] > 55: tech_score += 3
+        if tsi.tsi().iloc[-1] > 0: tech_score += 3
+        if roc.roc().iloc[-1] > 0: tech_score += 2
+        if ppo.ppo().iloc[-1] > ppo.ppo_signal().iloc[-1]: tech_score += 3
+        if curr_p > kama.kama().iloc[-1]: tech_score += 3
+
+        # 3. 三大法人與量價結構 (Volume - 10項)
+        obv = OnBalanceVolumeIndicator(close=df['Close'], volume=df['Volume'])
+        mfi = MoneyFlowIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        nvi = NegativeVolumeIndex(close=df['Close'])
+        cmf = ChaikinMoneyFlowIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        adi = AccDistIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        vwap = VolumeWeightedAveragePrice(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        fi = ForceIndexIndicator(close=df['Close'], volume=df['Volume']) # 勁道指標
+        
+        if obv.on_balance_volume().iloc[-1] > obv.on_balance_volume().rolling(10).mean().iloc[-1]: tech_score += 5
+        if mfi.money_flow_index().iloc[-1] > 60: tech_score += 4
+        nvi_series = nvi.negative_volume_index()
+        if len(nvi_series) > 1:
+            if nvi_series.iloc[-1] > nvi_series.iloc[-2]:
+                tech_score += 6  # 大戶能量上升，給予最高加權
+        if cmf.chaikin_money_flow().iloc[-1] > 0: tech_score += 4
+        adi_series = adi.acc_dist_index()
+        if len(adi_series) >= 5 and adi_series.iloc[-1] > adi_series.iloc[-5]:
+            tech_score += 3
+        if curr_p > vwap.volume_weighted_average_price().iloc[-1]: tech_score += 4
+        if fi.force_index().iloc[-1] > 0: tech_score += 3
+
+        # 4. 波動率擠壓與通道風險 (Volatility - 8項)
+        bb = BollingerBands(close=df['Close'])
+        kc = KeltnerChannel(high=df['High'], low=df['Low'], close=df['Close'])
+        dc = DonchianChannel(high=df['High'], low=df['Low'], close=df['Close'])
+        ui = UlcerIndex(close=df['Close'])
+        
+        if curr_p > bb.bollinger_mavg().iloc[-1]: tech_score += 3
+        if curr_p > kc.keltner_channel_mband().iloc[-1]: tech_score += 3
+        if curr_p >= dc.donchian_channel_hband().iloc[-1]: tech_score += 5 # 強勢突破
+        if ui.ulcer_index().iloc[-1] < ui.ulcer_index().rolling(20).mean().iloc[-1]: tech_score += 2
+        if bb.bollinger_wband().iloc[-1] < bb.bollinger_wband().rolling(20).mean().iloc[-1]: tech_score += 2 # 蓄勢區
+
+        # 5. 終極保護：均值回歸與逆向修正
+        bias_5 = ((curr_p - df['Close'].rolling(5).mean().iloc[-1]) / df['Close'].rolling(5).mean().iloc[-1]) * 100
+        if bias_5 > 9: tech_score -= 15 # 防止無腦追高
+        elif bias_5 < -9: tech_score += 12 # 底部超跌反彈
+
+    except Exception as e:
+        print(f"⚠️ 專家指標矩陣掃描中斷: {e}")
     
     # --- [D] 蒙地卡羅模擬 7 日路徑 (強化籌碼修正) ---
     np.random.seed(int(time.time()))
@@ -423,7 +504,7 @@ def run_daily_sync(target_symbol=None):
         # 3. 執行今日新預測 (1-19 補齊 Y 欄)
         market_df = fetch_market_context()
         if len(symbols_set) > 20:
-            print(f"⚠️ 提醒：Watchlist 已達 {len(symbols_set)} 支，超過上限！")
+            print(f"⚠️ 【系統提醒】目前 Watchlist 共 {len(symbols_set)} 支，已超過您設定的 20 支上限！")
 
         for sym in symbols_set:
             try:
@@ -462,13 +543,14 @@ def run_daily_sync(target_symbol=None):
                         print(f"⚡ {final_id} 已存在，但補填 AL 欄信心度: {conf_val}")
                     else:
                         print(f"⚡ {final_id} 已存在且已有數據，僅更新 Y 欄。")
-                
-                time.sleep(2)
+                print(f"☕ 休息 2.5 秒，準備處理下一支...")
+                time.sleep(2.5)
             except Exception as e:
                 print(f"❌ {sym} 處理異常: {e}")
-
+                time.sleep(1) # 發生異常也休息一下再繼續
     except Exception as e:
-        print(f"💥 全域錯誤: {e}")
+        # 修改點 C：這是抓全域大架構（如 Google Sheets 連線）的錯誤
+        print(f"💥 全域同步系統崩潰: {e}")
 # =================================================================
 # 第五章：啟動入口 (EntryPoint)
 # =================================================================
