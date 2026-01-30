@@ -269,7 +269,7 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         tsi = ta.momentum.TSIIndicator(close=df['Close'])
         roc = ta.momentum.ROCIndicator(close=df['Close'])
         ppo = ta.momentum.PercentagePriceOscillator(close=df['Close'])
-        kama = ta.momentum.KAMAIndicator(close=df['Close'])
+        kama = ta.trend.KAMAIndicator(close=df['Close'])
         
         cur_rsi = rsi_obj.rsi().iloc[-1]
         if 50 < cur_rsi < 78: tech_score += 5 
@@ -291,7 +291,7 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         fi = ta.volume.ForceIndexIndicator(close=df['Close'], volume=df['Volume']) # 勁道指標
         
         if obv.on_balance_volume().iloc[-1] > obv.on_balance_volume().rolling(10).mean().iloc[-1]: tech_score += 5
-        if mfi.money_flow_index().iloc[-1] > 60: tech_score += 4
+        if mfi.mfi().iloc[-1] > 60: tech_score += 4
         nvi_series = nvi.negative_volume_index()
         if len(nvi_series) > 1 and nvi_series.iloc[-1] > nvi_series.iloc[-2]:
             tech_score += 6  # 大戶能量上升，給予最高加權
@@ -309,8 +309,8 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         ui = ta.volatility.UlcerIndex(close=df['Close'])
         
         if curr_p > bb.bollinger_mavg().iloc[-1]: tech_score += 3
-        if curr_p > kc.keltner_channel_mband().iloc[-1]: tech_score += 3
-        if curr_p >= dc.donchian_channel_hband().iloc[-1]: tech_score += 5 # 強勢突破
+        if curr_p > kc.keltner_channel_mbands().iloc[-1]: tech_score += 3
+        if curr_p >= dc.donchian_channel_high_band().iloc[-1]: tech_score += 5 # 強勢突破
         if ui.ulcer_index().iloc[-1] < ui.ulcer_index().rolling(20).mean().iloc[-1]: tech_score += 2
         if bb.bollinger_wband().iloc[-1] < bb.bollinger_wband().rolling(20).mean().iloc[-1]: tech_score += 2 # 蓄勢區
 
