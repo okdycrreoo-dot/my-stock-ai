@@ -292,6 +292,9 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
     try:
         all_watch = watchlist_ws.get_all_values()
         user_stocks = [row[1] for row in all_watch if len(row) > 1 and row[0] == user_name]
+        # --- 【新增：排序邏輯】 ---
+        # 使用 sort() 會讓代號由小到大排列（例如：1101.TW -> 2330.TW -> 8046.TW）
+        user_stocks.sort()
     except Exception:
         user_stocks = []
     stock_count = len(user_stocks)
@@ -866,6 +869,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
