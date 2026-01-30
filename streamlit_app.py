@@ -391,11 +391,11 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             # 將比例拉開到 4:1，讓刪除按鈕變得很窄
             c2, c3 = st.columns([4, 1])
             with c2:
-                # --- 在按鈕上方加壓，強迫按鈕往下延伸或變大 ---
-                st.write("##") # 增加上方間距
+                # 在文字前後加上 \n (換行)，這會讓按鈕本體在視覺上變厚、變高
+                # 這裡加了兩層換行，效果大約會是原本的 3 倍高
+                tall_button_text = "\n\n🚀 開始分析報告 (點此執行)\n\n"
                 
-                # 🚀 這裡使用 type="primary" 讓它變顯眼的藍色/紅色，並佔據主要視覺
-                if st.button("🚀 開始分析報告 (點此執行)", key="ana_btn_main", use_container_width=True, type="primary"):
+                if st.button(tall_button_text, key="ana_btn_main", use_container_width=True, type="primary"):
                     st.session_state["target_analysis_stock"] = selected_in_radio
                     st.session_state["menu_expanded"] = False
                     
@@ -404,12 +404,9 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                         if result:
                             st.session_state["current_analysis"] = result
                     st.rerun()
-                
-                st.write("##") # 增加下方間距，讓整個區塊感官上變大
 
             with c3:
-                # 🗑️ 刪除按鈕：不加任何換行，讓它保持在最上方的一個小點
-                st.write("#") # 僅對齊標籤
+                # 刪除按鈕保持原樣，不加換行，它就會維持扁扁的
                 if st.button("🗑️ 刪除", key=f"del_simple_{selected_in_radio}", use_container_width=True):
                     st.session_state["menu_expanded"] = True
                     delete_stock(user_name, selected_in_radio, watchlist_ws)
@@ -874,6 +871,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
