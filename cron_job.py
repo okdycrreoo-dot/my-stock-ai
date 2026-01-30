@@ -9,11 +9,12 @@ import pytz
 import requests
 from datetime import datetime
 from google.oauth2.service_account import Credentials
-# --- 強化版技術指標顯式匯入 (確保所有大腦功能正常) ---
-from ta.trend import MACD, ADXIndicator, PSARIndicator, IchimokuIndicator, AroonIndicator, VortexIndicator, KSTIndicator, TRIXIndicator, CCIIndicator, DPOIndicator
-from ta.momentum import RSIIndicator, StochasticOscillator, WilliamsRIndicator, UltimateOscillator, TSIIndicator, ROCIndicator, PercentagePriceOscillator, KAMAIndicator
-from ta.volume import OnBalanceVolumeIndicator, MoneyFlowIndexIndicator, NegativeVolumeIndex, ChaikinMoneyFlowIndicator, AccDistIndexIndicator, VolumeWeightedAveragePrice, ForceIndexIndicator
-from ta.volatility import BollingerBands, KeltnerChannel, DonchianChannel, UlcerIndex
+
+# --- 終極穩定版技術指標匯入 ---
+import ta.trend
+import ta.momentum
+import ta.volatility
+import ta.volume
 
 # =================================================================
 # 第一章：初始化與環境連線 (第一章)
@@ -237,16 +238,16 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     tech_score = 50 
     try:
         # 1. 核心趨勢與長線濾網 (Trend - 12項)
-        macd = MACD(close=df['Close'])
-        adx = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'])
-        psar = PSARIndicator(high=df['High'], low=df['Low'], close=df['Close'])
-        ichi = IchimokuIndicator(high=df['High'], low=df['Low'])
-        aroon = AroonIndicator(high=df['High'], low=df['Low'])
-        vortex = VortexIndicator(high=df['High'], low=df['Low'], close=df['Close'])
-        kst = KSTIndicator(close=df['Close'])
-        trix = TRIXIndicator(close=df['Close'])
-        cci = CCIIndicator(high=df['High'], low=df['Low'], close=df['Close'])
-        dpo = DPOIndicator(close=df['Close']) # 去趨勢震盪
+        macd = ta.trend.MACD(close=df['Close'])
+        adx = ta.trend.ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        psar = ta.trend.PSARIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        ichi = ta.trend.IchimokuIndicator(high=df['High'], low=df['Low'])
+        aroon = ta.trend.AroonIndicator(high=df['High'], low=df['Low'])
+        vortex = ta.trend.VortexIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        kst = ta.trend.KSTIndicator(close=df['Close'])
+        trix = ta.trend.TRIXIndicator(close=df['Close'])
+        cci = ta.trend.CCIIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        dpo = ta.trend.DPOIndicator(close=df['Close']) # 去趨勢震盪
         
         if macd.macd_diff().iloc[-1] > 0: tech_score += 4
         if adx.adx().iloc[-1] > 25: tech_score += 3
@@ -261,14 +262,14 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         if curr_p > df['Close'].rolling(200).mean().iloc[-1]: tech_score += 5 # 長線牛熊
 
         # 2. 短線動能與噴發力道 (Momentum - 10項)
-        rsi_obj = RSIIndicator(close=df['Close'])
-        stoch = StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'])
-        williams = WilliamsRIndicator(high=df['High'], low=df['Low'], close=df['Close'])
-        uo = UltimateOscillator(high=df['High'], low=df['Low'], close=df['Close'])
-        tsi = TSIIndicator(close=df['Close'])
-        roc = ROCIndicator(close=df['Close'])
-        ppo = PercentagePriceOscillator(close=df['Close'])
-        kama = KAMAIndicator(close=df['Close'])
+        rsi_obj = ta.momentum.RSIIndicator(close=df['Close'])
+        stoch = ta.momentum.StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'])
+        williams = ta.momentum.WilliamsRIndicator(high=df['High'], low=df['Low'], close=df['Close'])
+        uo = ta.momentum.UltimateOscillator(high=df['High'], low=df['Low'], close=df['Close'])
+        tsi = ta.momentum.TSIIndicator(close=df['Close'])
+        roc = ta.momentum.ROCIndicator(close=df['Close'])
+        ppo = ta.momentum.PercentagePriceOscillator(close=df['Close'])
+        kama = ta.momentum.KAMAIndicator(close=df['Close'])
         
         cur_rsi = rsi_obj.rsi().iloc[-1]
         if 50 < cur_rsi < 78: tech_score += 5 
@@ -281,13 +282,13 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         if curr_p > kama.kama().iloc[-1]: tech_score += 3
 
         # 3. 三大法人與量價結構 (Volume - 10項)
-        obv = OnBalanceVolumeIndicator(close=df['Close'], volume=df['Volume'])
-        mfi = MoneyFlowIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
-        nvi = NegativeVolumeIndex(close=df['Close'])
-        cmf = ChaikinMoneyFlowIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
-        adi = AccDistIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
-        vwap = VolumeWeightedAveragePrice(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
-        fi = ForceIndexIndicator(close=df['Close'], volume=df['Volume']) # 勁道指標
+        obv = ta.volume.OnBalanceVolumeIndicator(close=df['Close'], volume=df['Volume'])
+        mfi = ta.volume.MoneyFlowIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        nvi = ta.volume.NegativeVolumeIndex(close=df['Close'])
+        cmf = ta.volume.ChaikinMoneyFlowIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        adi = ta.volume.AccDistIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        vwap = ta.volume.VolumeWeightedAveragePrice(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        fi = ta.volume.ForceIndexIndicator(close=df['Close'], volume=df['Volume']) # 勁道指標
         
         if obv.on_balance_volume().iloc[-1] > obv.on_balance_volume().rolling(10).mean().iloc[-1]: tech_score += 5
         if mfi.money_flow_index().iloc[-1] > 60: tech_score += 4
@@ -302,10 +303,10 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         if fi.force_index().iloc[-1] > 0: tech_score += 3
 
         # 4. 波動率擠壓與通道風險 (Volatility - 8項)
-        bb = BollingerBands(close=df['Close'])
-        kc = KeltnerChannel(high=df['High'], low=df['Low'], close=df['Close'])
-        dc = DonchianChannel(high=df['High'], low=df['Low'], close=df['Close'])
-        ui = UlcerIndex(close=df['Close'])
+        bb = ta.volatility.BollingerBands(close=df['Close'])
+        kc = ta.volatility.KeltnerChannel(high=df['High'], low=df['Low'], close=df['Close'])
+        dc = ta.volatility.DonchianChannel(high=df['High'], low=df['Low'], close=df['Close'])
+        ui = ta.volatility.UlcerIndex(close=df['Close'])
         
         if curr_p > bb.bollinger_mavg().iloc[-1]: tech_score += 3
         if curr_p > kc.keltner_channel_mband().iloc[-1]: tech_score += 3
