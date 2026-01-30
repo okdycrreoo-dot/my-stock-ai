@@ -393,7 +393,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             with c2:
                 # 在文字前後加上各 3 個 \n，這會強制讓按鈕本體的「肉」變厚
                 # 視覺上按鈕會比原本高出約 3-4 倍
-                huge_btn_text = "\n\n\n🚀 開始分析報告 (點此執行)\n\n\n"
+                huge_btn_text = "🚀 開始分析報告 \n\n\n (點此執行)"
                 
                 if st.button(huge_btn_text, key="ana_btn_main", use_container_width=True, type="primary"):
                     st.session_state["target_analysis_stock"] = selected_in_radio
@@ -871,6 +871,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
