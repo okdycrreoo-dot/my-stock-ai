@@ -247,7 +247,7 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         adx = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'])
         psar = PSARIndicator(high=df['High'], low=df['Low'], close=df['Close'])
         ichi = IchimokuIndicator(high=df['High'], low=df['Low'])
-        aroon = AroonIndicator(close=df['Close'])
+        aroon = AroonIndicator(high=df['High'], low=df['Low'])
         vortex = VortexIndicator(high=df['High'], low=df['Low'], close=df['Close'])
         kst = KSTIndicator(close=df['Close'])
         trix = TRIXIndicator(close=df['Close'])
@@ -298,9 +298,8 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         if obv.on_balance_volume().iloc[-1] > obv.on_balance_volume().rolling(10).mean().iloc[-1]: tech_score += 5
         if mfi.money_flow_index().iloc[-1] > 60: tech_score += 4
         nvi_series = nvi.negative_volume_index()
-        if len(nvi_series) > 1:
-            if nvi_series.iloc[-1] > nvi_series.iloc[-2]:
-                tech_score += 6  # 大戶能量上升，給予最高加權
+        if len(nvi_series) > 1 and nvi_series.iloc[-1] > nvi_series.iloc[-2]:
+            tech_score += 6  # 大戶能量上升，給予最高加權
         if cmf.chaikin_money_flow().iloc[-1] > 0: tech_score += 4
         adi_series = adi.acc_dist_index()
         if len(adi_series) >= 5 and adi_series.iloc[-1] > adi_series.iloc[-5]:
