@@ -388,9 +388,10 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                 horizontal=True
             )
             
-            c2, c3 = st.columns(2)
+            # 將比例拉開到 4:1，讓刪除按鈕變得很窄
+            c2, c3 = st.columns([4, 1])
             with c2:
-                # 🚀 大按鈕：開始分析
+                # 🚀 主力按鈕：加大顯示
                 if st.button("🚀 開始分析報告", key="ana_btn_main", use_container_width=True):
                     st.session_state["target_analysis_stock"] = selected_in_radio
                     st.session_state["menu_expanded"] = False
@@ -402,16 +403,15 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     st.rerun()
             
             with c3:
-                # 🗑️ 小按鈕：刪除 (回歸最簡單邏輯，點擊即刪)
+                # 🗑️ 副手按鈕：僅顯示圖標與簡短文字，不強制寬度，降低誤觸機率
+                # 注意：這裡將 use_container_width 設為 True 但因為 column 本身很窄，它會被強制壓縮
                 if st.button("🗑️ 刪除", key=f"del_simple_{selected_in_radio}", use_container_width=True):
-                    # 點擊即執行，不留任何狀態開關
                     st.session_state["menu_expanded"] = True
                     if st.session_state.get("target_analysis_stock") == selected_in_radio:
                         st.session_state.pop("target_analysis_stock", None)
                         st.session_state.pop("current_analysis", None)
                     
                     delete_stock(user_name, selected_in_radio, watchlist_ws)
-                    # delete_stock 內建 st.rerun()，會立即重整清單
         
         # === 3.5 管理者隱藏控制區 ===
         if st.session_state.get("user") == "admin":
@@ -872,5 +872,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
