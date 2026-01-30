@@ -402,20 +402,25 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     st.rerun()
             
             with c3:
-                # 使用彈出式氣泡視窗作為防誤觸層
+                # 使用彈出式氣泡視窗作為防護層
                 with st.popover("🗑️ 刪除", use_container_width=True):
                     st.markdown(f"⚠️ **確認刪除 {selected_in_radio}？**")
-                    # 只有點擊下面這個按鈕才會執行刪除
-                    if st.button("確認執行", key="real_del_btn", type="primary", use_container_width=True):
+                    
+                    # 【關鍵修正】key 加入股票代號，確保每支股票的刪除按鈕都是獨立的
+                    # 這樣刪除 A 之後，A 的按鈕 key 就消失了，不會誤觸到 B 的按鈕
+                    if st.button("🔴 確認執行", key=f"del_btn_{selected_in_radio}", type="primary", use_container_width=True):
                         st.session_state["menu_expanded"] = True
                         
-                        # 如果刪除的是目前正在看的，就清掉狀態
+                        # 如果刪除的是目前正在分析的對象，清除 session 狀態
                         if st.session_state.get("target_analysis_stock") == selected_in_radio:
                             st.session_state.pop("target_analysis_stock", None)
                             st.session_state.pop("current_analysis", None)
                             
+                        # 執行實際刪除邏輯
                         delete_stock(user_name, selected_in_radio, watchlist_ws)
-                        # delete_stock 內已有 rerun，此處可省略或保留
+                        
+                        # 雖然 delete_stock 內可能已有 rerun，這裡加上保險，確保介面立即更新
+                        st.rerun()
         # === 3.5 管理者隱藏控制區 ===
         if st.session_state.get("user") == "admin":
             st.markdown("---")
@@ -875,6 +880,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
