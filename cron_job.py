@@ -1,5 +1,6 @@
 from ta.momentum import RSIIndicator
 from ta.trend import MACD
+import streamlit as st
 import os
 import time
 import json
@@ -15,7 +16,7 @@ from google.oauth2.service_account import Credentials
 from ta.trend import *
 from ta.momentum import *
 from ta.volatility import *
-from ta.volume import *
+from ta.volume  *
 # 這裡包含你額外指定的特定指標
 from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
 from ta.momentum import PercentagePriceOscillator, KAMAIndicator
@@ -32,7 +33,7 @@ def init_gspread():
     
     if not creds_json:
         try:
-            import streamlit as st
+            
             creds_json = st.secrets.get("GCP_SERVICE_ACCOUNT_JSON")
         except:
             pass
@@ -122,8 +123,7 @@ def fetch_chip_data(symbol, token, retries=3):
     """ 
     [強化版] 從 FinMind 抓取籌碼數據，保留原計算邏輯並加入自動重試機制
     """
-    import requests
-    import time
+    
     
     # 1. 保留原有的格式轉換邏輯
     pure_id = symbol.split('.')[0]
