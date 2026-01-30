@@ -402,37 +402,39 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     st.rerun()
             
             with c3:
-                # 建立一個獨立的 Session State 來記錄「是否點擊了第一層刪除」
-                del_key = f"del_confirm_state_{selected_in_radio}"
-                if del_key not in st.session_state:
-                    st.session_state[del_key] = False
+                # 建立一個簡單的「點擊計數器」狀態
+                # key 加入股票代號，確保每支股票的計數獨立
+                click_count_key = f"del_click_{selected_in_radio}"
+                
+                if click_count_key not in st.session_state:
+                    st.session_state[click_count_key] = 0
 
-                if not st.session_state[del_key]:
-                    # 第一階段：顯示普通刪除按鈕
-                    if st.button("🗑️ 刪除", key=f"btn_step1_{selected_in_radio}", use_container_width=True):
-                        st.session_state[del_key] = True
+                # 根據點擊次數顯示不同的按鈕內容
+                if st.session_state[click_count_key] == 0:
+                    # 第一次：顯示普通刪除鈕
+                    if st.button("🗑️ 刪除", key=f"btn_v1_{selected_in_radio}", use_container_width=True):
+                        st.session_state[click_count_key] = 1
                         st.rerun()
                 else:
-                    # 第二階段：顯示確認執行按鈕（紅色）
-                    col_confirm, col_cancel = st.columns(2)
-                    with col_confirm:
-                        if st.button("🔴 確認刪除", key=f"btn_step2_{selected_in_radio}", type="primary", use_container_width=True):
-                            st.session_state["menu_expanded"] = True
-                            
-                            # 清除分析狀態
-                            if st.session_state.get("target_analysis_stock") == selected_in_radio:
-                                st.session_state.pop("target_analysis_stock", None)
-                                st.session_state.pop("current_analysis", None)
-                            
-                            # 執行刪除
-                            delete_stock(user_name, selected_in_radio, watchlist_ws)
-                            # 刪除成功後，清除該股票的確認狀態
-                            st.session_state.pop(del_key, None)
-                            st.rerun()
-                    with col_cancel:
-                        if st.button("取消", key=f"btn_cancel_{selected_in_radio}", use_container_width=True):
-                            st.session_state[del_key] = False
-                            st.rerun()
+                    # 第二次：按鈕變色變文字，提醒再次確認
+                    if st.button("⚠️ 確定刪除？", key=f"btn_v2_{selected_in_radio}", type="primary", use_container_width=True):
+                        # 執行刪除動作
+                        st.session_state["menu_expanded"] = True
+                        if st.session_state.get("target_analysis_stock") == selected_in_radio:
+                            st.session_state.pop("target_analysis_stock", None)
+                            st.session_state.pop("current_analysis", None)
+                        
+                        delete_stock(user_name, selected_in_radio, watchlist_ws)
+                        
+                        # 刪除成功後，徹底移除計數器狀態
+                        if click_count_key in st.session_state:
+                            del st.session_state[click_count_key]
+                        st.rerun()
+                    
+                    # 提供一個「取消」的小連結，或讓使用者點別處自動重置
+                    if st.button("取消", key=f"btn_cancel_{selected_in_radio}", use_container_width=True):
+                        st.session_state[click_count_key] = 0
+                        st.rerun()
         # === 3.5 管理者隱藏控制區 ===
         if st.session_state.get("user") == "admin":
             st.markdown("---")
@@ -892,3 +894,4 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
