@@ -416,7 +416,7 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                     # 第二階段：顯示確認執行按鈕（紅色）
                     col_confirm, col_cancel = st.columns(2)
                     with col_confirm:
-                        if st.button("🔴 確認執行", key=f"btn_step2_{selected_in_radio}", type="primary", use_container_width=True):
+                        if st.button("🔴 確認刪除", key=f"btn_step2_{selected_in_radio}", type="primary", use_container_width=True):
                             st.session_state["menu_expanded"] = True
                             
                             # 清除分析狀態
@@ -892,14 +892,3 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
