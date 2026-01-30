@@ -342,7 +342,7 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
     simulation_results = []
         
     # 執行 800 次路徑模擬
-    for _ in range(2000):
+    for _ in range(3000):
         temp_path = [curr_p]
         for _ in range(7):
             # 加入 Beta 敏感度修正
