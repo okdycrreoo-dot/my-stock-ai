@@ -391,11 +391,11 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
             # 將比例拉開到 4:1，讓刪除按鈕變得很窄
             c2, c3 = st.columns([4, 1])
             with c2:
-                # 在文字前後加上 \n (換行)，這會讓按鈕本體在視覺上變厚、變高
-                # 這裡加了兩層換行，效果大約會是原本的 3 倍高
-                tall_button_text = "\n\n🚀 開始分析報告 (點此執行)\n\n"
+                # 在文字前後加上各 3 個 \n，這會強制讓按鈕本體的「肉」變厚
+                # 視覺上按鈕會比原本高出約 3-4 倍
+                huge_btn_text = "\n\n\n🚀 開始分析報告 (點此執行)\n\n\n"
                 
-                if st.button(tall_button_text, key="ana_btn_main", use_container_width=True, type="primary"):
+                if st.button(huge_btn_text, key="ana_btn_main", use_container_width=True, type="primary"):
                     st.session_state["target_analysis_stock"] = selected_in_radio
                     st.session_state["menu_expanded"] = False
                     
@@ -871,6 +871,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
