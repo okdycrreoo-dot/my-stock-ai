@@ -283,7 +283,7 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
 
         # 3. 三大法人與量價結構 (Volume - 10項)
         obv = ta.volume.OnBalanceVolumeIndicator(close=df['Close'], volume=df['Volume'])
-        mfi = ta.volume.MoneyFlowIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        mfi = ta.volume.MFIIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
         nvi = ta.volume.NegativeVolumeIndex(close=df['Close'])
         cmf = ta.volume.ChaikinMoneyFlowIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
         adi = ta.volume.AccDistIndexIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
