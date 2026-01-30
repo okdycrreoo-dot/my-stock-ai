@@ -269,7 +269,7 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
         tsi = ta.momentum.TSIIndicator(close=df['Close'])
         roc = ta.momentum.ROCIndicator(close=df['Close'])
         ppo = ta.momentum.PercentagePriceOscillator(close=df['Close'])
-        kama = ta.trend.KAMAIndicator(close=df['Close'])
+        kama = ta.momentum.KAMAIndicator(close=df['Close'])
         
         cur_rsi = rsi_obj.rsi().iloc[-1]
         if 50 < cur_rsi < 78: tech_score += 5 
