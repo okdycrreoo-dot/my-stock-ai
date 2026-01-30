@@ -1,6 +1,3 @@
-from ta.momentum import RSIIndicator
-from ta.trend import MACD
-import streamlit as st
 import os
 import time
 import json
@@ -12,14 +9,11 @@ import pytz
 import requests
 from datetime import datetime
 from google.oauth2.service_account import Credentials
-# --- 移至最頂層：技術指標庫 (ta) 匯入區 ---
-from ta.trend import *
-from ta.momentum import *
-from ta.volatility import *
-from ta.volume  *
-# 這裡包含你額外指定的特定指標
-from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
-from ta.momentum import PercentagePriceOscillator, KAMAIndicator
+# --- 強化版技術指標顯式匯入 (確保所有大腦功能正常) ---
+from ta.trend import MACD, ADXIndicator, PSARIndicator, IchimokuIndicator, AroonIndicator, VortexIndicator, KSTIndicator, TRIXIndicator, CCIIndicator, DPOIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator, WilliamsRIndicator, UltimateOscillator, TSIIndicator, ROCIndicator, PercentagePriceOscillator, KAMAIndicator
+from ta.volume import OnBalanceVolumeIndicator, MoneyFlowIndexIndicator, NegativeVolumeIndex, ChaikinMoneyFlowIndicator, AccDistIndexIndicator, VolumeWeightedAveragePrice, ForceIndexIndicator
+from ta.volatility import BollingerBands, KeltnerChannel, DonchianChannel, UlcerIndex
 
 # =================================================================
 # 第一章：初始化與環境連線 (第一章)
