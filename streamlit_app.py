@@ -230,7 +230,7 @@ def main():
 
         c1, c2 = st.columns([0.1, 0.03], vertical_alignment="center")
         with c1:
-            st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅系統版本：20260128，歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
+            st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅系統版本：20260202，歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
         with c2:
             if st.button("🚪 登出", key="main_logout"):
                 # 1. 強制刪除 Cookie (確保 Key 名稱完全一致)
@@ -884,3 +884,4 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
