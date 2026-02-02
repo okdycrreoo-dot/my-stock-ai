@@ -786,46 +786,8 @@ def chapter_5_ai_decision_report(row, pred_ws):
         st.info(f"**【AI 臨床診斷】**\n\n{row[27] if len(row) > 27 else '計算中'}")
     with col_d2:
         st.success(f"**【未來展望評估】**\n\n{row[28] if len(row) > 28 else '計算中'}")
+ 
 
-   
-   # --- 6. Oracle 核心決策指令 (精準邏輯覆蓋版) ---
-    st.markdown("---")
-    st.write("### 🧠 Oracle 核心決策指令 (全維度診斷)")
-
-    try:
-        # 提取數值並確保格式正確
-        m_val = safe_float(row[34])   # 資金動向
-        bias_v = safe_float(row[29])  # 乖離率
-        ma20_v = safe_float(row[20])  # 20日線 (月線)
-        price = safe_float(row[3])    # 當前價格
-        res_v = safe_float(row[37])   # 壓力價位
-
-        # 1. 趨勢層：放寬標準，避免強勢股因噴出而被判定為跌勢
-        trend_ok = (price > ma20_v) or (bias_v > -3.0)
-        # 2. 資金層：放寬至 -0.8，避免正常震盪被誤判為撤資
-        money_ok = (m_val > -0.8)
-        # 3. 空間層：計算與壓力位的獲利空間是否大於 2.5%
-        space_ok = ((res_v - price) / price) > 0.025 if price > 0 else False
-
-        st.write("#### 🚥 避錯防護網")
-        c1, c2, c3 = st.columns(3)
-        # 修正顯示文字，讓語意更清晰
-        with c1: st.metric("📈 股價趨勢", "多頭" if trend_ok else "空頭")
-        with c2: st.metric("💰 資金動向", "做多" if money_ok else "做空")
-        with c3: st.metric("📏 獲利空間", "利多" if space_ok else "利少")
-
-        st.markdown("---")
-        # 最終裁決邏輯
-        if trend_ok and money_ok and space_ok:
-            st.success("**Oracle 總結建議：💎 絕佳擊球點**。趨勢與資金形成共鳴，高品質進場訊號。")
-        elif not trend_ok:
-            st.error("**Oracle 總結建議：🚫 避開致命陷阱**。股價處於轉弱區間，建議先空手觀望。")
-        elif not space_ok:
-            st.warning("**Oracle 總結建議：🚧 空間受限**。利潤空間不足（離壓力太近），不建議在此追高。")
-        else:
-            st.info("**Oracle 總結建議：⚖️ 觀望為宜**。數據訊號分歧，建議保留資金等待明確轉折。")
-    except Exception as e:
-        st.warning(f"⚠️ 診斷數據計算中... (或檢查欄位格式)")
 # ==========================================
 # --- 6. Oracle 全維度三層防護翻譯官 (終極避錯版) ---
 # ==========================================
@@ -922,6 +884,3 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
