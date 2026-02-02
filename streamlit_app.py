@@ -744,30 +744,42 @@ def chapter_5_ai_decision_report(row, pred_ws):
 
     st.markdown("---")
     
-    # --- 4. 核心指標儀表板 ---
+    # --- 4. 核心指標儀表板 (優化判定邏輯) ---
     st.write("### 📊 核心戰略指標 (Oracle Strategy Metrics)")
     col_a, col_b, col_c = st.columns(3)
 
     with col_a:
-        atr_v = safe_float(row[33]) if len(row) > 33 else 0.0
-        st.metric("股價活潑度 (ATR)", f"{atr_v:.2f}")
-        st.caption("💡 數字大代表機會多但洗盤兇。")
+        # 活潑度百分比化：讓高價股與低價股有統一標準
+        curr_p = safe_float(row[3]) 
+        atr_raw = safe_float(row[33]) if len(row) > 33 else 0.0
+        atr_pct = (atr_raw / curr_p * 100) if curr_p > 0 else 0.0
+        
+        atr_desc = "🔥 洗盤劇烈" if atr_pct > 4.5 else "✅ 波動適中" if atr_pct > 2.0 else "💤 走勢平穩"
+        st.metric("股價活潑度 (ATR%)", f"{atr_pct:.2f}%")
+        st.caption(f"💡 指標：{atr_desc}")
 
     with col_b:
+        # 資金意願修正：放寬門檻，避免微小波動就顯示動能不足
         vol_b = safe_float(row[34]) if len(row) > 34 else 0.0
-        v_status = "🔥 資金湧入" if vol_b > 0 else "❄️ 動能不足"
-        st.metric("資金追價意願", v_status, delta=f"{vol_b}%")
-        st.caption("💡 正數代表主力願意追高。")
+        if vol_b > 1.2:
+            v_status, v_delta = "🔥 資金湧入", "inverse"
+        elif vol_b < -1.2:
+            v_status, v_delta = "❄️ 動能不足", "normal"
+        else:
+            v_status, v_delta = "⚖️ 正常換手", "off"
+        st.metric("資金追價意願", v_status, delta=f"{vol_b}%", delta_color=v_delta)
+        st.caption("💡 正數代表買盤推升力道強勁。")
 
     with col_c:
+        # 性價比修正：下修門檻至 1.2，適應多頭行情
         rr_v = safe_float(row[35]) if len(row) > 35 else 0.0
-        rr_txt = "💎 極具價值" if rr_v > 1.5 else "⚠️ 風險偏高"
+        rr_txt = "💎 極具價值" if rr_v >= 1.2 else "⚠️ 風險偏高" if rr_v < 0.7 else "📝 空間有限"
         st.metric("投資性價比 (R/R)", rr_txt)
-        st.caption(f"💡 風險報酬比為 {rr_v:.1f}。")
+        st.caption(f"💡 風險報酬比：{rr_v:.1f} (1.2以上為佳)")
 
     st.markdown("---")
 
-    # --- 5. AI 診斷與展望 ---
+    # --- 5. AI 診斷與展望 (保持原樣) ---
     st.write("### 🧠 AI 深度診斷")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
@@ -775,6 +787,42 @@ def chapter_5_ai_decision_report(row, pred_ws):
     with col_d2:
         st.success(f"**【未來展望評估】**\n\n{row[28] if len(row) > 28 else '計算中'}")
 
+    # --- 6. Oracle 核心決策指令 (終極邏輯修正版) ---
+    st.markdown("---")
+    st.write("### 🧠 Oracle 核心決策指令 (全維度診斷)")
+
+    try:
+        m_val = safe_float(row[34]) 
+        bias_v = safe_float(row[29]) 
+        ma20_v = safe_float(row[20]) 
+        price = safe_float(row[3])  
+        res_v = safe_float(row[37])  
+    except: return
+
+    # 【核心修正點】：修正原本「漲多必空」的錯誤判定
+    # 1. 趨勢層：股價在月線上 或 雖然小跌但乖離在支撐內(-3%內) 就算多頭
+    trend_ok = (price > ma20_v) or (bias_v > -3.0)
+    # 2. 資金層：放寬判斷，避免盤整時誤判
+    money_ok = (m_val > -0.8)
+    # 3. 空間層：獲利空間 > 2.5%
+    space_ok = ((res_v - price) / price) > 0.025 if price > 0 else False
+
+    st.write("#### 🚥 避錯防護網")
+    c1, c2, c3 = st.columns(3)
+    with c1: st.metric("📈 股價趨勢", "看多" if trend_ok else "跌勢")
+    with c2: st.metric("💰 資金動向", "做多" if money_ok else "做空")
+    with c3: st.metric("📏 獲利空間", "利多" if space_ok else "利少")
+
+    # 最終裁決邏輯優化
+    st.markdown("---")
+    if trend_ok and money_ok and space_ok:
+        st.success("**Oracle 總結建議：💎 絕佳擊球點**。目前數據顯示為高品質起漲訊號，趨勢與資金形成共鳴。")
+    elif not trend_ok:
+        st.error("**Oracle 總結建議：🚫 避開致命陷阱**。股價位於弱勢區間，切勿盲目接刀。")
+    elif not space_ok:
+        st.warning("**Oracle 總結建議：🚧 空間受限**。雖然趨勢尚可，但離壓力位太近，盈虧比不划算。")
+    else:
+        st.info("**Oracle 總結建議：⚖️ 觀望為宜**。目前訊號混亂，建議等待更明確的放量訊號。")
 # ==========================================
 # --- 6. Oracle 全維度三層防護翻譯官 (終極避錯版) ---
 # ==========================================
@@ -871,11 +919,4 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
 
