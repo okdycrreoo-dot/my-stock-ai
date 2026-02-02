@@ -481,35 +481,32 @@ def run_daily_sync(target_symbol=None):
             print("❌ 名單為空。")
             return
 
-        # 2. 回填校準 (1-16 的 F, Y, Z) - 優化批量同步版
-        all_logs = ws_predict.get_all_values()
-        updates = []  # 收集待更新的數據
-        for i, row in enumerate(all_logs[1:], 1):
-            if len(row) >= 6 and ("待更新" in str(row[5]) or row[5] == "") and row[0] != today_str:
-                try:
-                    h_df, _ = fetch_comprehensive_data(row[1])
-                    if h_df is not None and not h_df.empty:
-                        actual_now = round(float(h_df['Close'].iloc[-1]), 2)
-                        y_val_fixed = round(float(h_df['Close'].iloc[-2]), 2) if len(h_df) >= 2 else actual_now
-                        
-                        pred_val = float(row[2])
-                        err = round(((actual_now - pred_val) / pred_val) * 100, 2)
-                        
-                        # 收集同一行的更新請求，確保實際值與誤差率同步寫入
-                        row_num = i + 1
-                        updates.append({'range': f'F{row_num}', 'values': [[actual_now]]})
-                        updates.append({'range': f'Y{row_num}', 'values': [[y_val_fixed]]})
-                        updates.append({'range': f'Z{row_num}', 'values': [[err]]})
-                        print(f"📝 準備校準 {row[1]}: 實際 {actual_now}, 誤差 {err}%")
-                        time.sleep(1.2)
-                except Exception as e:
-                    print(f"⚠️ 跳過 {row[1]} 校準: {e}")
-                    continue
+        # 2. 回填校準 (1-16 的 F, Y, Z) - 批量同步淨化版
+        all_logs = ws_predict.get_all_values()
+        updates = []
+        for i, row in enumerate(all_logs[1:], 1):
+            if len(row) >= 6 and ("待更新" in str(row[5]) or row[5] == "") and row[0] != today_str:
+                try:
+                    h_df, _ = fetch_comprehensive_data(row[1])
+                    if h_df is not None and not h_df.empty:
+                        actual_now = round(float(h_df['Close'].iloc[-1]), 2)
+                        y_val_fixed = round(float(h_df['Close'].iloc[-2]), 2) if len(h_df) >= 2 else actual_now
+                        pred_val = float(row[2])
+                        err = round(((actual_now - pred_val) / pred_val) * 100, 2)
+                        
+                        row_num = i + 1
+                        updates.append({'range': f'F{row_num}', 'values': [[actual_now]]})
+                        updates.append({'range': f'Y{row_num}', 'values': [[y_val_fixed]]})
+                        updates.append({'range': f'Z{row_num}', 'values': [[err]]})
+                        print(f"📝 準備校準 {row[1]}: 實際 {actual_now}, 誤差 {err}%")
+                        time.sleep(1.2)
+                except Exception as e:
+                    print(f"⚠️ 跳過 {row[1]} 校準: {e}")
+                    continue
 
-        # 執行批量更新，徹底杜絕 Z 欄出現 0 的寫入失敗問題
-        if updates:
-            ws_predict.batch_update(updates)
-            print(f"🚀 已完成 {len(updates)//3} 筆數據的同步校準。")
+        if updates:
+            ws_predict.batch_update(updates)
+            print(f"🚀 成功批量寫入，已校正 Z 欄誤差計算問題。")
 
         # 3. 執行今日新預測 (1-19 補齊 Y 欄)
         market_df = fetch_market_context()
