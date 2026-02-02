@@ -526,7 +526,8 @@ def run_daily_sync(target_symbol=None):
         market_df = fetch_market_context()
         if len(symbols_set) > 20:
             print(f"⚠️ 【系統提醒】Watchlist 共 {len(symbols_set)} 支，已超過 20 支上限！")
-
+        # 【修正點 2】：在此處先抓取一次，迴圈內共用，節省 API 流量
+        current_logs = ws_predict.get_all_values()
         for sym in symbols_set:
             try:
                 stock_df, final_id = fetch_comprehensive_data(sym)
