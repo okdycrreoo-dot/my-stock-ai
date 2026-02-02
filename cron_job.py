@@ -481,25 +481,29 @@ def run_daily_sync(target_symbol=None):
             print("❌ 名單為空。")
             return
 
-        # 2. 回填校準 (1-16 的 F, Y, Z) - 批量同步淨化版
+        # 2. 回填校準 (修正版：F=開獎價, Y=基準日當天收盤, Z=誤差)
         all_logs = ws_predict.get_all_values()
         updates = []
         for i, row in enumerate(all_logs[1:], 1):
+            # 檢查 F 欄 (索引 5) 是否待更新，且不是今天剛產生的行
             if len(row) >= 6 and ("待更新" in str(row[5]) or row[5] == "") and row[0] != today_str:
                 try:
                     h_df, _ = fetch_comprehensive_data(row[1])
                     if h_df is not None and not h_df.empty:
-                        actual_now = round(float(h_df['Close'].iloc[-1]), 2)
-                        y_val_fixed = round(float(h_df['Close'].iloc[-2]), 2) if len(h_df) >= 2 else actual_now
-                        pred_val = float(row[2])
-                        err = round(((actual_now - pred_val) / pred_val) * 100, 2)
+                        # 開獎價：最新的收盤價
+                        actual_open_prize = round(float(h_df['Close'].iloc[-1]), 2)
+                        # 基準日當天價：最新的前一天收盤價
+                        base_day_close = round(float(h_df['Close'].iloc[-2]), 2) if len(h_df) >= 2 else actual_open_prize
+                        
+                        pred_val = float(row[2]) # C 欄預測價
+                        err = round(((actual_open_prize - pred_val) / pred_val) * 100, 2)
                         
                         row_num = i + 1
-                        updates.append({'range': f'F{row_num}', 'values': [[actual_now]]})
-                        updates.append({'range': f'Y{row_num}', 'values': [[y_val_fixed]]})
-                        updates.append({'range': f'Z{row_num}', 'values': [[err]]})
-                        print(f"📝 準備校準 {row[1]}: 實際 {actual_now}, 誤差 {err}%")
-                        time.sleep(1.2)
+                        updates.append({'range': f'F{row_num}', 'values': [[actual_open_prize]]}) # F 欄：開獎答案
+                        updates.append({'range': f'Y{row_num}', 'values': [[base_day_close]]})   # Y 欄：基準日當天價
+                        updates.append({'range': f'Z{row_num}', 'values': [[err]]})              # Z 欄：準確率
+                        print(f"📝 成功校準 {row[1]}: 預測 {pred_val} vs 開獎 {actual_open_prize}")
+                        time.sleep(0.5)
                 except Exception as e:
                     print(f"⚠️ 跳過 {row[1]} 校準: {e}")
                     continue
@@ -530,12 +534,27 @@ def run_daily_sync(target_symbol=None):
                 y_val = round(float(stock_df['Close'].iloc[-2]), 2) if len(stock_df) >= 2 else round(float(stock_df['Close'].iloc[-1]), 2)
 
                 if not exists_idx:
-                    # 原有的新增邏輯 (保持不變)
-                    row_data = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"] + \
-                               (p_levels + [0]*18)[:18] + [y_val, 0, p_path, p_diag, p_out] + \
-                               (p_bias + [0]*4)[:4] + (p_experts + [0]*5)[:5]
+                    # 重新校準 38 欄：嚴格對位 A(0) 到 AL(37)
+                    # A-F: 日期, 代號, 預測價, 區間低, 區間高, 狀態
+                    base_info = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
+                    
+                    # G-X: 戰略水位 (18 欄：buy_5~30, sell_5~30, res_5~30)
+                    levels = (p_levels + [0]*18)[:18]
+                    
+                    # Y-AC: 實際收盤, 誤差%, 預測路徑, AI診斷, 未來展望
+                    # Y 欄先填入當前最新市價 stock_df['Close'].iloc[-1] 以利 ST 顯示
+                    current_market_price = round(float(stock_df['Close'].iloc[-1]), 2)
+                    validation_info = [current_market_price, 0, p_path, p_diag, p_out]
+                    
+                    # AD-AG: 乖離率 (4 欄), AH-AL: 專家指標 (5 欄：ATR, 量比, RR, 情緒, 信心度)
+                    bias_data = (p_bias + [0]*4)[:4]
+                    expert_data = (p_experts + [0]*5)[:5]
+                    
+                    # 最終組合：確保長度剛好是 38
+                    row_data = base_info + levels + validation_info + bias_data + expert_data
+                    
                     ws_predict.append_row(row_data)
-                    print(f"✅ {final_id} 新增成功，AI 信心度: {p_experts[4]}")
+                    print(f"✅ {final_id} 新增成功 (38欄精準對齊)，AI 信心度: {p_experts[4]}")
                 else:
                     # --- 優化：即使存在，也檢查並補填數據 ---
                     # 1. 補填 Y 欄 (第 25 欄)
