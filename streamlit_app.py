@@ -585,24 +585,29 @@ def chapter_4_stock_basic_info(symbol):
         with st.spinner(f"正在連線市場獲取 {symbol} 最新報價..."):
             try:
                 ticker = yf.Ticker(symbol)
-                # 1. 擴大抓取範圍至 5 天，確保跨越週末/連假，並增加備援 logic
+                # 抓取 5 天確保跨越週末，df 裡 iloc[-1] 是今天，iloc[-2] 是昨天
                 hist = ticker.history(period="5d")
                 
-                if not hist.empty:
-                    # 2. 自動判定數據量，即便只有 1 筆也能顯示當前價
-                    has_prev = len(hist) >= 2
-                    curr_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Close'].iloc[-2] if has_prev else curr_price
+                if not hist.empty and len(hist) >= 2:
+                    today_data = hist.iloc[-1]
+                    yesterday_data = hist.iloc[-2]
+                    
+                    curr_price = today_data['Close']
+                    prev_close = yesterday_data['Close'] # 修正：抓取真正的昨收
+                    open_price = today_data['Open']      # 修正：抓取真正的今開
+                    
+                    # 修正：成交量 股 轉 張 (除以 1000)
+                    vol_in_lots = int(today_data['Volume'] / 1000) 
                     
                     st.session_state[cache_key] = {
                         "prev_close": prev_close,
-                        "open_price": hist['Open'].iloc[-1],
+                        "open_price": open_price,
                         "curr_price": curr_price,
                         "change": curr_price - prev_close,
                         "change_pct": ((curr_price - prev_close) / prev_close * 100) if prev_close != 0 else 0,
-                        "volume": hist['Volume'].iloc[-1],
-                        "high": hist['High'].iloc[-1],
-                        "low": hist['Low'].iloc[-1]
+                        "volume": vol_in_lots,
+                        "high": today_data['High'],
+                        "low": today_data['Low']
                     }
                 else:
                     # 3. 終極救援：如果 history 完全沒資料，改用 fast_info 抓即時價
@@ -636,7 +641,7 @@ def chapter_4_stock_basic_info(symbol):
         c4, c5, c6 = st.columns(3)
         c4.write(f"漲跌價格：**:{color}[{sign}{data['change']:.2f}]**")
         c5.write(f"漲跌幅度：**:{color}[{sign}{data['change_pct']:.2f}%]**")
-        c6.write(f"今日成交量：**{int(data['volume']):,}**")
+        c6.write(f"今日成交量：**{data['volume']:,} 張**")
 
     st.markdown("---") # 章節結束線
 
@@ -901,6 +906,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
