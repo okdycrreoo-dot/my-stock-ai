@@ -806,25 +806,32 @@ def chapter_5_ai_decision_report(row, pred_ws):
 
     # 1. 數據提取與預處理 (抓取 AI 大腦產出的核心 10 欄位)
     try:
-        s_val = row[36] if len(row) > 36 else ""       # 市場情緒
-        m_val = safe_float(row[34]) if len(row) > 34 else 0.0  # 資金追價 % (隱含大盤與法人動向)
-        r_val = safe_float(row[35]) if len(row) > 35 else 0.0  # 性價比 R/R
-        vol_p = safe_float(row[32]) if len(row) > 32 else 100.0 # 成交量變動 %
-        bias_v = safe_float(row[29]) if len(row) > 29 else 0.0  # 5日乖離率
-        ma20_v = safe_float(row[20]) if len(row) > 20 else 0.0  # 20日均線
-        price = safe_float(row[3]) if len(row) > 3 else 0.0     # 目前股價
-        res_v = safe_float(row[37]) if len(row) > 37 else 9999.0 # 上方壓力位
-        trend_label = row[30] if len(row) > 30 else ""          # 趨勢標籤
+        # 數據提取：精準對應 38 欄清單
+        s_val = row[36] if len(row) > 36 else ""       # AK: sentiment
+        m_val = safe_float(row[34]) if len(row) > 34 else 0.0  # AI: vol_bias (資金追價)
+        r_val = safe_float(row[35]) if len(row) > 35 else 0.0  # AJ: rr_ratio (性價比)
+        
+        # 乖離率與當前價
+        bias_v = safe_float(row[29]) if len(row) > 29 else 0.0  # AD: bias_5d
+        price = safe_float(row[24]) if len(row) > 24 else 0.0   # Y: actual_close (實際價)
+        if price == 0: price = safe_float(row[2]) # 若無實際價，用預測價替代
+        
+        # 支撐與壓力位 (改用預測區間與5日壓力)
+        low_bound = safe_float(row[3]) if len(row) > 3 else 0.0  # D: range_low (支撐)
+        res_v = safe_float(row[18]) if len(row) > 18 else 9999.0 # S: res_5d (壓力位)
+        
     except Exception as e:
-        st.error(f"數據讀取失敗: {e}")
+        st.error(f"Oracle 數據提取失敗: {e}")
         return
 
-    # 2. 三層防護層狀態判定 (紅綠燈邏輯)
-    # A. 趨勢層：看股價是否在月線上且沒噴太遠 (避開逆勢與過度追高)
-    trend_ok = (price > ma20_v) and (bias_v < 10)
-    # B. 資金層：看錢有沒有進來且量有沒有跟上 (避開假突破)
-    money_ok = (m_val > 0.5) and (vol_p > 85)
-    # C. 空間層：看距離天花板是否夠遠 (至少還有 3% 獲利空間)
+    # 2. 三層防護層狀態判定 (修正判定邏輯)
+    # A. 趨勢層：股價站在 AI 預測支撐 (range_low) 之上，且 5 日乖離未過熱 (<8%)
+    trend_ok = (price > low_bound) and (bias_v < 8)
+    
+    # B. 資金層：看 vol_bias (資金追價意願) 是否大於 1.0
+    money_ok = (m_val > 1.0)
+    
+    # C. 空間層：看距離 5 日壓力位 (res_5d) 是否還有 3% 以上獲利空間
     space_ok = ((res_v - price) / price) > 0.03 if price > 0 else False
 
     # 3. 視覺化紅綠燈顯示
@@ -894,6 +901,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
