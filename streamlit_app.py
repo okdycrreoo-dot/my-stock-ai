@@ -358,12 +358,21 @@ def chapter_3_watchlist_management(db_ws, watchlist_ws, predictions_ws):
                         possible_codes = [f"{new_stock}.TW", f"{new_stock}.TWO"]
                         valid_full_code = None
                         
-                        # 2. 開始循環嘗試
+                        # 2. 開始循環嘗試 (輕量化穩定版：防止 IP 被封鎖)
                         for code in possible_codes:
-                            test_data = yf.Ticker(code).history(period="1d")
-                            if not test_data.empty:
-                                valid_full_code = code
-                                break # 只要抓到有資料，就跳出循環
+                            try:
+                                t = yf.Ticker(code)
+                                # 優先檢查 fast_info，這不消耗 history 請求配額
+                                if t.fast_info.get('last_price') is not None:
+                                    valid_full_code = code
+                                    break
+                                # 若 fast_info 失敗，才試抓 1 天資料
+                                test_data = t.history(period="1d")
+                                if not test_data.empty:
+                                    valid_full_code = code
+                                    break
+                            except:
+                                continue
                         
                         # 3. 根據驗證結果執行寫入
                         if valid_full_code:
@@ -884,4 +893,5 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
