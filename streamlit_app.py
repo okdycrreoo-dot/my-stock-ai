@@ -585,35 +585,36 @@ def chapter_4_stock_basic_info(symbol):
         with st.spinner(f"正在連線市場獲取 {symbol} 最新報價..."):
             try:
                 ticker = yf.Ticker(symbol)
-                # 抓取 2 日數據以計算昨日與今日的變動
-                hist = ticker.history(period="2d")
+                # 1. 擴大抓取範圍至 5 天，確保跨越週末/連假，並增加備援 logic
+                hist = ticker.history(period="5d")
                 
-                if not hist.empty and len(hist) >= 2:
-                    # 提取數據
-                    prev_close = hist['Close'].iloc[-2]
-                    open_price = hist['Open'].iloc[-1]
+                if not hist.empty:
+                    # 2. 自動判定數據量，即便只有 1 筆也能顯示當前價
+                    has_prev = len(hist) >= 2
                     curr_price = hist['Close'].iloc[-1]
-                    high_price = hist['High'].iloc[-1]
-                    low_price = hist['Low'].iloc[-1]
-                    volume = hist['Volume'].iloc[-1]
+                    prev_close = hist['Close'].iloc[-2] if has_prev else curr_price
                     
-                    change = curr_price - prev_close
-                    change_pct = (change / prev_close) * 100
-                    
-                    # 寫入快取
                     st.session_state[cache_key] = {
                         "prev_close": prev_close,
-                        "open_price": open_price,
+                        "open_price": hist['Open'].iloc[-1],
                         "curr_price": curr_price,
-                        "change": change,
-                        "change_pct": change_pct,
-                        "volume": volume,
-                        "high": high_price,
-                        "low": low_price
+                        "change": curr_price - prev_close,
+                        "change_pct": ((curr_price - prev_close) / prev_close * 100) if prev_close != 0 else 0,
+                        "volume": hist['Volume'].iloc[-1],
+                        "high": hist['High'].iloc[-1],
+                        "low": hist['Low'].iloc[-1]
                     }
                 else:
-                    st.warning("⚠️ 查無足夠的交易數據（可能今日尚未開盤或停牌）")
-                    return
+                    # 3. 終極救援：如果 history 完全沒資料，改用 fast_info 抓即時價
+                    f_price = ticker.fast_info.get('last_price')
+                    if f_price:
+                        st.session_state[cache_key] = {
+                            "prev_close": f_price, "open_price": f_price, "curr_price": f_price,
+                            "change": 0, "change_pct": 0, "volume": 0, "high": f_price, "low": f_price
+                        }
+                    else:
+                        st.warning(f"⚠️ 暫時無法獲取 {symbol} 的市場數據")
+                        return
             except Exception as e:
                 st.error(f"行情抓取失敗：{e}")
                 return
@@ -893,5 +894,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
