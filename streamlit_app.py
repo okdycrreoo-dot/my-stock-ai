@@ -585,19 +585,25 @@ def chapter_4_stock_basic_info(symbol):
         with st.spinner(f"正在連線市場獲取 {symbol} 最新報價..."):
             try:
                 ticker = yf.Ticker(symbol)
-                # 抓取 5 天確保跨越週末，df 裡 iloc[-1] 是今天，iloc[-2] 是昨天
-                hist = ticker.history(period="5d")
+                # 抓取 7 天確保資料充足
+                hist = ticker.history(period="7d")
                 
                 if not hist.empty and len(hist) >= 2:
+                    # 抓取「真正的」昨收：
+                    # 如果今天已經開盤，hist 最後一筆是今天，倒數第二筆就是昨收
+                    # 我們用 yfinance 的 fast_info 輔助確認
+                    f_info = ticker.fast_info
+                    
+                    # 1. 取得昨收 (由 fast_info 提供最穩)
+                    prev_close = f_info.get('previousClose', hist['Close'].iloc[-2])
+                    
+                    # 2. 取得今開與當前價
                     today_data = hist.iloc[-1]
-                    yesterday_data = hist.iloc[-2]
+                    open_price = today_data['Open']
+                    curr_price = f_info.get('last_price', today_data['Close'])
                     
-                    curr_price = today_data['Close']
-                    prev_close = yesterday_data['Close'] # 修正：抓取真正的昨收
-                    open_price = today_data['Open']      # 修正：抓取真正的今開
-                    
-                    # 修正：成交量 股 轉 張 (除以 1000)
-                    vol_in_lots = int(today_data['Volume'] / 1000) 
+                    # 3. 成交量單位換算 (張)
+                    vol_in_lots = int(today_data['Volume'] / 1000)
                     
                     st.session_state[cache_key] = {
                         "prev_close": prev_close,
@@ -906,6 +912,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
