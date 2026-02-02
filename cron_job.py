@@ -526,8 +526,10 @@ def run_daily_sync(target_symbol=None):
         market_df = fetch_market_context()
         if len(symbols_set) > 20:
             print(f"⚠️ 【系統提醒】Watchlist 共 {len(symbols_set)} 支，已超過 20 支上限！")
-        # 【修正點 2】：在此處先抓取一次，迴圈內共用，節省 API 流量
+        
+        # 【修正點 2】：先抓取一次，避免迴圈內重複讀取
         current_logs = ws_predict.get_all_values()
+
         for sym in symbols_set:
             try:
                 stock_df, final_id = fetch_comprehensive_data(sym)
@@ -538,40 +540,41 @@ def run_daily_sync(target_symbol=None):
                 # 大腦計算
                 p_val, p_path, p_diag, p_out, p_bias, p_levels, p_experts = god_mode_engine(stock_df, final_id, market_df, chip_score)
                 
-                # 【關鍵修正】今日新增時，Y 欄 (基準) 就是今天的收盤價
+                # 【關鍵修正】今日收盤價作為 Y 欄基準
                 current_market_price = round(float(stock_df['Close'].iloc[-1]), 2)
 
+                # 【補上定義】：判斷今日這支股票是否已在試算表中
+                exists_idx = next((idx+1 for idx, r in enumerate(current_logs) if r[0] == today_str and r[1] == final_id), None)
+
                 if not exists_idx:
-                    # 組合 38 欄數據
+                    # 組合 38 欄數據 (A-AL)
                     base_info = [today_str, final_id, p_val, round(p_val*0.985, 2), round(p_val*1.015, 2), "待更新"]
                     levels = (p_levels + [0]*18)[:18]
-                    validation_info = [current_market_price, 0, p_path, p_diag, p_out] # Y 欄 = current_market_price
+                    validation_info = [current_market_price, 0, p_path, p_diag, p_out] # Z 欄初次填 0
                     bias_data = (p_bias + [0]*4)[:4]
                     expert_data = (p_experts + [0]*5)[:5]
                     
                     row_data = base_info + levels + validation_info + bias_data + expert_data
-                    ws_predict.append_row(row_data)
+                    ws_predict.append_row(row_data) # 一次寫入整行，Z 欄預設 0
                     print(f"✅ {final_id} 新增成功，基準價(Y): {current_market_price}")
                 else:
-                    # --- 優化：即使存在，也檢查並補填數據 ---
-                    # 1. 補填 Y 欄 (第 25 欄)
-                    ws_predict.update_cell(exists_idx, 25, y_val)
+                    # --- 更新邏輯：修正 y_val 為 current_market_price ---
+                    ws_predict.update_cell(exists_idx, 25, current_market_price)
                     
-                    # 2. 檢查 AL 欄 (第 38 欄) 是否為空或 0
+                    # 補填 AL 欄信心度
                     existing_row = current_logs[exists_idx-1]
-                    # 判斷 AL 欄 (索引 37) 是否沒有數據
                     if len(existing_row) <= 37 or not str(existing_row[37]).strip() or str(existing_row[37]) == "0":
                         conf_val = p_experts[4]
-                        ws_predict.update_cell(exists_idx, 38, conf_val) # 第 38 欄就是 AL
-                        print(f"⚡ {final_id} 已存在，但補填 AL 欄信心度: {conf_val}")
+                        ws_predict.update_cell(exists_idx, 38, conf_val)
+                        print(f"⚡ {final_id} 已存在，補填 AL 信心度: {conf_val}")
                     else:
-                        print(f"⚡ {final_id} 已存在且已有數據，僅更新 Y 欄。")
-                print(f"☕ 休息 2.5 秒，準備處理下一支...")
+                        print(f"⚡ {final_id} 已存在，僅更新 Y 欄基準價。")
+
+                print(f"☕ 休息 2.5 秒...")
                 time.sleep(2.5)
             except Exception as e:
                 print(f"❌ {sym} 處理異常: {e}")
-                time.sleep(1) # 發生異常也休息一下再繼續
-    except Exception as e:
+                time.sleep(1)
         # 修改點 C：這是抓全域大架構（如 Google Sheets 連線）的錯誤
         print(f"💥 全域同步系統崩潰: {e}")
 # =================================================================
