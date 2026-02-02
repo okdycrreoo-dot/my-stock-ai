@@ -585,31 +585,29 @@ def chapter_4_stock_basic_info(symbol):
         with st.spinner(f"正在連線市場獲取 {symbol} 最新報價..."):
             try:
                 ticker = yf.Ticker(symbol)
-                # 抓取 7 天確保資料充足
+                # 抓 7 天確保資料量足夠跨越假日
                 hist = ticker.history(period="7d")
                 
                 if not hist.empty and len(hist) >= 2:
+                    # 強制定位：最後一列絕對是「今天」，倒數第二列絕對是「昨天」
                     today_data = hist.iloc[-1]
                     yesterday_data = hist.iloc[-2]
                     
-                    # 抓取 Ticker info (最準確的即時欄位)
-                    f_info = ticker.fast_info
-                    
-                    curr_price = today_data['Close']
+                    # 1. 昨收：直接取昨天的 Close
                     prev_close = yesterday_data['Close']
                     
-                    # --- 關鍵修正：優先從 fast_info 抓取當日開盤價 ---
-                    open_price = f_info.get('open', today_data['Open']) 
+                    # 2. 今開：直接取今天的 Open (對應你說的 10.60)
+                    open_price = today_data['Open']
                     
-                    # 如果 fast_info 抓到的是 0，則退回用 history 抓
-                    if open_price == 0 or open_price is None:
-                        open_price = today_data['Open']
+                    # 3. 當前價：取今天的 Close (盤中會是即時價)
+                    curr_price = today_data['Close']
                     
-                    vol_in_lots = int(today_data['Volume'] / 1000) 
+                    # 4. 成交量：股轉張
+                    vol_in_lots = int(today_data['Volume'] / 1000)
                     
                     st.session_state[cache_key] = {
                         "prev_close": prev_close,
-                        "open_price": open_price, # 這裡就會更新為 10.6
+                        "open_price": open_price,
                         "curr_price": curr_price,
                         "change": curr_price - prev_close,
                         "change_pct": ((curr_price - prev_close) / prev_close * 100) if prev_close != 0 else 0,
@@ -914,6 +912,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
