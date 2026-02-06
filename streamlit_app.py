@@ -986,66 +986,60 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
+    st.write("### 🎖️ AI 戰略委員會 (底層強行對接版)")
 
-    # 1. 嚴格權限檢查 (只允許 admin)
-    user_val = ""
-    # 增加更多可能的 Key 檢查，確保穩定抓到 admin
-    for k in ["username", "user_id", "user", "name", "login_user"]:
-        if k in st.session_state and st.session_state[k]:
-            if str(st.session_state[k]).strip().lower() == "admin":
-                user_val = "admin"
-                break
-
+    # 1. 嚴格權限檢查
+    user_val = str(st.session_state.get("username", "")).strip().lower()
     if user_val != "admin":
         st.info("🔒 此功能為『系統管理員 admin』專屬。")
         return
 
     # 2. 數據預處理
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    analysis_task = f"你是首席戰略官。請分析股票 {symbol}。量化指標：{full_brain_data}。請給出投資建議。"
+    prompt = f"請分析股票 {symbol}。量化數據：{full_brain_data}。請給出戰略建議。"
 
     # 3. 按鈕啟動
-    if st.button("🚀 啟動診斷：召開軍師會議", key="gem_admin_final_fix", type="primary", use_container_width=True):
-        with st.spinner(f"管理員 admin 您好，AI 軍師正在強制切換穩定路徑..."):
-            import google.generativeai as genai
+    if st.button("🚀 啟動診斷：召開軍師會議", key="gem_admin_force_v9", type="primary", use_container_width=True):
+        with st.spinner("正在跳過 SDK 版本限制，直接連線 Google 智庫..."):
+            import requests
+            import json
+
+            # 💡 終極修正：直接使用 v1 穩定版 URL，徹底避開 v1beta 404 問題
+            api_key = st.secrets["GEMINI_API_KEY"]
+            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
             
-            # 配置 API
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }]
+            }
+            headers = {'Content-Type': 'application/json'}
+
+            try:
+                # 直接發送 POST 請求
+                response = requests.post(url, headers=headers, data=json.dumps(payload))
+                res_data = response.json()
+
+                if response.status_code == 200:
+                    # 解析回傳內容
+                    ai_reply = res_data['candidates'][0]['content']['parts'][0]['text']
+                    st.markdown(f"#### 🗨️ {symbol} 戰略報告")
+                    st.markdown(ai_reply)
+                    st.success("✅ 診斷完成 (透過 v1 原生接口)")
+                else:
+                    # 顯示具體錯誤原因
+                    error_detail = res_data.get('error', {}).get('message', '未知錯誤')
+                    st.error(f"❌ API 回傳錯誤 ({response.status_code}): {error_detail}")
+                    if "API_KEY_INVALID" in error_detail:
+                        st.warning("請檢查 Secrets 中的 API Key 是否貼錯（有無空格）。")
             
-            # 💡 核心修正：使用穩定版名稱，避開 v1beta 找不到 gemini-pro 的問題
-            # 同時完全移除工具調用 (tools)，確保不會噴 Unknown field
-            models_to_try = [
-                "gemini-1.5-flash-latest", # 目前最穩定的全版本通用名稱
-                "gemini-1.5-flash", 
-                "models/gemini-1.5-flash"
-            ]
-            
-            success = False
-            last_err = ""
-            
-            for m_name in models_to_try:
-                try:
-                    model = genai.GenerativeModel(model_name=m_name)
-                    response = model.generate_content(analysis_task)
-                    
-                    if response and response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 戰略報告")
-                        st.markdown(response.text)
-                        st.success(f"✅ 診斷完成 (路徑: {m_name})")
-                        success = True
-                        break
-                except Exception as e:
-                    last_err = str(e)
-                    continue
-            
-            if not success:
-                st.error(f"🚨 API 調用失敗。錯誤訊息：{last_err}")
-                st.info("💡 提示：請確認您的 API Key 是否在 Google AI Studio 中正確啟用，且沒有超過免費層級限制。")
+            except Exception as e:
+                st.error(f"💥 系統連線崩潰: {str(e)}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
