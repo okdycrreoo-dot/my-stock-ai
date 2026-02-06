@@ -982,76 +982,89 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (全指標對撞版)
+# 第七章：AI 戰略委員會 (全指標對撞 - 配額防護版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 【全腦掃描】：不再只取 5 項，而是把整列數據打包 (排除掉 symbol 等基礎欄位)
-    # 我們假設 brain_row 包含了你那 40 多項分析指標
-    full_brain_data = ", ".join([str(item) for item in brain_row]) 
+    # 1. 數據提取與清洗 (不消耗 API 配額)
+    # 確保數據長度足夠，避免 index out of range
+    full_data_list = [str(item) for item in brain_row]
+    full_brain_data = ", ".join(full_data_list) 
 
-    # 2. 強化版 Prompt：要求 AI 解析這 40+ 項指標
+    # 2. 強化版 Prompt
     prompt = f"""
     你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行「全指標與新聞對撞診斷」。
     
     【量化大腦全指標數據】：
     {full_brain_data}
     
-    (註：以上數據包含 40 多項量化分析指標，請自行從中提取「資金、趨勢、乖離、性價比、情緒」等核心因子)
+    (註：數據包含 40 多項量化分析指標，涵蓋：資金、趨勢、乖離、性價比、情緒等因子)
     
     【核心任務】：
-    1. 🔍 **連網檢索**：搜尋過去 72 小時關於 {symbol} 的重大即時新聞。
-    2. 🚩 **深度對撞**：將這 40 多項量化指標與新聞對比。特別注意指標中是否有「背離」現象(例如指標轉強但新聞利空，或指標轉弱新聞利多)。
-    3. 🛡️ **風險回測**：利用全指標中的支撐位與性價比數據，給出具體防守建議。
-    4. ⚔️ **戰略結論**：整合 40+ 量化數據與現實新聞，給出「買入/持有/觀望」建議。
+    1. 🔍 **連網檢索**：搜尋過去 72 小時關於 {symbol} 的重大即時新聞或法說會訊息。
+    2. 🚩 **深度對撞**：將量化指標與新聞對比，指出是否存在「指標轉強但新聞利空」等背離現象。
+    3. 🛡️ **風險回測**：給出具體防守價位建議。
+    4. ⚔️ **戰略結論**：給出明確的「進場/持有/觀望」建議。
     """
+
+    # 3. 按鈕柵欄
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"軍師正在準備報紙與數據..."):
+        with st.spinner(f"軍師正在檢索 {symbol} 即時新聞與量化對撞..."):
             import time
             import google.generativeai as genai
+            
+            # 配置 API
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 偵測模型
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            target_model = next((m for m in available_models if "flash" in m), available_models[0])
-            tool_config = [{"google_search": {}}] if "2.0" in target_model else [{"google_search_retrieval": {}}]
-
-            # --- 強韌化重試邏輯 ---
-            success = False
-            for attempt in range(2): 
-                try:
-                    # 如果是第二次嘗試，稍微多等一下，並簡化 Prompt 減輕負擔
-                    if attempt == 1:
-                        time.sleep(5) 
-                    
-                    model = genai.GenerativeModel(model_name=target_model, tools=tool_config)
-                    response = model.generate_content(prompt)
-                    
-                    if response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                        st.markdown(response.text)
-                        st.success(f"✅ 連線成功！")
-                        success = True
-                        break
-                except Exception as e:
-                    if "429" in str(e): # 專指流量限制錯誤
-                        st.warning(f"正在避開 Google 流量高峰，請稍候...")
-                        time.sleep(8)
-                        continue
-                    else:
-                        break
+            # --- 策略：直接指定模型，避免 list_models() 消耗配額 ---
+            # 優先使用 2.0 Flash，因為它的搜索工具最強
+            primary_model_name = "gemini-2.0-flash" 
             
-            # 如果兩次都失敗，才走數據診斷
-            if not success:
-                st.warning("⚠️ 外部新聞線路擁擠，改由『內建智庫』進行純數據診斷...")
-                try:
-                    backup_model = genai.GenerativeModel(target_model)
-                    response = backup_model.generate_content(prompt + "\n(請專注於量化數據分析)")
+            success = False
+            
+            # --- 第一階段：連網診斷 ---
+            try:
+                # 初始化模型並掛載 Google Search 工具
+                model = genai.GenerativeModel(
+                    model_name=primary_model_name,
+                    tools=[{"google_search": {}}]
+                )
+                
+                response = model.generate_content(prompt)
+                
+                if response and response.text:
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (連網模式)")
                     st.markdown(response.text)
+                    st.success("✅ 連線診斷成功")
+                    success = True
+            
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg:
+                    st.warning("⚠️ Google Search 配額繁忙，正在切換至『內建智庫』模式...")
+                else:
+                    st.caption(f"連網模式提示：{error_msg}")
+
+            # --- 第二階段：備援診斷 (若連網失敗或 429) ---
+            if not success:
+                time.sleep(1) # 稍微緩衝
+                try:
+                    # 備援模式不帶 tools，極大降低 429 機率
+                    backup_model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+                    backup_response = backup_model.generate_content(
+                        prompt + "\n\n(注意：因線路擁擠，請專注於根據提供的量化指標進行深度分析，不需連網)"
+                    )
+                    
+                    if backup_response.text:
+                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (量化核心模式)")
+                        st.markdown(backup_response.text)
+                        st.info("💡 目前使用純數據診斷模式")
+                        success = True
                 except Exception as final_e:
-                    st.error(f"❌ 智庫暫時無法回應：{final_e}")
+                    st.error(f"❌ 委員會會議中斷：{final_e}")
+                    st.info("💡 建議：請確認 API Key 是否有效，或靜置 60 秒後再試。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
