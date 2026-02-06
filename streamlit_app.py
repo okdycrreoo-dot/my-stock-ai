@@ -955,39 +955,47 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
     # 3. 按鈕觸發
     if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在分析 {symbol} 數據指標..."):
-            # 【手動測試區】請直接把你在 image_4ce09d.png 看到的那串新 Key 貼在下面引號內
-            # 測試成功後，我們再改回 st.secrets["GEMINI_API_KEY"]
-            manual_key = "AIzaSyBhFbGz7QIwzDQvkU1w79wMxAEAjyKc-bY" 
+        with st.spinner(f"正在與 Google 智庫建立加密連線..."):
+            # 優先使用你手動貼上的 Key 進行測試
+            manual_key = "這裡貼上你2月6日建立的那串新Key" 
             
             import requests
-            # 使用最穩定的 v1beta 搭配最新的 flash-8b (這個路徑目前全球最穩)
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={manual_key}"
+            # 定義 Google 所有的模型路徑清單，這段代碼會一個一個試，試到成功為止
+            model_paths = [
+                "v1beta/models/gemini-1.5-flash",
+                "v1/models/gemini-1.5-flash",
+                "v1beta/models/gemini-1.5-pro",
+                "v1/models/gemini-1.5-pro",
+                "v1beta/models/gemini-pro"
+            ]
             
-            payload = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
-            }
-            
-            try:
-                res = requests.post(url, json=payload, timeout=15)
-                result = res.json()
-                
-                if res.status_code == 200 and "candidates" in result:
-                    ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                    st.markdown(ai_text)
-                    st.success("✅ 終於成功了！這是手動 Key 對接測試。")
-                else:
-                    # 如果連這都失敗，這會抓出最底層的報錯
-                    st.error(f"錯誤代碼 {res.status_code}")
-                    st.write(result) # 把完整的錯誤訊息噴出來看
-                    
-            except Exception as e:
-                st.error(f"連線端故障：{e}")
+            final_response = None
+            used_model = ""
+
+            for path in model_paths:
+                url = f"https://generativelanguage.googleapis.com/{path}:generateContent?key={manual_key}"
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                try:
+                    res = requests.post(url, json=payload, timeout=10)
+                    result = res.json()
+                    if res.status_code == 200 and "candidates" in result:
+                        final_response = result["candidates"][0]["content"]["parts"][0]["text"]
+                        used_model = path
+                        break
+                except:
+                    continue
+
+            # 顯示結果
+            if final_response:
+                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                st.markdown(final_response)
+                st.success(f"✅ 連線成功！(已自動匹配可用路徑: {used_model})")
+            else:
+                st.error("❌ 所有 Google 模型路徑均回傳 404。")
+                st.info("💡 最終排除：請檢查你的 Google 帳號是否位於支援 Gemini 的地區（如台灣、美國），若使用 VPN 請嘗試切換節點。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
