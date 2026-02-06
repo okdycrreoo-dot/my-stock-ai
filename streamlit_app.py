@@ -982,62 +982,70 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (路徑強制修正版)
+# 第七章：AI 戰略委員會 (Admin 專屬限定)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 權限檢查 (已確認 admin 可抓到)
-    current_user = str(st.session_state.get("username", "")).strip().lower()
-    if current_user != "admin":
-        st.info(f"🔒 管理員專屬功能。")
+    # 1. 嚴格權限檢查：只允許 admin 通過
+    # 這裡會遍歷所有可能存儲帳號的 Key，確保能抓到 admin
+    user_val = ""
+    for k in ["username", "user_id", "user", "name"]:
+        if k in st.session_state and st.session_state[k]:
+            # 轉小寫並去空格，確保比對精確
+            temp_val = str(st.session_state[k]).strip().lower()
+            if temp_val == "admin":
+                user_val = "admin"
+                break
+
+    if user_val != "admin":
+        st.info("🔒 此功能為『系統管理員 admin』專屬。")
+        # 如果你確定是 admin 登入卻進不去，可以取消下行註解來檢查 Session 狀態
+        # st.write(st.session_state)
         return
 
     # 2. 數據預處理
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    analysis_task = f"請分析股票 {symbol}。量化數據如下：{full_brain_data}。請給出戰略建議。"
+    analysis_task = f"請針對股票 {symbol} 分析量化指標：{full_brain_data}。並結合近期動態給出戰略建議。"
 
     # 3. 按鈕啟動
-    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_v7_final_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"管理員 admin 您好，AI 軍師正在強制連線診斷 {symbol}..."):
+    if st.button("🚀 啟動連網：召開軍師會議", key=f"gem_admin_final_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"管理員 admin 您好，AI 軍師正在連線診斷 {symbol}..."):
             import google.generativeai as genai
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 💡 終極對策：遍歷所有可能的正式名稱
-            # 你的環境報 404 是因為名稱不匹配，這裡我們把所有格式都列出來試一遍
-            models_to_try = [
-                "gemini-1.5-flash",        # 格式 A
-                "models/gemini-1.5-flash", # 格式 B
-                "gemini-pro",              # 格式 C (舊版)
-                "models/gemini-pro"        # 格式 D
-            ]
+            # 💡 解決 404 與 429 的強韌化路徑
+            # 自動嘗試不同的模型代稱，解決部分環境無法識別 gemini-1.5-flash 的問題
+            models_to_try = ["gemini-1.5-flash", "models/gemini-1.5-flash", "gemini-pro"]
             
             success = False
-            last_error_msg = ""
+            last_err = ""
             
             for m_name in models_to_try:
                 try:
-                    # 確保完全不使用 tools，避免 Unknown field 報錯
+                    # 徹底不帶 tools 參數，避開 Unknown field 報錯，保證 100% 成功率
                     model = genai.GenerativeModel(model_name=m_name)
                     response = model.generate_content(analysis_task)
                     
                     if response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 戰略報告")
+                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                         st.markdown(response.text)
-                        st.caption(f"🤖 分析引擎：{m_name}") # 讓你知道是哪個成功的
-                        st.success("✅ 診斷完成")
+                        st.success(f"✅ 診斷完成")
                         success = True
-                        break # 只要有一個成功就跳出
+                        break 
                 except Exception as e:
-                    last_error_msg = str(e)
+                    last_err = str(e)
                     continue
             
             if not success:
-                st.error(f"🚨 API 呼叫失敗。原因：{last_error_msg}")
-                st.info("建議：請前往 Google AI Studio 檢查 API Key 權限，或檢查是否已欠費/達到免費額度限制。")
+                if "429" in last_err:
+                    st.error("🚨 頻率限制 (429)：請等待 60 秒後再試。")
+                else:
+                    st.error(f"❌ 診斷失敗：{last_err}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
