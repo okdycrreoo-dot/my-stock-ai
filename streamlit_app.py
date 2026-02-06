@@ -964,8 +964,14 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 ● ⚔️ 角色 C (攻擊進攻手)：找尋機會點。若數據與利多消息產生『共鳴』，指出最佳的進攻劇本。
                 """
 
-                # 呼叫模型
-                model = genai.GenerativeModel('gemini-1.5-flash-latest', tools=[{"google_search_retrieval": {}}])
+                # 呼叫模型 (修正名稱為 'models/gemini-1.5-flash')
+                # 注意：有些版本需要加上 'models/' 前綴才能正確辨認
+                model = genai.GenerativeModel(
+                    model_name='models/gemini-1.5-flash', 
+                    tools=[{"google_search_retrieval": {}}]
+                )
+
+                # 執行生成
                 response = model.generate_content(prompt)
                 
                 # 輸出
@@ -980,14 +986,4 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
 
