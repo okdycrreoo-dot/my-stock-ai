@@ -949,46 +949,47 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     3. 輸出：🚩客觀裁判(引用新聞)、🛡️保守防守員(找風險)、⚔️攻擊進攻手(找獲利空間)。
     """
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在連網搜尋 {symbol} 最新新聞與數據..."):
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                
-                # 偵測最新模型
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                target_model = next((m for m in available_models if "flash" in m), available_models[0])
-                
-                # 🛠️ 修復點：雙開關嘗試，確保 1.5 或 2.0 都能成功啟動搜尋
-                if "2.0" in target_model:
-                    tool_config = [{"google_search": {}}]
-                else:
-                    tool_config = [{"google_search_retrieval": {}}]
-                
-                model = genai.GenerativeModel(
-                    model_name=target_model,
-                    tools=tool_config
-                )
-                
-                # 執行生成
-                response = model.generate_content(prompt)
-                
-                # 顯示結果
-                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                st.markdown(response.text)
-                st.success(f"✅ 連線成功！(已完成 {target_model} 即時新聞交叉檢索)")
+        with st.spinner(f"軍師正在準備報紙與數據..."):
+            import time
+            import google.generativeai as genai
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            
+            # 偵測模型
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            target_model = next((m for m in available_models if "flash" in m), available_models[0])
+            tool_config = [{"google_search": {}}] if "2.0" in target_model else [{"google_search_retrieval": {}}]
 
-            except Exception as e:
-                # 只有在真的失敗（例如 429 流量限制）時才顯示黃色警告
-                st.warning("⚠️ 即時新聞模組目前擁擠，軍師改以內建數據進行診斷...")
+            # --- 核心修改：自動重試邏輯 ---
+            success = False
+            for attempt in range(2): # 嘗試 2 次
+                try:
+                    model = genai.GenerativeModel(model_name=target_model, tools=tool_config)
+                    response = model.generate_content(prompt)
+                    
+                    if response.text:
+                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                        st.markdown(response.text)
+                        st.success(f"✅ 連線成功！(第 {attempt+1} 次嘗試)")
+                        success = True
+                        break
+                except Exception as e:
+                    if attempt == 0: # 第一次失敗，等一下再試
+                        time.sleep(2) 
+                        continue
+            
+            # 如果兩次都失敗，才走數據診斷
+            if not success:
+                st.warning("⚠️ 外部新聞線路擁擠，改由『內建智庫』進行純數據診斷...")
                 try:
                     backup_model = genai.GenerativeModel(target_model)
                     response = backup_model.generate_content(prompt + "\n(請專注於量化數據分析)")
                     st.markdown(response.text)
-                except:
-                    st.error(f"❌ 委員會罷工中，請稍後再試：{e}")
+                except Exception as final_e:
+                    st.error(f"❌ 智庫暫時無法回應：{final_e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
