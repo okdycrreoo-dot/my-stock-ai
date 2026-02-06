@@ -986,74 +986,67 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
+    st.write("### 🎖️ AI 戰略委員會 (全接口兼容版)")
 
-    # 1. 權限檢查：提供「手動強制解鎖」以應對 Session 遺失
+    # 1. 權限物理鎖：如果自動識別失敗，勾選這個就「絕對」能過
+    force_unlock = st.checkbox("🔑 管理員身分強制校驗 (若自動識別失敗請勾選)")
+    
+    # 自動識別邏輯
     is_admin = False
     for k in ["username", "user_id", "user", "name"]:
-        if st.session_state.get(k, "").strip().lower() == "admin":
+        if str(st.session_state.get(k, "")).strip().lower() == "admin":
             is_admin = True
             break
-    
-    # 物理開關：如果自動識別失敗，你可以勾選這個
-    force_unlock = st.checkbox("🔑 管理員身分校驗 (若自動識別失敗請勾選)")
-    
+            
     if not is_admin and not force_unlock:
         st.info("🔒 此功能為『系統管理員 admin』專屬。")
         return
 
-    # 2. 數據字串化
+    # 2. 數據準備
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    prompt = f"分析股票 {symbol}。量化數據：{full_brain_data}。請給出投資建議。"
+    prompt = f"分析股票 {symbol}。量化數據：{full_brain_data}。請給出戰略建議。"
 
-    # 3. 核心 API 呼叫 (使用原生 requests 繞過所有 SDK 錯誤)
-    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_admin_final_v10", type="primary", use_container_width=True):
-        with st.spinner("正在連線 Google 頂級智庫..."):
+    # 3. 核心 API 呼叫 (原生 Request 暴力對接)
+    if st.button("🚀 啟動連網診斷", key="gem_final_ultimate", type="primary", use_container_width=True):
+        with st.spinner("正在嘗試所有可能的 API 通道..."):
             import requests
             import json
 
             api_key = st.secrets["GEMINI_API_KEY"]
+            # 這是目前 Google 所有的合法路徑變體，我們一個一個試
+            model_names = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+            endpoints = ["v1", "v1beta"]
             
-            # 💡 終極對策：嘗試最標準的 v1beta 接口，但使用不帶前綴的模型名
-            # 如果失敗，會自動切換至 v1 接口
-            endpoint_v1beta = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-            endpoint_v1 = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
-            
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            headers = {'Content-Type': 'application/json'}
+            success = False
+            last_msg = ""
 
-            try:
-                # 第一階段：嘗試 v1beta
-                response = requests.post(endpoint_v1beta, headers=headers, data=json.dumps(payload))
-                
-                # 如果 v1beta 失敗，立即嘗試 v1
-                if response.status_code != 200:
-                    response = requests.post(endpoint_v1, headers=headers, data=json.dumps(payload))
-                
-                res_data = response.json()
-
-                if response.status_code == 200:
-                    ai_reply = res_data['candidates'][0]['content']['parts'][0]['text']
-                    st.markdown(f"#### 🗨️ {symbol} 戰略報告")
-                    st.markdown(ai_reply)
-                    st.success(f"✅ 診斷完成 (連線模式: 原生 REST)")
-                else:
-                    err_msg = res_data.get('error', {}).get('message', '未知錯誤')
-                    st.error(f"❌ API 連線異常: {err_msg}")
-                    st.info("建議：請確認 Google AI Studio 內的 API Key 是否有綠色打勾 (Active)。")
-            
-            except Exception as e:
-                st.error(f"💥 系統連線崩潰: {str(e)}")
+            for ver in endpoints:
+                for m_name in model_names:
+                    if success: break
+                    url = f"https://generativelanguage.googleapis.com/{ver}/models/{m_name}:generateContent?key={api_key}"
                     
+                    try:
+                        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                        res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload), timeout=10)
+                        
+                        if res.status_code == 200:
+                            res_json = res.json()
+                            ai_reply = res_json['candidates'][0]['content']['parts'][0]['text']
+                            st.markdown(f"#### 🗨️ {symbol} 戰略報告")
+                            st.markdown(ai_reply)
+                            st.caption(f"✅ 連線成功：{ver}/{m_name}")
+                            success = True
+                        else:
+                            last_msg = res.json().get('error', {}).get('message', '未知錯誤')
+                    except:
+                        continue
+
+            if not success:
+                st.error(f"🚨 所有通道皆嘗試失敗。最後一次報錯：{last_msg}")
+                st.info("💡 終極建議：請檢查 Google AI Studio 是否有出現『Billing required』或區域限制提示。")
+
+                       
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
