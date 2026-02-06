@@ -956,39 +956,40 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     # 3. 按鈕觸發
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
         with st.spinner(f"正在連網搜尋 {symbol} 最新動態..."):
-            # 1. 抓取 Key 並做基本檢查
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("❌ 找不到 GEMINI_API_KEY，請檢查 Secrets 設定。")
                 return
             
             api_key = st.secrets["GEMINI_API_KEY"]
-            
-            # 2. 強制使用底層 V1 REST 請求 (避開所有 SDK 報錯)
             import requests
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            
-            try:
-                res = requests.post(url, json=payload, timeout=10)
-                result = res.json()
+
+            # 定義嘗試順序：1.5 Flash -> 1.5 Flash-8b (更穩定)
+            model_variants = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
+            success = False
+
+            for mv in model_variants:
+                # 嘗試使用 v1beta，因為 Flash 系列在 beta 版通常權限最完整
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{mv}:generateContent?key={api_key}"
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
                 
-                if res.status_code == 200 and "candidates" in result:
-                    ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                    st.markdown(ai_text)
-                    st.success("✅ 診斷完成！")
-                else:
-                    # 這裡會噴出 Google 真正的拒絕原因
-                    error_detail = result.get("error", {}).get("message", "未知原因")
-                    st.error(f"❌ Google 拒絕請求：{error_detail}")
-                    st.info(f"HTTP 狀態碼: {res.status_code}")
+                try:
+                    res = requests.post(url, json=payload, timeout=15)
+                    result = res.json()
                     
-            except Exception as e:
-                st.error(f"❌ 網路連線異常：{e}")
+                    if res.status_code == 200 and "candidates" in result:
+                        ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                        st.markdown(ai_text)
+                        st.success(f"✅ 診斷完成！(使用模型: {mv})")
+                        success = True
+                        break # 成功就跳出迴圈
+                except:
+                    continue
+
+            if not success:
+                st.error("❌ 所有模型路徑皆嘗試失敗。")
+                st.info("💡 最終建議：請確認你的 Google 帳號是否已在 AI Studio 同意最新的服務條款。有時候沒勾選同意，API 就會回傳 404。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
