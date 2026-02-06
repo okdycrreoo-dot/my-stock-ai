@@ -965,7 +965,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 """
 
                 # 呼叫模型
-                model = genai.GenerativeModel('gemini-1.5-flash', tools=[{"google_search_retrieval": {}}])
+                model = genai.GenerativeModel('gemini-1.5-flash-latest', tools=[{"google_search_retrieval": {}}])
                 response = model.generate_content(prompt)
                 
                 # 輸出
@@ -980,6 +980,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
