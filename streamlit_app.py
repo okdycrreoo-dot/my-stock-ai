@@ -1056,9 +1056,3 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
