@@ -986,18 +986,34 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
+    st.write("### 🎖️ AI 戰略委員會 (權限診斷版)")
 
-    # 1. 權限檢查 (包含自動修復與偵錯)
-    # 我們嘗試抓取所有可能的 session 變數名稱
-    current_user = str(st.session_state.get("username", "")).strip().lower()
+    # --- 1. 自動偵測當前帳號 (解決抓不到帳號的問題) ---
+    # 同時檢查幾個常見的變數名稱
+    user_keys = ["username", "user_id", "user", "name", "account"]
+    current_user = ""
     
-    # 如果抓不到，或是與 "admin" 不符就擋下
-    if current_user != "admin":
-        st.info(f"🔒 管理員專屬功能。 (當前帳號: {current_user})")
-        # 如果你點了沒反應，可以在下方暫時取消註解來查看實際抓到的變數
-        # st.write(st.session_state) 
+    for key in user_keys:
+        val = st.session_state.get(key)
+        if val:
+            current_user = str(val).strip().lower()
+            break
+            
+    # 如果還是抓不到，直接把整個 session_state 列出來給你看 (診斷用)
+    if not current_user:
+        st.error("🚨 偵測不到登入資訊，請確認是否已正確登入。")
+        with st.expander("🔍 點此查看系統變數 (DEBUG)"):
+            st.write(st.session_state)
         return
+
+    # --- 2. 權限判斷 ---
+    if current_user != "admin":
+        st.info(f"🔒 管理員專屬功能。 (當前偵測到帳號: {current_user})")
+        return
+
+    # --- 3. AI 分析邏輯 (接續之前的穩定版代碼) ---
+    st.success(f"🔓 管理員 {current_user} 認證成功，正在載入 AI 智庫...")
+    # ... (後續 genai 調用代碼) ...
 
     # 2. 數據預處理 (確保 brain_row 數據正常)
     try:
@@ -1052,6 +1068,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
