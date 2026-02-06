@@ -264,7 +264,7 @@ def main():
                 time.sleep(0.5)
                 st.rerun()
 
-        # --- 【核心進化：Oracle 算法雷達 - 完全覆蓋版 (修正日期與代號)】 ---
+        # --- 【核心進化：Oracle 算法雷達 - 完全覆蓋版 (排序與結構修正)】 ---
         predictions_ws = db_dict.get("predictions") 
         if predictions_ws is not None:
             try:
@@ -274,7 +274,7 @@ def main():
                 if len(raw_data) > 1:
                     df_all = pd.DataFrame(raw_data[1:], columns=raw_data[0])
                     
-                    # 【核心修正】：只篩選出試算表中「最後一個日期」的資料，避免噴出歷史日期
+                    # 【日期鎖定】：只取最後一個日期的資料，解決日期刷屏問題
                     latest_date = df_all.iloc[-1, 0] 
                     df_oracle = df_all[df_all.iloc[:, 0] == latest_date].copy()
                     
@@ -291,25 +291,32 @@ def main():
                         m_val = safe_float(row[34]) if len(row) > 34 else 0.0     
                         res_v = safe_float(row[18]) if len(row) > 18 else 9999.0  
                         
-                        # 三層防護判定
+                        # 三層防護判定 (趨勢、資金、空間)
                         trend_ok = (price > low_bound) and (bias_v < 8)
                         money_ok = (m_val > 1.0)
                         space_ok = ((res_v - price) / price) > 0.03 if price > 0 else False
                         
                         return trend_ok and money_ok and space_ok
 
-                    # 3. 執行最新日期的邏輯掃描
+                    # 3. 執行邏輯掃描
                     strike_mask = df_oracle.apply(check_strike_zone, axis=1)
                     
-                    # 【核心修正】：抓取第 1 欄 (股票代號)，去重、並進行「由小到大」排序
+                    # 【排序與去重】：抓取第 1 欄 (代號)，先 unique 再用 sorted 進行小到大排序
                     raw_list = df_oracle[strike_mask].iloc[:, 1].unique().tolist()
-                    strike_list = sorted(raw_list) # <--- 加入這行，讓代號排排站
+                    strike_list = sorted(raw_list) 
                     
                     if strike_list:
                         st.info(f"🎯 **Oracle 核心偵測 ({latest_date})：💎 絕佳擊球點！**\n\n`{'`, `'.join(strike_list)}`")
                     else:
-                        st.caption(f"🔍 雷達掃描 ({latest_date})：目前尚未發現『趨勢、資金、空間』三位一體之目標。")
+                        st.caption(f"🔍 雷達掃描 ({latest_date})：目前尚未發現符合三位一體之目標。")
+                else:
+                    st.caption("🔍 雷達待命中：資料庫目前尚無預測資料。")
 
+            except Exception as e:
+                # 這是防止之前報錯的關鍵，必須要有 except 區塊
+                # st.write(f"Radar Debug: {e}") 
+                pass 
+        # ----------------------------------------------------
 
         
         # 1. 執行第三章 (控制台與監控清單管理)
@@ -1049,6 +1056,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
