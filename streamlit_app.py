@@ -982,65 +982,74 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# --- 7. AI連網分析 ---
+# --- 7. AI 戰略委員會 ---
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 深度診斷")
+    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全球智庫聯網診斷")
 
-    # 1. 整理 40 多項量化指標 (從 brain_row 中提取數據)
-    # 我們將這 40 多項指標轉化為文字清單
-    metrics_summary = "、".join([str(item) for item in brain_row]) 
+    # 1. 強化數據格式：給指標加上標籤，讓 AI 更好讀
+    metrics_str = "、".join([str(x) for x in brain_row[:40]]) # 限制在前40項最關鍵指標
 
-    # 所有人皆可點擊
-    if st.button(f"🚀 啟動 {symbol} 40+指標對撞分析", key=f"ai_final_expert", type="primary", use_container_width=True):
-        with st.spinner(f"智庫正在對撞指標並檢索 {symbol} 即時情報..."):
-            try:
-                from duckduckgo_search import DDGS
-                with DDGS() as ddgs:
-                    # 情報 A：獲取最新相關新聞
-                    news_query = f"{symbol} 股票 最新財報 關鍵新聞"
-                    news_data = [n['body'] for n in ddgs.news(news_query, max_results=3)]
-                    news_context = "\n".join(news_data) if news_data else "目前查無即時新聞。"
+    if st.button(f"🚀 啟動 {symbol} 指標與新聞深度對撞", key="ai_final_v1", type="primary", use_container_width=True):
+        status_box = st.empty()
+        status_box.info("🔍 第一階段：正在檢索全球即時新聞...")
+        
+        try:
+            from duckduckgo_search import DDGS
+            import time
+            
+            with DDGS() as ddgs:
+                # 取得新聞
+                news_query = f"{symbol} stock news 財報"
+                news_list = [n['body'] for n in ddgs.news(news_query, max_results=2)]
+                news_context = "\n".join(news_list) if news_list else "無即時重大新聞報告。"
+                
+                status_box.info("⚖️ 第二階段：量化指標與消息面對撞中...")
+                time.sleep(1) # 短暫停頓避免頻率限制
+                
+                # 構建深度分析 Prompt
+                prompt = f"""
+                請擔任首席策略官，針對「{symbol}」進行深度對撞分析。
+                
+                【量化數據 (40+指標)】：{metrics_str}
+                【即時新聞情報】：{news_context}
+                
+                請嚴格執行以下分析：
+                1. 找出指標數據與新聞消息的【矛盾與一致性】。
+                2. 根據這 40 多項數據，評估目前是「超買」還是「超賣」。
+                3. 給出具體的「戰略執行建議」。
+                
+                請用繁體中文回報，字數不限，力求精準。
+                """
 
-                    # 對撞 Prompt
-                    prompt = f"""
-                    請擔任首席投資官，分析股票「{symbol}」。
-                    
-                    【數據層面】：這是 40 多項量化指標數據：
-                    {metrics_summary}
-                    
-                    【消息層面】：這是最新的市場消息：
-                    {news_context}
-                    
-                    【分析任務】：
-                    1. 數據與消息是否有矛盾？(例如指標走強但新聞偏空)
-                    2. 基於這 40 多項指標，該股的技術面與基本面綜合評分。
-                    3. 給出具體的操作戰略建議（買入、觀望、避險）。
-                    
-                    請用繁體中文回報，條列式呈現。
-                    """
+                # 執行診斷
+                try:
+                    # 優先使用 chat 模式
+                    report = ddgs.chat(prompt, model='gpt-4o-mini')
+                    status_box.empty()
+                    st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
+                    st.markdown(report)
+                    st.success("✅ 深度診斷完成")
+                except:
+                    # 若 chat 繁忙，切換至高強度備援模式
+                    status_box.warning("⚠️ 智庫繁忙，切換至高速數據解析通道...")
+                    fallback_prompt = f"分析股票 {symbol} 投資建議：數據為 {metrics_str[:200]}"
+                    fallback_res = list(ddgs.text(fallback_prompt, max_results=1))
+                    if fallback_res:
+                        st.markdown("#### 🗨️ 戰略快速建議")
+                        st.write(fallback_res[0]['body'])
+                    else:
+                        st.error("❌ 目前所有免費通道皆繁忙，請 30 秒後再試。")
 
-                    # 執行分析
-                    try:
-                        # 這是目前最穩定的免費 GPT-4o-mini 通道
-                        results = ddgs.chat(prompt, model='gpt-4o-mini')
-                        st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
-                        st.markdown(results)
-                        st.success("✅ 指標對撞分析完成")
-                    except:
-                        # 如果 chat 暫時繁忙，使用文字搜尋模式產出建議
-                        st.warning("⚠️ AI 智庫繁忙，正在透過高速數據採樣產出建議...")
-                        fallback_res = ddgs.text(f"分析股票 {symbol} 投資建議: {metrics_summary[:100]}", max_results=1)
-                        st.markdown(fallback_res[0]['body'] if fallback_res else "請稍後再試。")
-
-            except Exception as e:
-                st.error(f"❌ 系統診斷暫時失效：{str(e)}")
+        except Exception as e:
+            st.error(f"💥 系統連線異常：{str(e)}")
 
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
