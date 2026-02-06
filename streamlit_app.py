@@ -954,42 +954,40 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     """
 
     # 3. 按鈕觸發
-    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在連網搜尋 {symbol} 最新動態..."):
-            if "GEMINI_API_KEY" not in st.secrets:
-                st.error("❌ 找不到 GEMINI_API_KEY，請檢查 Secrets 設定。")
-                return
+    if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"正在分析 {symbol} 數據指標..."):
+            # 【手動測試區】請直接把你在 image_4ce09d.png 看到的那串新 Key 貼在下面引號內
+            # 測試成功後，我們再改回 st.secrets["GEMINI_API_KEY"]
+            manual_key = "AIzaSyBhFbGz7QIwzDQvkU1w79wMxAEAjyKc-bY" 
             
-            api_key = st.secrets["GEMINI_API_KEY"]
             import requests
-
-            # 定義嘗試順序：1.5 Flash -> 1.5 Flash-8b (更穩定)
-            model_variants = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
-            success = False
-
-            for mv in model_variants:
-                # 嘗試使用 v1beta，因為 Flash 系列在 beta 版通常權限最完整
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{mv}:generateContent?key={api_key}"
-                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            # 使用最穩定的 v1beta 搭配最新的 flash-8b (這個路徑目前全球最穩)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={manual_key}"
+            
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }]
+            }
+            
+            try:
+                res = requests.post(url, json=payload, timeout=15)
+                result = res.json()
                 
-                try:
-                    res = requests.post(url, json=payload, timeout=15)
-                    result = res.json()
+                if res.status_code == 200 and "candidates" in result:
+                    ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                    st.markdown(ai_text)
+                    st.success("✅ 終於成功了！這是手動 Key 對接測試。")
+                else:
+                    # 如果連這都失敗，這會抓出最底層的報錯
+                    st.error(f"錯誤代碼 {res.status_code}")
+                    st.write(result) # 把完整的錯誤訊息噴出來看
                     
-                    if res.status_code == 200 and "candidates" in result:
-                        ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
-                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                        st.markdown(ai_text)
-                        st.success(f"✅ 診斷完成！(使用模型: {mv})")
-                        success = True
-                        break # 成功就跳出迴圈
-                except:
-                    continue
-
-            if not success:
-                st.error("❌ 所有模型路徑皆嘗試失敗。")
-                st.info("💡 最終建議：請確認你的 Google 帳號是否已在 AI Studio 同意最新的服務條款。有時候沒勾選同意，API 就會回傳 404。")
+            except Exception as e:
+                st.error(f"連線端故障：{e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
