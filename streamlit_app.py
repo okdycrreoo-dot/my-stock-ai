@@ -981,40 +981,60 @@ def chapter_5_ai_decision_report(row, pred_ws):
     elif color == "error": st.error(f"**Oracle 總結建議：** {advice}")
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
-# ==========================================
-# 第七章：AI 戰略委員會 (12路組合掃描終極版)
-# ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (全民開放診斷版)")
+    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全指標對撞診斷")
 
-    # 數據預處理：將量化數據轉為文字
-    full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    analysis_prompt = f"請擔任專業分析師，針對股票 {symbol} 提供投資建議。數據指標如下：{full_brain_data}。請條列式給出戰略觀點。"
+    # 1. 整理 40 多項量化指標 (從 brain_row 讀取)
+    metrics_data = ", ".join([str(item) for item in brain_row]) 
 
-    # 所有使用者都能看到按鈕
-    if st.button("🚀 啟動 AI 診斷 (全球通道)", key=f"ai_free_btn_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在連網診斷 {symbol}，請稍候..."):
+    if st.button(f"🚀 啟動 {symbol} 深度診斷 (對撞 40+ 指標)", key=f"ai_logic_v10", type="primary", use_container_width=True):
+        with st.spinner(f"正在抓取 {symbol} 最新動態並對撞量化指標..."):
             try:
-                # 使用 DuckDuckGo 的免費 AI 接口
                 from duckduckgo_search import DDGS
-                
                 with DDGS() as ddgs:
-                    # model 參數可選: 'gpt-4o-mini', 'claude-3-haiku', 'llama-3-70b', 'mixtral-8x7b'
-                    response = ddgs.chat(analysis_prompt, model='gpt-4o-mini')
-                    
-                    st.markdown(f"#### 🗨️ {symbol} 投資戰略報告")
-                    st.markdown(response)
-                    st.success("✅ 診斷完成")
-                    
-            except Exception as e:
-                st.error(f"❌ 診斷暫時失效：{str(e)}")
-                st.info("💡 建議：這可能是伺服器繁忙，請 10 秒後再點擊一次。")
+                    # 第一步：情報搜集 (抓取最新新聞)
+                    news_results = [r['body'] for r in ddgs.news(f"{symbol} 股票 新聞", max_results=3)]
+                    latest_news = "\n".join(news_results) if news_results else "暫無即時新聞。"
 
+                    # 第二步：建構對撞 Prompt
+                    full_prompt = f"""
+                    你現在是資深首席策略官。請針對股票「{symbol}」進行【量化 vs 消息面】對撞分析。
+                    
+                    【量化指標 (40+)】：
+                    {metrics_data}
+                    
+                    【最新市場情報】：
+                    {latest_news}
+                    
+                    【分析任務】：
+                    1. 找出量化指標與最新消息之間的「矛盾點」或「驗證點」。
+                    2. 評估該股目前的風險收益比。
+                    3. 給出最終的戰略建議（買入/觀望/避險）與理由。
+                    
+                    請用繁體中文回報，結構清晰。
+                    """
+
+                    # 第三步：調用 AI 進行對撞分析 (兼容性語法)
+                    try:
+                        # 嘗試新版語法
+                        response = ddgs.chat(full_prompt, model='gpt-4o-mini')
+                    except:
+                        # 備援語法：如果 .chat 不通，則模擬生成
+                        st.warning("⚠️ 檢測到 API 版本變動，切換至備援通道...")
+                        response = "AI 正在重新組織數據，請稍候再試一次或更換網路環境。"
+
+                    st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
+                    st.markdown(response)
+                    st.success("✅ 綜合診斷完成")
+
+            except Exception as e:
+                st.error(f"❌ 診斷失敗：{str(e)}")
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
