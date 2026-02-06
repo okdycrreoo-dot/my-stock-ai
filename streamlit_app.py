@@ -1000,7 +1000,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             from duckduckgo_search import DDGS
             status_box.info("🔍 正在檢索全球即時新聞情報...")
             with DDGS() as ddgs:
-                news_data = [n['body'] for n in ddgs.news(f"{symbol} stock news", max_results=3)]
+                news_data = [n['body'] for n in ddgs.news(f"{symbol} stock news", max_results=5)]
                 latest_news = "\n".join(news_data) if news_data else "查無即時重大新聞。"
 
             # 🧠 第二階段：呼叫 Groq 進行指標對撞分析
@@ -1026,9 +1026,9 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             {latest_news}
             
             【分析任務】：
-            1. 找出指標數據與新聞消息的『衝突點』或『同步點』。
+            1. 請強制比較量化數據與新聞情緒。如果數據看多但新聞利空，請分析潛在陷阱。
             2. 根據 40 多項指標綜合評估，目前該股處於什麼狀態？
-            3. 給出明確的執行建議（買入/觀望/避險）與理由。
+            3. 給出明確的執行建議（買入/觀望/避險）與理由，必須分開列出「數據面結論」與「消息面結論」，最後再給出「綜合判斷」。
             
             請用繁體中文回報，條列式呈現。
             """
@@ -1057,6 +1057,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
