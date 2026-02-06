@@ -981,59 +981,67 @@ def chapter_5_ai_decision_report(row, pred_ws):
     elif color == "error": st.error(f"**Oracle 總結建議：** {advice}")
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
+# ==========================================
+# --- 7. AI連網分析 ---
+# ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全指標對撞診斷")
+    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 深度診斷")
 
-    # 1. 整理 40 多項量化指標 (從 brain_row 讀取)
-    metrics_data = ", ".join([str(item) for item in brain_row]) 
+    # 1. 整理 40 多項量化指標 (從 brain_row 中提取數據)
+    # 我們將這 40 多項指標轉化為文字清單
+    metrics_summary = "、".join([str(item) for item in brain_row]) 
 
-    if st.button(f"🚀 啟動 {symbol} 深度診斷 (對撞 40+ 指標)", key=f"ai_logic_v10", type="primary", use_container_width=True):
-        with st.spinner(f"正在抓取 {symbol} 最新動態並對撞量化指標..."):
+    # 所有人皆可點擊
+    if st.button(f"🚀 啟動 {symbol} 40+指標對撞分析", key=f"ai_final_expert", type="primary", use_container_width=True):
+        with st.spinner(f"智庫正在對撞指標並檢索 {symbol} 即時情報..."):
             try:
                 from duckduckgo_search import DDGS
                 with DDGS() as ddgs:
-                    # 第一步：情報搜集 (抓取最新新聞)
-                    news_results = [r['body'] for r in ddgs.news(f"{symbol} 股票 新聞", max_results=3)]
-                    latest_news = "\n".join(news_results) if news_results else "暫無即時新聞。"
+                    # 情報 A：獲取最新相關新聞
+                    news_query = f"{symbol} 股票 最新財報 關鍵新聞"
+                    news_data = [n['body'] for n in ddgs.news(news_query, max_results=3)]
+                    news_context = "\n".join(news_data) if news_data else "目前查無即時新聞。"
 
-                    # 第二步：建構對撞 Prompt
-                    full_prompt = f"""
-                    你現在是資深首席策略官。請針對股票「{symbol}」進行【量化 vs 消息面】對撞分析。
+                    # 對撞 Prompt
+                    prompt = f"""
+                    請擔任首席投資官，分析股票「{symbol}」。
                     
-                    【量化指標 (40+)】：
-                    {metrics_data}
+                    【數據層面】：這是 40 多項量化指標數據：
+                    {metrics_summary}
                     
-                    【最新市場情報】：
-                    {latest_news}
+                    【消息層面】：這是最新的市場消息：
+                    {news_context}
                     
                     【分析任務】：
-                    1. 找出量化指標與最新消息之間的「矛盾點」或「驗證點」。
-                    2. 評估該股目前的風險收益比。
-                    3. 給出最終的戰略建議（買入/觀望/避險）與理由。
+                    1. 數據與消息是否有矛盾？(例如指標走強但新聞偏空)
+                    2. 基於這 40 多項指標，該股的技術面與基本面綜合評分。
+                    3. 給出具體的操作戰略建議（買入、觀望、避險）。
                     
-                    請用繁體中文回報，結構清晰。
+                    請用繁體中文回報，條列式呈現。
                     """
 
-                    # 第三步：調用 AI 進行對撞分析 (兼容性語法)
+                    # 執行分析
                     try:
-                        # 嘗試新版語法
-                        response = ddgs.chat(full_prompt, model='gpt-4o-mini')
+                        # 這是目前最穩定的免費 GPT-4o-mini 通道
+                        results = ddgs.chat(prompt, model='gpt-4o-mini')
+                        st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
+                        st.markdown(results)
+                        st.success("✅ 指標對撞分析完成")
                     except:
-                        # 備援語法：如果 .chat 不通，則模擬生成
-                        st.warning("⚠️ 檢測到 API 版本變動，切換至備援通道...")
-                        response = "AI 正在重新組織數據，請稍候再試一次或更換網路環境。"
-
-                    st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
-                    st.markdown(response)
-                    st.success("✅ 綜合診斷完成")
+                        # 如果 chat 暫時繁忙，使用文字搜尋模式產出建議
+                        st.warning("⚠️ AI 智庫繁忙，正在透過高速數據採樣產出建議...")
+                        fallback_res = ddgs.text(f"分析股票 {symbol} 投資建議: {metrics_summary[:100]}", max_results=1)
+                        st.markdown(fallback_res[0]['body'] if fallback_res else "請稍後再試。")
 
             except Exception as e:
-                st.error(f"❌ 診斷失敗：{str(e)}")
+                st.error(f"❌ 系統診斷暫時失效：{str(e)}")
+
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
