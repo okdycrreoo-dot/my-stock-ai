@@ -917,9 +917,26 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 # 第七章：AI 戰略委員會 (全指標對撞版)
 # ==========================================
-def chapter_7_ai_committee_analysis(symbol, brain_row):
+def chapter_7_ai_committee_analysis(symbol, brain_row, df_oracle=None):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標即時診斷)")
+
+    # --- 新增：關鍵買入擊球點雷達 ---
+    if df_oracle is not None:
+        # 假設你的「AI診斷」或某個欄位會標記「關鍵買入」
+        # 這裡根據你的 Oracle 邏輯篩選，例如：AI診斷包含"買入"字眼
+        # 請根據你試算表的實際欄位索引 (例如索引 27 是 AI診斷) 進行調整
+        try:
+            strike_zone_stocks = df_oracle[df_oracle.iloc[:, 27].str.contains("買入|擊球點|佈局", na=False, case=False)]
+            strike_list = strike_zone_stocks.iloc[:, 0].tolist() # 假設第一欄是代號
+            
+            if strike_list:
+                st.info(f"🎯 **Oracle 核心偵測：關鍵買入擊球點股票**\n\n`{'`, `'.join(strike_list)}`")
+            else:
+                st.caption("🔍 目前 Oracle 監控中，尚未發現標準擊球點股票。")
+        except Exception as e:
+            st.caption("💡 正在等待 Oracle 數據同步中...")
+    # ---------------------------
 
     # 1. 【全腦掃描】：不再只取 5 項，而是把整列數據打包 (排除掉 symbol 等基礎欄位)
     # 我們假設 brain_row 包含了你那 40 多項分析指標
@@ -989,8 +1006,4 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
 
