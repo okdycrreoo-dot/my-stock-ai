@@ -952,17 +952,17 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
     # 按鈕觸發
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在連網搜尋 {symbol} 的最新動態並對接 Oracle 指標..."):
+        with st.spinner(f"正在連網搜尋 {symbol} 的最新動態..."):
             try:
-                # 配置 API Key
+                # 1. 配置 API Key
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 定義連網工具
+                # 2. 定義連網工具
                 search_tool = {"google_search_retrieval": {}}
 
-                # 建立連網模型
+                # 3. 使用官方推薦的全路徑名稱 'models/gemini-1.5-flash'
                 model = genai.GenerativeModel(
-                    model_name='gemini-1.5-flash',
+                    model_name='models/gemini-1.5-flash', 
                     tools=[search_tool]
                 )
                 
@@ -974,19 +974,19 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 st.caption("註：此報告結合了即時 Google 搜尋結果與量化數據。")
 
             except Exception as e:
-                # 備援方案：若連網工具不可用 (404 或 權限問題)，改用純 AI 模式
-                if "404" in str(e) or "not found" in str(e).lower():
-                    st.warning("⚠️ 目前暫時無法使用連網工具，切換至『純 AI 數據診斷』模式...")
-                    backup_model = genai.GenerativeModel(model_name='gemini-1.5-flash')
-                    # 這裡要確保 prompt 已經被定義
-                    response = backup_model.generate_content(prompt + "\n\n(注意：因連網功能暫不可用，以下分析僅基於量化大腦提供之數據進行推演)")
+                # 這裡處理任何模型找不到或連網工具不支援的錯誤
+                st.warning("⚠️ 連網工具暫時無法使用，嘗試啟動『純數據診斷模式』...")
+                try:
+                    # 備援方案：同樣使用全路徑 'models/gemini-1.5-flash'
+                    backup_model = genai.GenerativeModel(model_name='models/gemini-1.5-flash')
+                    response = backup_model.generate_content(prompt + "\n\n(注意：目前僅基於量化大腦提供之數據進行推演)")
                     st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (純數據版)")
                     st.markdown(response.text)
-                else:
-                    st.error(f"分析失敗：{e}")
-                    st.info("💡 請檢查 Secrets 中的 GEMINI_API_KEY 是否正確。")
-
+                except Exception as backup_e:
+                    st.error(f"❌ 診斷完全失敗：{backup_e}")
+                    st.info("💡 建議檢查 Google AI Studio 確認該 API Key 是否有權限存取 models/gemini-1.5-flash")
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
