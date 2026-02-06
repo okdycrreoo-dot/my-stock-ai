@@ -25,8 +25,20 @@ def setup_page():
 
 def is_valid_format(text):
     """1.5 & 2.5 限制章節：僅限英數"""
-    return bool(re.match("^[a-zA-Z0-9]*$", text))
-    
+    return bool(re.match("^[a-zA-Z0-9]+$", text))
+def safe_float(value):
+    """安全轉換浮點數，處理空值、百分比符號與逗號"""
+    try:
+        if value is None: return 0.0
+        # 如果是字串，先清理掉 % 和 ,
+        if isinstance(value, str):
+            value = value.replace('%', '').replace(',', '').strip()
+        # 處理空字串
+        if value == "": return 0.0
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+   
 # ==========================================
 # GitHub 連線通訊章節：叫醒雲端大腦
 # ==========================================
@@ -251,6 +263,61 @@ def main():
                 import time
                 time.sleep(0.5)
                 st.rerun()
+
+        # --- 【核心進化：Oracle 算法雷達 - 完全覆蓋版】 ---
+        # 修正點：必須先將 gspread Worksheet 轉換為 Pandas DataFrame 才能執行 apply
+        predictions_ws = db_dict.get("predictions") 
+        if predictions_ws is not None:
+            try:
+                import pandas as pd
+                # 1. 抓取所有資料並轉換為 DataFrame
+                raw_data = predictions_ws.get_all_values()
+                if len(raw_data) > 1:
+                    # 第一列為標題，其餘為資料
+                    df_oracle = pd.DataFrame(raw_data[1:], columns=raw_data[0])
+                    
+                    # 2. 定義內建判定函數：完全複製第六章翻譯官的 DNA
+                    def check_strike_zone(row_series):
+                        # 將 Series 轉回 list 方便使用你原本的索引位索引 (0-based)
+                        row = row_series.tolist()
+                        
+                        # 參數提取 (精準對應 38 欄位定義)
+                        # Y 欄(24):實際價, AI 欄(34):資金, AD 欄(29):乖離, D 欄(3):支撐, S 欄(18):壓力
+                        price = safe_float(row[24]) if len(row) > 24 else 0.0
+                        if price == 0: price = safe_float(row[2]) # 補位邏輯 (C欄)
+                        
+                        low_bound = safe_float(row[3]) if len(row) > 3 else 0.0   # D: range_low
+                        bias_v = safe_float(row[29]) if len(row) > 29 else 0.0    # AD: bias_5d
+                        m_val = safe_float(row[34]) if len(row) > 34 else 0.0     # AI: vol_bias
+                        res_v = safe_float(row[18]) if len(row) > 18 else 9999.0  # S: res_5d
+                        
+                        # 三層防護判定 (翻譯官核心算法)
+                        # A. 趨勢層：站穩支撐且未過熱
+                        trend_ok = (price > low_bound) and (bias_v < 8)
+                        # B. 資金層：追價意願強
+                        money_ok = (m_val > 1.0)
+                        # C. 空間層：距離壓力位有 3% 以上空間
+                        space_ok = ((res_v - price) / price) > 0.03 if price > 0 else False
+                        
+                        return trend_ok and money_ok and space_ok
+
+                    # 3. 執行全表邏輯掃描
+                    strike_mask = df_oracle.apply(check_strike_zone, axis=1)
+                    # 抓取第 0 欄 (股票代號)
+                    strike_list = df_oracle[strike_mask].iloc[:, 0].tolist() 
+                    
+                    if strike_list and len(strike_list) > 0:
+                        st.info(f"🎯 **Oracle 核心偵測：💎 絕佳擊球點發現！**\n\n`{'`, `'.join(strike_list)}`")
+                    else:
+                        st.caption("🔍 雷達掃描中：目前尚未發現『趨勢、資金、空間』三位一體之目標。")
+                else:
+                    st.caption("🔍 雷達待命中：資料庫目前尚無預測資料。")
+
+            except Exception as e:
+                # 僅在開發調試時顯示 e，穩定後保持靜默
+                # st.write(f"DEBUG: Radar Error - {e}")
+                pass 
+        # ----------------------------------------------------
 
         # 1. 執行第三章 (控制台與監控清單管理)
         chapter_3_watchlist_management(
@@ -546,7 +613,7 @@ def process_analysis(symbol, pred_ws):
 def is_valid_format(text):
     """1.5 & 2.5 限制章節：僅限英數"""
     if not text: return False
-    return bool(re.match("^[a-zA-Z0-9]*$", text))
+    return bool(re.match("^[a-zA-Z0-9]+$", text))
 
 # ==========================================
 # 補強工人 2：刪除邏輯 (防止刪除報錯)
@@ -989,5 +1056,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
