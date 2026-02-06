@@ -982,90 +982,52 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (全指標對撞 - 配額防護版)
+# 第七章：AI 戰略委員會 (最終修正強韌版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 數據提取與清洗 (不消耗 API 配額)
-    # 確保數據長度足夠，避免 index out of range
-    full_data_list = [str(item) for item in brain_row]
-    full_brain_data = ", ".join(full_data_list) 
+    full_brain_data = ", ".join([str(item) for item in brain_row]) 
 
-    # 2. 強化版 Prompt
-    prompt = f"""
-    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行「全指標與新聞對撞診斷」。
-    
-    【量化大腦全指標數據】：
-    {full_brain_data}
-    
-    (註：數據包含 40 多項量化分析指標，涵蓋：資金、趨勢、乖離、性價比、情緒等因子)
-    
-    【核心任務】：
-    1. 🔍 **連網檢索**：搜尋過去 72 小時關於 {symbol} 的重大即時新聞或法說會訊息。
-    2. 🚩 **深度對撞**：將量化指標與新聞對比，指出是否存在「指標轉強但新聞利空」等背離現象。
-    3. 🛡️ **風險回測**：給出具體防守價位建議。
-    4. ⚔️ **戰略結論**：給出明確的「進場/持有/觀望」建議。
-    """
-
-    # 3. 按鈕柵欄
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"軍師正在檢索 {symbol} 即時新聞與量化對撞..."):
-            import time
+        with st.spinner(f"軍師正在準備報紙與數據..."):
             import google.generativeai as genai
-            
-            # 配置 API
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # --- 策略：直接指定模型，避免 list_models() 消耗配額 ---
-            # 優先使用 2.0 Flash，因為它的搜索工具最強
-            primary_model_name = "gemini-2.0-flash" 
-            
-            success = False
-            
-            # --- 第一階段：連網診斷 ---
+            # --- 修正模型名稱與工具宣告 ---
+            # 1. 移除 list_models() 節省配額
+            # 2. 修正模型名稱前綴 (補上 models/)
+            primary_model = "models/gemini-2.0-flash-exp" 
+            backup_model = "models/gemini-1.5-flash"
+
+            # 嘗試使用 Google Search 工具 (相容舊版 SDK 宣告)
             try:
-                # 初始化模型並掛載 Google Search 工具
+                # 這裡改用通用宣告，避免 Unknown field 報錯
                 model = genai.GenerativeModel(
-                    model_name=primary_model_name,
-                    tools=[{"google_search": {}}]
+                    model_name=primary_model,
+                    tools=[{"google_search_retrieval": {}}] # 改用舊版支援的欄位名稱
                 )
-                
                 response = model.generate_content(prompt)
                 
-                if response and response.text:
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (連網模式)")
+                if response.text:
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                     st.markdown(response.text)
-                    st.success("✅ 連線診斷成功")
-                    success = True
-            
+                    st.success("✅ 連線成功！")
+                    return # 成功就結束
             except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg:
-                    st.warning("⚠️ Google Search 配額繁忙，正在切換至『內建智庫』模式...")
-                else:
-                    st.caption(f"連網模式提示：{error_msg}")
+                st.warning(f"⚠️ 連網模式失敗，嘗試純數據模式... (錯誤原因: {str(e)[:50]})")
 
-            # --- 第二階段：備援診斷 (若連網失敗或 429) ---
-            if not success:
-                time.sleep(1) # 稍微緩衝
-                try:
-                    # 備援模式不帶 tools，極大降低 429 機率
-                    backup_model = genai.GenerativeModel(model_name="gemini-1.5-flash")
-                    backup_response = backup_model.generate_content(
-                        prompt + "\n\n(注意：因線路擁擠，請專注於根據提供的量化指標進行深度分析，不需連網)"
-                    )
-                    
-                    if backup_response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (量化核心模式)")
-                        st.markdown(backup_response.text)
-                        st.info("💡 目前使用純數據診斷模式")
-                        success = True
-                except Exception as final_e:
-                    st.error(f"❌ 委員會會議中斷：{final_e}")
-                    st.info("💡 建議：請確認 API Key 是否有效，或靜置 60 秒後再試。")
+            # --- 備援模式：不帶工具，最穩定的路徑 ---
+            try:
+                # 備援模型也加上 models/ 前綴
+                simple_model = genai.GenerativeModel(model_name=backup_model)
+                response = simple_model.generate_content(prompt)
+                st.markdown(response.text)
+            except Exception as final_e:
+                st.error(f"❌ 智庫暫時無法回應：{final_e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
