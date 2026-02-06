@@ -948,44 +948,47 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
        - 如果新聞利空但量化指標強韌，請找尋轉機點。
     3. 輸出：🚩客觀裁判(引用新聞)、🛡️保守防守員(找風險)、⚔️攻擊進攻手(找獲利空間)。
     """
-
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在連網搜尋 {symbol} 最新動態..."):
+        with st.spinner(f"軍師正在翻閱 {symbol} 最新報章雜誌中..."):
             try:
                 import google.generativeai as genai
+                import time # 導入時間模組
+                
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 1. 自動偵測可用模型 (確保抓到 2.0 或 1.5)
+                # 自動偵測模型
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 target_model = next((m for m in available_models if "flash" in m), available_models[0])
                 
-                # 2. 自動判斷連網工具關鍵字
-                # Gemini 2.0 使用 'google_search'，1.5 使用 'google_search_retrieval'
+                # 工具名稱適配 (2.0 用 google_search)
                 search_tool_name = "google_search" if "2.0" in target_model else "google_search_retrieval"
                 
-                # 3. 建立模型實例
                 model = genai.GenerativeModel(
                     model_name=target_model,
-                    tools=[{search_tool_name: {}}] 
+                    tools=[{search_tool_name: {}}]
                 )
                 
-                # 4. 執行生成
+                # 執行生成
                 response = model.generate_content(prompt)
                 
-                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                st.markdown(response.text)
-                st.success(f"✅ 連線成功！(已啟用 {target_model} 即時新聞分析)")
-
+                if response.text:
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                    st.markdown(response.text)
+                    st.success(f"✅ 診斷完成！(使用 {target_model} 即時聯網)")
+                
             except Exception as e:
-                # 萬一連網工具還是失敗，嘗試「無工具」純數據輸出，不讓程式當掉
-                st.warning(f"⚠️ 連網分析暫時受限，改由數據診斷輸出...")
-                try:
+                # 判斷是否為頻率限制錯誤 (429)
+                if "429" in str(e) or "quota" in str(e).lower():
+                    st.warning("⚠️ Google 智庫目前連線過於頻繁，軍師正在排隊中...")
+                    st.info("💡 建議：請稍等 30-60 秒再試。我們目前的免費配額每分鐘有限。")
+                else:
+                    # 其他錯誤才走備援
+                    st.warning(f"⚠️ 連網分析暫時受限，改由『純數據』診斷輸出...")
                     backup_model = genai.GenerativeModel(target_model)
                     response = backup_model.generate_content(prompt + "\n(請專注於量化數據分析)")
                     st.markdown(response.text)
-                except:
-                    st.error(f"❌ 最終執行錯誤：{e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
