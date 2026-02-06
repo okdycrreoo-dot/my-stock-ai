@@ -915,38 +915,30 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (連網 + 數據雙軌診斷)
+# 第七章：AI 戰略委員會 (全指標對撞版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (連網即時診斷)")
+    st.write("### 🎖️ AI 戰略委員會 (全指標即時診斷)")
 
-    # 1. 數據投影提取
-    brain_summary = {
-        "AI診斷": brain_row[27] if len(brain_row) > 27 else "無",
-        "展望": brain_row[28] if len(brain_row) > 28 else "無",
-        "資金偏誤": f"{brain_row[34]}%" if len(brain_row) > 34 else "0%",
-        "性價比": brain_row[35] if len(brain_row) > 35 else "0",
-        "市場情緒": brain_row[36] if len(brain_row) > 36 else "數據不足"
-    }
+    # 1. 【全腦掃描】：不再只取 5 項，而是把整列數據打包 (排除掉 symbol 等基礎欄位)
+    # 我們假設 brain_row 包含了你那 40 多項分析指標
+    full_brain_data = ", ".join([str(item) for item in brain_row]) 
 
-    # 2. 強化版 Prompt：要求 AI 必須引用新聞
+    # 2. 強化版 Prompt：要求 AI 解析這 40+ 項指標
     prompt = f"""
-    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行深度分析。
+    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行「全指標與新聞對撞診斷」。
     
-    【量化大腦指標】：
-    - AI臨床結論：{brain_summary['AI診斷']}
-    - 未來展望：{brain_summary['展望']}
-    - 資金追價意願 (vol_bias)：{brain_summary['資金偏誤']}
-    - 投資性價比 (R/R)：{brain_summary['性價比']}
-    - Oracle 市場情緒：{brain_summary['市場情緒']}
+    【量化大腦全指標數據】：
+    {full_brain_data}
+    
+    (註：以上數據包含 40 多項量化分析指標，請自行從中提取「資金、趨勢、乖離、性價比、情緒」等核心因子)
     
     【核心任務】：
-    1. 使用 Google Search 搜尋過去 72 小時關於 {symbol} 的重大新聞、財報評論或法說會消息。
-    2. 請將『量化指標』與『現實新聞』進行對撞：
-       - 如果新聞利多但量化指標轉弱，請發出警報。
-       - 如果新聞利空但量化指標強韌，請找尋轉機點。
-    3. 輸出：🚩客觀裁判(引用新聞)、🛡️保守防守員(找風險)、⚔️攻擊進攻手(找獲利空間)。
+    1. 🔍 **連網檢索**：搜尋過去 72 小時關於 {symbol} 的重大即時新聞。
+    2. 🚩 **深度對撞**：將這 40 多項量化指標與新聞對比。特別注意指標中是否有「背離」現象(例如指標轉強但新聞利空，或指標轉弱新聞利多)。
+    3. 🛡️ **風險回測**：利用全指標中的支撐位與性價比數據，給出具體防守建議。
+    4. ⚔️ **戰略結論**：整合 40+ 量化數據與現實新聞，給出「買入/持有/觀望」建議。
     """
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
         with st.spinner(f"軍師正在準備報紙與數據..."):
@@ -990,6 +982,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
