@@ -955,30 +955,37 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 import google.generativeai as genai
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 自動偵測可用模型
+                # 1. 自動偵測可用模型 (確保抓到 2.0 或 1.5)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 target_model = next((m for m in available_models if "flash" in m), available_models[0])
                 
-                # 配置模型與搜尋工具
+                # 2. 自動判斷連網工具關鍵字
+                # Gemini 2.0 使用 'google_search'，1.5 使用 'google_search_retrieval'
+                search_tool_name = "google_search" if "2.0" in target_model else "google_search_retrieval"
+                
+                # 3. 建立模型實例
                 model = genai.GenerativeModel(
                     model_name=target_model,
-                    tools=[{"google_search_retrieval": {}}] # <--- 這是開啟新聞分析的鑰匙
+                    tools=[{search_tool_name: {}}] 
                 )
                 
-                # 執行生成
+                # 4. 執行生成
                 response = model.generate_content(prompt)
                 
                 st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                 st.markdown(response.text)
-                
-                # 額外的小提示
-                st.success(f"✅ 診斷完成！(已整合 Google Search 即時資訊)")
+                st.success(f"✅ 連線成功！(已啟用 {target_model} 即時新聞分析)")
 
             except Exception as e:
-                st.error(f"❌ 委員會執行失敗：{e}")
+                # 萬一連網工具還是失敗，嘗試「無工具」純數據輸出，不讓程式當掉
+                st.warning(f"⚠️ 連網分析暫時受限，改由數據診斷輸出...")
+                try:
+                    backup_model = genai.GenerativeModel(target_model)
+                    response = backup_model.generate_content(prompt + "\n(請專注於量化數據分析)")
+                    st.markdown(response.text)
+                except:
+                    st.error(f"❌ 最終執行錯誤：{e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
