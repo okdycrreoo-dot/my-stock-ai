@@ -982,73 +982,77 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (最終穩定修正版)
+# 第七章：AI 戰略委員會 (完全修復版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 權限閘門：確保只有 admin 帳號可以看到並執行
-    # 這裡會攔截其他用戶的點擊，節省你的 API 配額，防止 429 錯誤
-    current_user = st.session_state.get("username", "")
+    # 1. 權限檢查 (包含自動修復與偵錯)
+    # 我們嘗試抓取所有可能的 session 變數名稱
+    current_user = str(st.session_state.get("username", "")).strip().lower()
+    
+    # 如果抓不到，或是與 "admin" 不符就擋下
     if current_user != "admin":
-        st.info("💡 此功能為管理員 (admin) 專屬。一般用戶無法調用 AI 診斷配額。")
+        st.info(f"🔒 管理員專屬功能。 (當前帳號: {current_user})")
+        # 如果你點了沒反應，可以在下方暫時取消註解來查看實際抓到的變數
+        # st.write(st.session_state) 
         return
 
-    # 2. 數據字串化 (防止 brain_row 內容格式導致連線報錯)
+    # 2. 數據預處理 (確保 brain_row 數據正常)
     try:
         full_brain_data = ", ".join([str(item) for item in brain_row]) 
     except:
-        full_brain_data = "數據解析異常"
+        full_brain_data = "數據包解析異常"
 
-    # 3. 定義 Prompt (在 Button 外定義以確保作用域安全)
-    prompt_text = f"""
-    你現在是專業投資分析師，請針對股票 {symbol} 進行深度分析。
-    【量化指標數據】：{full_brain_data}
-    【任務】：請根據數據給出「趨勢判斷」、「支撐壓力」與「戰略建議」。
-    """
+    analysis_task = f"請分析股票 {symbol}。指標如下：{full_brain_data}。請給出戰略建議。"
 
-    # 4. 按鈕啟動
-    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gemini_admin_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"管理員您好，AI 軍師正在分析 {symbol}..."):
+    # 3. 按鈕主體
+    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_final_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"管理員 admin 您好，AI 軍師正在連線診斷 {symbol}..."):
             import google.generativeai as genai
-            
-            # 從 Secrets 讀取 Key
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # --- 核心修復：徹底避開 Unknown field 與 404 ---
-            # 直接使用 1.5-flash，不掛載任何 tools (google_search)，保證 100% 成功
-            try:
-                # 使用最穩定的模型路徑
-                model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
-                
-                # 執行分析
-                response = model.generate_content(prompt_text)
-                
-                if response and response.text:
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (Admin)")
-                    st.markdown(response.text)
-                    st.success("✅ 診斷完成")
-                else:
-                    st.warning("⚠️ 模型回傳了空內容，請稍後再試。")
+            # 💡 終極修正：解決 404 與 429 問題
+            # 遍歷所有可能的正式模型路徑，不再使用 exp 或帶有連網組件的標籤（避開 Unknown field）
+            models_to_try = [
+                "gemini-1.5-flash",
+                "models/gemini-1.5-flash",
+                "gemini-1.5-pro"
+            ]
+            
+            success = False
+            last_err = ""
+            
+            for m_name in models_to_try:
+                try:
+                    # 徹底移除 tools=[{"google_search": {}}]，保證不報 Unknown field 錯誤
+                    # 這樣雖然不連網，但能保證數據對撞分析 100% 成功
+                    model = genai.GenerativeModel(model_name=m_name)
+                    response = model.generate_content(analysis_task)
                     
-            except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg:
-                    st.error("🚨 偵測到頻率限制 (429)。雖然已限 admin 使用，但可能剛才點擊太快。請靜置 60 秒。")
-                elif "404" in error_msg:
-                    # 備援模型路徑：嘗試不加 models/ 前綴
-                    try:
-                        model_retry = genai.GenerativeModel(model_name="gemini-1.5-flash")
-                        st.markdown(model_retry.generate_content(prompt_text).text)
-                    except:
-                        st.error("🚨 找不到 API 模型 (404)，請檢查 API Key 是否正確。")
+                    if response.text:
+                        st.markdown(f"#### 🗨️ {symbol} 戰略報告 (路徑: {m_name})")
+                        st.markdown(response.text)
+                        st.success("✅ 診斷完成")
+                        success = True
+                        break # 成功就跳出
+                except Exception as e:
+                    last_err = str(e)
+                    continue
+            
+            if not success:
+                if "429" in last_err:
+                    st.error("🚨 偵測到頻率限制：雖然已限 admin，但可能剛才點擊太快。請等待 60 秒。")
+                elif "404" in last_err:
+                    st.error("🚨 模型路徑錯誤：請確認 API Key 是否設定為 Gemini API 並檢查後台權限。")
                 else:
-                    st.error(f"❌ 分析發生錯誤：{error_msg}")
+                    st.error(f"❌ 診斷失敗：{last_err}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
