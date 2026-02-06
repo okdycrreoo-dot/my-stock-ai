@@ -955,47 +955,38 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
     # 3. 按鈕觸發
     if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在與 Google 智庫建立加密連線..."):
-            # 優先使用你手動貼上的 Key 進行測試
-            manual_key = "這裡貼上你2月6日建立的那串新Key" 
-            
-            import requests
-            # 定義 Google 所有的模型路徑清單，這段代碼會一個一個試，試到成功為止
-            model_paths = [
-                "v1beta/models/gemini-1.5-flash",
-                "v1/models/gemini-1.5-flash",
-                "v1beta/models/gemini-1.5-pro",
-                "v1/models/gemini-1.5-pro",
-                "v1beta/models/gemini-pro"
-            ]
-            
-            final_response = None
-            used_model = ""
+        with st.spinner(f"正在喚醒 Google 智庫中心..."):
+            try:
+                import google.generativeai as genai
+                import os
+                
+                # 1. 取得 Key (請優先確保 Streamlit Secrets 已更新為 2/6 建立的那串)
+                api_key = st.secrets["GEMINI_API_KEY"]
+                genai.configure(api_key=api_key)
+                
+                # 2. 列出可用模型 (除錯用，會顯示在畫面上)
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                
+                if not available_models:
+                    st.error("❌ 你的 API Key 目前偵測不到任何可用模型。請回 AI Studio 確認是否有綁定信用卡或驗證電話。")
+                    return
 
-            for path in model_paths:
-                url = f"https://generativelanguage.googleapis.com/{path}:generateContent?key={manual_key}"
-                payload = {"contents": [{"parts": [{"text": prompt}]}]}
-                try:
-                    res = requests.post(url, json=payload, timeout=10)
-                    result = res.json()
-                    if res.status_code == 200 and "candidates" in result:
-                        final_response = result["candidates"][0]["content"]["parts"][0]["text"]
-                        used_model = path
-                        break
-                except:
-                    continue
-
-            # 顯示結果
-            if final_response:
+                # 3. 挑選清單中的第一個可用模型 (自動適配)
+                target_model = available_models[0]
+                model = genai.GenerativeModel(target_model)
+                
+                # 4. 執行生成
+                response = model.generate_content(prompt)
+                
                 st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                st.markdown(final_response)
-                st.success(f"✅ 連線成功！(已自動匹配可用路徑: {used_model})")
-            else:
-                st.error("❌ 所有 Google 模型路徑均回傳 404。")
-                st.info("💡 最終排除：請檢查你的 Google 帳號是否位於支援 Gemini 的地區（如台灣、美國），若使用 VPN 請嘗試切換節點。")
+                st.markdown(response.text)
+                st.success(f"✅ 連線成功！(自動適配模型: {target_model})")
+
+            except Exception as e:
+                st.error(f"❌ SDK 呼叫失敗：{e}")
+                st.info("💡 這是最後的物理排除：請確認你的 Watchlist 是否超過 20 支？過多的 API 請求有時會導致 Google 暫時封鎖你的 IP。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
 
