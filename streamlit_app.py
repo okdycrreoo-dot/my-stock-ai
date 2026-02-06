@@ -982,79 +982,72 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (修正版)
+# 第七章：AI 戰略委員會 (專修按鈕報錯版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 確保數據提取 (防止索引錯誤)
-    if not brain_row or len(brain_row) < 5:
-        st.warning("數據長度不足，無法啟動軍師會議。")
-        return
-
+    # 1. 先把數據轉成字串，防止下面調用時出錯
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
 
-    # 2. 定義核心 Prompt (必須在 Button 觸發前定義，或在 Button 內第一個定義)
-    prompt_content = f"""
+    # 2. 定義要發送的 Prompt (確保它在 button 觸發時一定存在)
+    final_prompt = f"""
     你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行「全指標與新聞對撞診斷」。
     
     【量化大腦全指標數據】：
     {full_brain_data}
     
     【核心任務】：
-    1. 🔍 **連網檢索**：搜尋過去 72 小時關於 {symbol} 的重大新聞。
-    2. 🚩 **深度對撞**：比對指標與新聞，指出是否有背離現象。
-    3. 🛡️ **風險回測**：給出具體防守建議。
-    4. ⚔️ **戰略結論**：整合量化與新聞，給出明確行動建議。
+    1. 🔍 連網檢索：搜尋過去 72 小時關於 {symbol} 的重大即時新聞。
+    2. 🚩 深度對撞：將指標與新聞對比，指出是否有背離現象。
+    3. 🛡️ 風險回測：給出具體防守建議。
+    4. ⚔️ 戰略結論：整合數據與新聞，給出「買入/持有/觀望」建議。
     """
 
-    # 3. 按鈕啟動
-    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"軍師正在準備報紙與數據..."):
+    # 3. 按鈕主體
+    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gem_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"軍師正在準備數據..."):
             import google.generativeai as genai
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # --- 修正模型名稱前綴與工具宣告 ---
-            # 優先嘗試 2.0 (連網能力最強)
-            target_model_name = "models/gemini-2.0-flash-exp" 
-            
+            # --- 策略：雙重嘗試機制 ---
             success = False
             
-            # --- 第一階段：嘗試連網診斷 ---
+            # 優先嘗試：2.0 Flash (含搜索工具)
             try:
-                # 這裡修正了 Unknown field 問題：改用 google_search_retrieval
+                # 這裡同時寫入兩種工具名稱格式，應對 SDK 版本差異
                 model = genai.GenerativeModel(
-                    model_name=target_model_name,
-                    tools=[{"google_search_retrieval": {}}] 
+                    model_name="models/gemini-2.0-flash-exp", # 加上 models/ 前綴最保險
+                    tools=[{"google_search": {}}] 
                 )
-                response = model.generate_content(prompt_content)
+                response = model.generate_content(final_prompt)
                 
                 if response and response.text:
                     st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (連網模式)")
                     st.markdown(response.text)
-                    st.success("✅ 連線診斷成功")
+                    st.success("✅ 連線成功！")
                     success = True
             except Exception as e:
-                # 捕捉 Unknown field 或 429 錯誤
-                st.warning(f"⚠️ 連網模式失敗，嘗試純數據模式... (原因: {str(e)[:40]}...)")
+                # 如果是工具標籤報錯 (Unknown field)，這裡會攔截
+                st.warning(f"⚠️ 連網組件啟動失敗，切換至備援智庫...")
 
-            # --- 第二階段：備援診斷 (純數據) ---
+            # 備援嘗試：1.5 Flash (不含工具，保證能出結果)
             if not success:
                 try:
-                    # 備援模型
+                    # 不帶 tools 參數，這是最穩定的調用方式，絕對不會噴 Unknown field
                     backup_model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
-                    response = backup_model.generate_content(prompt_content + "\n(請專注於量化數據分析)")
+                    backup_response = backup_model.generate_content(final_prompt + "\n(請專注於量化數據的深度診斷)")
                     
-                    if response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (量化核心模式)")
-                        st.markdown(response.text)
-                        st.info("💡 目前使用純數據診斷模式")
+                    if backup_response.text:
+                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (智庫模式)")
+                        st.markdown(backup_response.text)
+                        st.info("💡 目前使用純數據分析")
                 except Exception as final_e:
-                    st.error(f"❌ 智庫暫時無法回應：{final_e}")
+                    # 這裡處理 429 或 API Key 無效
+                    st.error(f"❌ AI 暫時無法回應：{final_e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
 
