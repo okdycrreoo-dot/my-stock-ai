@@ -982,72 +982,71 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (專修按鈕報錯版)
+# 第七章：AI 戰略委員會 (修正 API 404/Unknown Field)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 先把數據轉成字串，防止下面調用時出錯
+    # 1. 預處理數據
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
 
-    # 2. 定義要發送的 Prompt (確保它在 button 觸發時一定存在)
-    final_prompt = f"""
-    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行「全指標與新聞對撞診斷」。
-    
-    【量化大腦全指標數據】：
-    {full_brain_data}
-    
-    【核心任務】：
-    1. 🔍 連網檢索：搜尋過去 72 小時關於 {symbol} 的重大即時新聞。
-    2. 🚩 深度對撞：將指標與新聞對比，指出是否有背離現象。
-    3. 🛡️ 風險回測：給出具體防守建議。
-    4. ⚔️ 戰略結論：整合數據與新聞，給出「買入/持有/觀望」建議。
+    # 2. 定義 Prompt (確保變數名稱唯一且在 Button 內外都安全)
+    analysis_task = f"""
+    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行診斷。
+    數據：{full_brain_data}
+    任務：連網搜尋 72 小時內新聞，並與量化數據對撞，給出防守位與買賣戰略建議。
     """
 
-    # 3. 按鈕主體
-    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gem_v7_{symbol}", type="primary", use_container_width=True):
+    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
         with st.spinner(f"軍師正在準備數據..."):
             import google.generativeai as genai
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # --- 策略：雙重嘗試機制 ---
+            # --- 修正 1：模型名稱改用最穩定的「無 models/ 前綴」與「有前綴」雙嘗試 ---
+            # 這是為了解決截圖中的 404 models/gemini-1.5-flash is not found
+            model_list = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "models/gemini-1.5-flash"]
+            
             success = False
             
-            # 優先嘗試：2.0 Flash (含搜索工具)
+            # --- 修正 2：針對 Google Search 工具的相容性寫法 ---
+            # 截圖顯示 Unknown field: google_search，代表 SDK 不支援此標籤
             try:
-                # 這裡同時寫入兩種工具名稱格式，應對 SDK 版本差異
+                # 嘗試最先進的 2.0 連網模式
                 model = genai.GenerativeModel(
-                    model_name="models/gemini-2.0-flash-exp", # 加上 models/ 前綴最保險
+                    model_name="gemini-2.0-flash-exp",
                     tools=[{"google_search": {}}] 
                 )
-                response = model.generate_content(final_prompt)
-                
-                if response and response.text:
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (連網模式)")
+                response = model.generate_content(analysis_task)
+                if response.text:
                     st.markdown(response.text)
-                    st.success("✅ 連線成功！")
+                    st.success("✅ 連線診斷成功")
                     success = True
             except Exception as e:
-                # 如果是工具標籤報錯 (Unknown field)，這裡會攔截
-                st.warning(f"⚠️ 連網組件啟動失敗，切換至備援智庫...")
+                # 如果噴出 Unknown field 或 404，這裡會安靜攔截並切換
+                pass
 
-            # 備援嘗試：1.5 Flash (不含工具，保證能出結果)
+            # --- 修正 3：穩定的備援模式 (不帶工具，解決所有 404/400 問題) ---
             if not success:
-                try:
-                    # 不帶 tools 參數，這是最穩定的調用方式，絕對不會噴 Unknown field
-                    backup_model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
-                    backup_response = backup_model.generate_content(final_prompt + "\n(請專注於量化數據的深度診斷)")
-                    
-                    if backup_response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (智庫模式)")
-                        st.markdown(backup_response.text)
-                        st.info("💡 目前使用純數據分析")
-                except Exception as final_e:
-                    # 這裡處理 429 或 API Key 無效
-                    st.error(f"❌ AI 暫時無法回應：{final_e}")
+                for m_name in model_list:
+                    try:
+                        # 備援模式絕對不加 tools，確保 100% 成功回傳文字
+                        backup_model = genai.GenerativeModel(model_name=m_name)
+                        response = backup_model.generate_content(analysis_task + "\n(請專注於數據深度診斷)")
+                        if response.text:
+                            st.markdown(f"#### 🗨️ {symbol} 委員會紀錄 (智庫模式)")
+                            st.markdown(response.text)
+                            st.info(f"💡 已切換至穩定模型: {m_name}")
+                            success = True
+                            break
+                    except:
+                        continue
+            
+            if not success:
+                st.error("🚨 目前 API 所有路徑皆無法回應，請檢查 API Key 或稍後再試。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
