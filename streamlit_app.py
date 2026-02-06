@@ -951,46 +951,34 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     """
 
     # 按鈕觸發
-    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在連網搜尋 {symbol} 的最新動態..."):
+    if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"正在分析 {symbol} 數據指標..."):
             try:
-                # 1. 強制指定使用 v1beta 版本 (連網工具必備)
+                # 1. 配置 API
                 import google.generativeai as genai
-                from google.generativeai.types import content_types
-                
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 2. 建立模型 (嘗試使用最原始的名稱)
-                # 這次我們不帶任何 models/ 前綴試試看，並將 tools 分開傳入
-                model = genai.GenerativeModel(
-                    model_name='gemini-1.5-flash',
-                    tools=[{"google_search_retrieval": {}}]
-                )
+                # 2. 建立「無連網」的純淨模型 (避開導致 404 的 v1beta 特性)
+                # 使用最基礎的初始化方式
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 
                 # 3. 執行生成
-                response = model.generate_content(prompt)
+                # 我們把 prompt 稍微修改，告訴 AI 這是數據診斷
+                rich_prompt = prompt + "\n\n請注意：目前為『數據深度診斷模式』，請針對以上指標給出最辛辣的評價。"
+                response = model.generate_content(rich_prompt)
                 
-                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (深度診斷版)")
                 st.markdown(response.text)
-                st.caption("註：此報告已成功整合即時搜尋結果。")
+                st.success("✅ 診斷完成！(目前使用 Oracle 量化指標進行內部對抗)")
 
             except Exception as e:
-                # 如果連網還是報 404，進入「終極備援」
-                st.warning("⚠️ 連網模組對接異常，切換至『穩定版純 AI 模式』...")
-                try:
-                    # 備援：使用穩定版路徑，不帶任何 tools
-                    # 這是最不可能出錯的呼叫方式
-                    stable_model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = stable_model.generate_content(prompt + "\n\n(注意：目前僅基於量化大腦提供之數據進行推演)")
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (穩定版)")
-                    st.markdown(response.text)
-                except Exception as final_e:
-                    st.error(f"❌ 診斷完全失敗：{final_e}")
-                    st.write("🔧 可能原因：API Key 尚未生效或模型權限受限。請稍候 5 分鐘再試。")
+                st.error(f"❌ 委員會召開失敗：{e}")
+                st.info("💡 這可能是 Google API 的全球分流問題。請嘗試在 Google AI Studio 重新建立一組新的 API Key 貼到 Secrets 試試看。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
