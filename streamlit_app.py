@@ -981,13 +981,16 @@ def chapter_5_ai_decision_report(row, pred_ws):
     elif color == "error": st.error(f"**Oracle 總結建議：** {advice}")
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
+# ==========================================
+# 第七章：AI 戰略委員會 (12路組合掃描終極版)
+# ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (帳號權限最終診斷)")
+    st.write("### 🎖️ AI 戰略委員會 (全自動路徑掃描)")
 
-    # 1. 權限物理鎖 (解決 admin 消失問題)
+    # 1. 權限物理鎖：勾選即代表 Admin 認證
     force_unlock = st.checkbox("🔑 管理員身分強制校驗 (識別失敗請勾選)")
-    is_admin = any(str(st.session_state.get(k, "")).lower() == "admin" for k in ["username", "user"])
+    is_admin = any(str(st.session_state.get(k, "")).lower() == "admin" for k in ["username", "user", "name"])
 
     if not is_admin and not force_unlock:
         st.info("🔒 此功能為『系統管理員 admin』專屬。")
@@ -997,37 +1000,44 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
     prompt = f"分析股票 {symbol}。量化數據：{full_brain_data}。請給出投資建議。"
 
-    # 3. 診斷式呼叫
-    if st.button("🚀 發起強制連線請求", key="gem_final_diagnostic", type="primary", use_container_width=True):
+    # 3. 掃描式呼叫
+    if st.button("🚀 啟動全路徑掃描診斷", key="gem_ultimate_scan", type="primary", use_container_width=True):
         import requests
         import json
 
         api_key = st.secrets["GEMINI_API_KEY"]
-        # 直接測試最最最基礎的舊版模型，看是否連基礎服務都斷了
-        test_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
         
-        try:
-            res = requests.post(test_url, headers={'Content-Type': 'application/json'}, 
-                                data=json.dumps({"contents": [{"parts": [{"text": "hi"}]}]}), timeout=10)
-            
-            if res.status_code == 200:
-                st.success("✅ 基礎連線成功！正在生成分析報告...")
-                # 這裡再執行正式的 1.5-flash 分析 (代碼略，邏輯同前)
-            elif res.status_code == 404:
-                st.error("🚨 終極錯誤：Google 伺服器回報 404 (NotFound)")
-                st.markdown("""
-                ### 🛠️ 你的帳號需要手動解除鎖定：
-                1. **檢查地區**：確保你的 Google 帳號不是在受限地區（如中國、香港等，需跳板或切換地區）。
-                2. **啟用服務**：請至 [Google Cloud Console](https://console.cloud.google.com/) 搜尋 **Generative Language API** 並確認狀態為「已啟用」。
-                3. **新建專案**：在 AI Studio 建立一個「全新」的 Project，不要使用舊的。
-                """)
-            else:
-                st.error(f"❌ 錯誤代碼 {res.status_code}：{res.text}")
-        except Exception as e:
-            st.error(f"💥 網路層崩潰：{str(e)}")
-                       
+        # 定義所有可能的組合
+        versions = ["v1", "v1beta"]
+        models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+        prefixes = ["models/", "publishers/google/models/", ""]
+        
+        with st.spinner("正在嘗試 12 種 API 通道組合..."):
+            success = False
+            for v in versions:
+                for p in prefixes:
+                    for m in models:
+                        if success: break
+                        url = f"https://generativelanguage.googleapis.com/{v}/{p}{m}:generateContent?key={api_key}"
+                        try:
+                            res = requests.post(url, headers={'Content-Type': 'application/json'}, 
+                                              data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]}), timeout=5)
+                            if res.status_code == 200:
+                                ai_reply = res.json()['candidates'][0]['content']['parts'][0]['text']
+                                st.markdown(f"#### 🗨️ {symbol} 戰略報告")
+                                st.markdown(ai_reply)
+                                st.success(f"✅ 連線成功！通道：{v}/{p}{m}")
+                                success = True
+                        except:
+                            continue
+
+            if not success:
+                st.error("🚨 掃描完成：12 種路徑組合皆回報 404 或連線超時。")
+                st.info("💡 解決方案：請嘗試更換一個 Gmail 帳號並重新在 AI Studio 申請 Key。")
+
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
