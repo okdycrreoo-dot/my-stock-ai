@@ -986,58 +986,37 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (全自動路徑掃描)")
+    st.write("### 🎖️ AI 戰略委員會 (免 Key 穩定版)")
 
-    # 1. 權限物理鎖：勾選即代表 Admin 認證
-    force_unlock = st.checkbox("🔑 管理員身分強制校驗 (識別失敗請勾選)")
-    is_admin = any(str(st.session_state.get(k, "")).lower() == "admin" for k in ["username", "user", "name"])
-
-    if not is_admin and not force_unlock:
-        st.info("🔒 此功能為『系統管理員 admin』專屬。")
+    # 1. 保留你的 Admin 權限物理鎖
+    if not st.checkbox("🔑 管理員身分強制校驗"):
+        st.info("🔒 此功能為 admin 專屬。")
         return
 
-    # 2. 數據準備
-    full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    prompt = f"分析股票 {symbol}。量化數據：{full_brain_data}。請給出投資建議。"
-
-    # 3. 掃描式呼叫
-    if st.button("🚀 啟動全路徑掃描診斷", key="gem_ultimate_scan", type="primary", use_container_width=True):
-        import requests
-        import json
-
-        api_key = st.secrets["GEMINI_API_KEY"]
-        
-        # 定義所有可能的組合
-        versions = ["v1", "v1beta"]
-        models = ["gemini-1.5-flash", "gemini-1.5-pro"]
-        prefixes = ["models/", "publishers/google/models/", ""]
-        
-        with st.spinner("正在嘗試 12 種 API 通道組合..."):
-            success = False
-            for v in versions:
-                for p in prefixes:
-                    for m in models:
-                        if success: break
-                        url = f"https://generativelanguage.googleapis.com/{v}/{p}{m}:generateContent?key={api_key}"
-                        try:
-                            res = requests.post(url, headers={'Content-Type': 'application/json'}, 
-                                              data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]}), timeout=5)
-                            if res.status_code == 200:
-                                ai_reply = res.json()['candidates'][0]['content']['parts'][0]['text']
-                                st.markdown(f"#### 🗨️ {symbol} 戰略報告")
-                                st.markdown(ai_reply)
-                                st.success(f"✅ 連線成功！通道：{v}/{p}{m}")
-                                success = True
-                        except:
-                            continue
-
-            if not success:
-                st.error("🚨 掃描完成：12 種路徑組合皆回報 404 或連線超時。")
-                st.info("💡 解決方案：請嘗試更換一個 Gmail 帳號並重新在 AI Studio 申請 Key。")
+    if st.button("🚀 啟動 AI 診斷 (DuckDuckGo 引擎)", use_container_width=True):
+        with st.spinner("正在呼叫外部 AI 智庫..."):
+            try:
+                # 需在 requirements.txt 加入 duckduckgo_search
+                from duckduckgo_search import DDGS
+                
+                full_brain_data = ", ".join([str(item) for item in brain_row])
+                prompt = f"分析股票 {symbol}。指標如下：{full_brain_data}。請給出專業投資建議。"
+                
+                with DDGS() as ddgs:
+                    # 使用 GPT-4o-mini 引擎
+                    results = ddgs.chat(prompt, model='gpt-4o-mini')
+                    
+                    st.markdown(f"#### 🗨️ {symbol} 戰略報告 (GPT 引擎)")
+                    st.markdown(results)
+                    st.success("✅ 診斷完成")
+            except Exception as e:
+                st.error(f"❌ 診斷失敗：{e}")
+                st.info("提示：若失敗，請確保環境已安裝 duckduckgo_search 套件。")
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
