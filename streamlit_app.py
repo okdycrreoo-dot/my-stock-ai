@@ -915,19 +915,16 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (連網即時診斷)
+# 第七章：AI 戰略委員會 (連網即時診斷 - 最終完全版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     """
-    核心功能：
-    1. 接收 brain_row (大腦 40+ 指標投影)。
-    2. 啟動 Gemini 連網搜尋最新新聞。
-    3. 進行三方軍師角色扮演，與 Oracle 的數據進行『現實 vs. 理論』的對抗。
+    核心功能：整合 Google Search 連網功能與三方軍師診斷。
     """
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (連網即時診斷)")
 
-    # 數據投影提取 (根據 38 欄定義)
+    # 1. 數據投影提取 (根據 38 欄定義)
     brain_summary = {
         "AI診斷": brain_row[27] if len(brain_row) > 27 else "無",
         "展望": brain_row[28] if len(brain_row) > 28 else "無",
@@ -936,52 +933,58 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         "市場情緒": brain_row[36] if len(brain_row) > 36 else "數據不足"
     }
 
+    # 2. 定義 Prompt (剛才你的代碼漏掉這段，沒定義 prompt 會報錯)
+    prompt = f"""
+    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行深度分析。
+    
+    【量化大腦指標】：
+    - AI臨床結論：{brain_summary['AI診斷']}
+    - 未來展望：{brain_summary['展望']}
+    - 資金追價意願 (vol_bias)：{brain_summary['資金偏誤']}
+    - 投資性價比 (R/R)：{brain_summary['性價比']}
+    - Oracle 市場情緒：{brain_summary['市場情緒']}
+    
+    【任務說明】：
+    1. 整合搜尋過去 48 小時關於 {symbol} 的最新重大新聞。
+    2. 交叉驗證 Oracle 數據理論與現實新聞。
+    3. 輸出：🚩客觀裁判(比對)、🛡️保守防守員(找風險)、⚔️攻擊進攻手(找機會)。
+    """
+
     # 按鈕觸發
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
         with st.spinner(f"正在連網搜尋 {symbol} 的最新動態並對接 Oracle 指標..."):
             try:
-                # 設定 API (確保 st.secrets 裡有 KEY)
+                # 配置 API Key
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 建立 Prompt
-                prompt = f"""
-                你現在是『AI戰略委員會』的主席。針對股票 {symbol} 進行深度分析。
-                
-                【量化大腦的投影指標】：
-                - AI大腦臨床結論：{brain_summary['AI診斷']}
-                - 未來展望評估：{brain_summary['展望']}
-                - 資金追價意願 (vol_bias)：{brain_summary['資金偏誤']}
-                - 投資性價比 (R/R)：{brain_summary['性價比']}
-                - Oracle 市場情緒：{brain_summary['市場情緒']}
-                
-                【任務說明】：
-                1. 必須搜尋並整合過去 48 小時內關於 {symbol} 的最新重大新聞 (例如：財報、法說、主力買賣、產業趨勢)。
-                2. 針對 Oracle 的「數據理論」與現實中的「新聞消息」進行交叉驗證。
-                
-                【輸出格式】：
-                ● 🚩 角色 A (客觀裁判)：比對數據與新聞。如果大腦數據看好但新聞面有重大利空，請提出強烈警告。
-                ● 🛡️ 角色 B (保守防守員)：專挑骨頭！針對高乖離、利空消息或技術壓力位進行防禦性建議。
-                ● ⚔️ 角色 C (攻擊進攻手)：找尋機會點。若數據與利多消息產生『共鳴』，指出最佳的進攻劇本。
-                """
+                # 定義連網工具
+                search_tool = {"google_search_retrieval": {}}
 
-                # 呼叫模型 (修正名稱為 'models/gemini-1.5-flash')
-                # 注意：有些版本需要加上 'models/' 前綴才能正確辨認
+                # 建立連網模型
                 model = genai.GenerativeModel(
-                    model_name='models/gemini-1.5-flash', 
-                    tools=[{"google_search_retrieval": {}}]
+                    model_name='gemini-1.5-flash',
+                    tools=[search_tool]
                 )
-
+                
                 # 執行生成
                 response = model.generate_content(prompt)
                 
-                # 輸出
                 st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                 st.markdown(response.text)
-                st.caption("註：以上分析結合量化大腦數據與即時網路資訊，僅供參考。")
+                st.caption("註：此報告結合了即時 Google 搜尋結果與量化數據。")
 
             except Exception as e:
-                st.error(f"連網分析失敗：{e}")
-                st.info("💡 提醒：請檢查 Streamlit Secrets 中的 API KEY 是否有效。")
+                # 備援方案：若連網工具不可用 (404 或 權限問題)，改用純 AI 模式
+                if "404" in str(e) or "not found" in str(e).lower():
+                    st.warning("⚠️ 目前暫時無法使用連網工具，切換至『純 AI 數據診斷』模式...")
+                    backup_model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+                    # 這裡要確保 prompt 已經被定義
+                    response = backup_model.generate_content(prompt + "\n\n(注意：因連網功能暫不可用，以下分析僅基於量化大腦提供之數據進行推演)")
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (純數據版)")
+                    st.markdown(response.text)
+                else:
+                    st.error(f"分析失敗：{e}")
+                    st.info("💡 請檢查 Secrets 中的 GEMINI_API_KEY 是否正確。")
 
 # 確保程式啟動
 if __name__ == "__main__":
