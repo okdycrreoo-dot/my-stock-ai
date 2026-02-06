@@ -986,57 +986,78 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 專業級對撞診斷")
+    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全球智庫聯網診斷")
 
-    # 1. 整理 40 多項指標 (Groq 處理能力強，可以全放)
-    metrics_str = " | ".join([str(x) for x in brain_row])
+    # 1. 指標預處理：讓 AI 讀懂這 40 多項數據
+    metrics_summary = " | ".join([str(item) for item in brain_row])
 
-    if st.button(f"🚀 啟動 {symbol} 專業對撞 (Groq 引擎)", key="ai_groq_v1", type="primary", use_container_width=True):
-        status = st.empty()
+    # 所有人開放使用
+    if st.button(f"🚀 啟動 {symbol} 深度對撞分析 (Groq 引擎)", key="ai_final_groq", type="primary", use_container_width=True):
+        status_box = st.empty()
+        
         try:
-            # 準備新聞抓取 (DuckDuckGo 抓新聞很穩，不穩定的是它的 Chat)
+            # 📡 第一階段：抓取即時新聞 (使用較穩的 DDGS News 通道)
             from duckduckgo_search import DDGS
-            status.info("📡 正在蒐集全球即時情報...")
+            status_box.info("🔍 正在檢索全球即時新聞情報...")
             with DDGS() as ddgs:
-                news = [n['body'] for n in ddgs.news(f"{symbol} 股票 財報", max_results=3)]
-                latest_news = "\n".join(news) if news else "目前無重大新聞。"
+                news_data = [n['body'] for n in ddgs.news(f"{symbol} stock news", max_results=3)]
+                latest_news = "\n".join(news_data) if news_data else "查無即時重大新聞。"
 
-            # 準備 Groq AI 分析
-            status.info("🧠 正在使用 Groq 加速引擎進行 40+ 指標對撞...")
+            # 🧠 第二階段：呼叫 Groq 進行指標對撞分析
+            status_box.info("⚖️ 正在進行 40+ 指標與消息面對撞分析...")
             import requests
-            
-            groq_key = st.secrets["GROQ_API_KEY"]
+
+            # 從 Secrets 讀取 Key
+            groq_key = st.secrets.get("GROQ_API_KEY", "")
+            if not groq_key:
+                st.error("❌ 找不到 GROQ_API_KEY，請先在 Secrets 中設定。")
+                return
+
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
-            prompt = f"分析股票 {symbol}。量化數據：{metrics_str}。最新消息：{latest_news}。請針對數據與消息的矛盾點進行對撞分析，給出具體買賣戰略。"
+            prompt = f"""
+            你現在是華爾街頂級首席策略官，請分析股票「{symbol}」。
             
-            data = {
-                "model": "llama-3.3-70b-versatile", # 使用目前最強模型
+            【量化指標數據 (40+)】：
+            {metrics_summary}
+            
+            【即時市場消息】：
+            {latest_news}
+            
+            【分析任務】：
+            1. 找出指標數據與新聞消息的『衝突點』或『同步點』。
+            2. 根據 40 多項指標綜合評估，目前該股處於什麼狀態？
+            3. 給出明確的執行建議（買入/觀望/避險）與理由。
+            
+            請用繁體中文回報，條列式呈現。
+            """
+
+            payload = {
+                "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.5
             }
-            
-            response = requests.post(url, headers=headers, json=data, timeout=15)
-            res_json = response.json()
+
+            response = requests.post(url, headers=headers, json=payload, timeout=20)
             
             if response.status_code == 200:
-                status.empty()
-                report = res_json['choices'][0]['message']['content']
-                st.markdown(f"#### 🗨️ {symbol} 專業診斷報告 (Powered by Groq)")
+                status_box.empty()
+                report = response.json()['choices'][0]['message']['content']
+                st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
                 st.markdown(report)
-                st.success("✅ 診斷完成")
+                st.success("✅ 指標對撞分析完成")
             else:
-                st.error(f"❌ Groq 報錯：{res_json.get('error', {}).get('message', '未知錯誤')}")
+                st.error(f"❌ Groq 伺服器回報錯誤：{response.text}")
 
         except Exception as e:
-            st.error(f"❌ 系統異常：{str(e)}")
-
-
+            st.error(f"💥 診斷系統異常：{str(e)}")
+            st.info("建議檢查 requirements.txt 是否包含 duckduckgo_search 與 requests")
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
