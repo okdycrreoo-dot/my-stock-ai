@@ -10,6 +10,7 @@ extra-streamlit-components
 ta
 requests
 google-generativeai
+duckduckgo_search
 
 
 
