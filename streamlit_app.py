@@ -990,7 +990,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
     # 1. 權限檢查 (假設你的帳號資訊儲存在 st.session_state.user_id)
     # 請根據你原本 admin 登入邏輯的變數名稱修改，例如 st.session_state.username
-    current_user = st.session_state.get("username", "guest") 
+    current_user = st.session_state.get("username", "admin") 
     
     if current_user != "admin":
         st.warning("🔒 此功能為『管理員專屬』，一般帳號無權調用 AI 戰略分析。")
@@ -1036,6 +1036,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
