@@ -6,6 +6,7 @@ import json
 import re
 import requests # <-- 記得補上這行，因為發送指令需要它
 import time     # <-- 記得補上這行，後續等待檢查需要它
+import google.generativeai as genai
 # ==========================================
 # 基礎設定章節：強制白色主題與解鎖
 # ==========================================
@@ -272,7 +273,11 @@ def main():
 
                 # 4. 執行第五章 (AI 深度報告)
                 if "current_analysis" in st.session_state:
+                    # 執行原有的 AI 報告 (內含第六章 Oracle 翻譯官)
                     chapter_5_ai_decision_report(st.session_state["current_analysis"], db_dict["predictions"])
+                    # --- 【新增：第七章入口】 ---
+                    # 這裡直接傳入 active_stock 和當前的分析行 row
+                    chapter_7_ai_committee_analysis(active_stock, st.session_state["current_analysis"])
             else:
                 # 如果使用者切換了 Radio 但還沒按分析按鈕
                 st.info(f"💡 您切換到了 {current_selection}，請點擊「開始分析」以更新下方報表。")
@@ -909,9 +914,73 @@ def chapter_5_ai_decision_report(row, pred_ws):
     elif color == "error": st.error(f"**Oracle 總結建議：** {advice}")
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
+# ==========================================
+# 第七章：AI 戰略委員會 (連網即時診斷)
+# ==========================================
+def chapter_7_ai_committee_analysis(symbol, brain_row):
+    """
+    核心功能：
+    1. 接收 brain_row (大腦 40+ 指標投影)。
+    2. 啟動 Gemini 連網搜尋最新新聞。
+    3. 進行三方軍師角色扮演，與 Oracle 的數據進行『現實 vs. 理論』的對抗。
+    """
+    st.markdown("---")
+    st.write("### 🎖️ AI 戰略委員會 (連網即時診斷)")
+
+    # 數據投影提取 (根據 38 欄定義)
+    brain_summary = {
+        "AI診斷": brain_row[27] if len(brain_row) > 27 else "無",
+        "展望": brain_row[28] if len(brain_row) > 28 else "無",
+        "資金偏誤": f"{brain_row[34]}%" if len(brain_row) > 34 else "0%",
+        "性價比": brain_row[35] if len(brain_row) > 35 else "0",
+        "市場情緒": brain_row[36] if len(brain_row) > 36 else "數據不足"
+    }
+
+    # 按鈕觸發
+    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"正在連網搜尋 {symbol} 的最新動態並對接 Oracle 指標..."):
+            try:
+                # 設定 API (確保 st.secrets 裡有 KEY)
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                
+                # 建立 Prompt
+                prompt = f"""
+                你現在是『AI戰略委員會』的主席。針對股票 {symbol} 進行深度分析。
+                
+                【量化大腦的投影指標】：
+                - AI大腦臨床結論：{brain_summary['AI診斷']}
+                - 未來展望評估：{brain_summary['展望']}
+                - 資金追價意願 (vol_bias)：{brain_summary['資金偏誤']}
+                - 投資性價比 (R/R)：{brain_summary['性價比']}
+                - Oracle 市場情緒：{brain_summary['市場情緒']}
+                
+                【任務說明】：
+                1. 必須搜尋並整合過去 48 小時內關於 {symbol} 的最新重大新聞 (例如：財報、法說、主力買賣、產業趨勢)。
+                2. 針對 Oracle 的「數據理論」與現實中的「新聞消息」進行交叉驗證。
+                
+                【輸出格式】：
+                ● 🚩 角色 A (客觀裁判)：比對數據與新聞。如果大腦數據看好但新聞面有重大利空，請提出強烈警告。
+                ● 🛡️ 角色 B (保守防守員)：專挑骨頭！針對高乖離、利空消息或技術壓力位進行防禦性建議。
+                ● ⚔️ 角色 C (攻擊進攻手)：找尋機會點。若數據與利多消息產生『共鳴』，指出最佳的進攻劇本。
+                """
+
+                # 呼叫模型
+                model = genai.GenerativeModel('gemini-1.5-flash', tools=[{"google_search_retrieval": {}}])
+                response = model.generate_content(prompt)
+                
+                # 輸出
+                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                st.markdown(response.text)
+                st.caption("註：以上分析結合量化大腦數據與即時網路資訊，僅供參考。")
+
+            except Exception as e:
+                st.error(f"連網分析失敗：{e}")
+                st.info("💡 提醒：請檢查 Streamlit Secrets 中的 API KEY 是否有效。")
+
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
