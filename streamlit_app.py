@@ -982,49 +982,61 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (修正 API 404/Unknown Field)
+# 第七章：AI 戰略委員會 (Admin 限定 + 穩定修復版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 數據轉字串
+    # 1. 權限檢查 (假設你的帳號資訊儲存在 st.session_state.user_id)
+    # 請根據你原本 admin 登入邏輯的變數名稱修改，例如 st.session_state.username
+    current_user = st.session_state.get("username", "guest") 
+    
+    if current_user != "admin":
+        st.warning("🔒 此功能為『管理員專屬』，一般帳號無權調用 AI 戰略分析。")
+        return
+
+    # 2. 數據預處理
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
+    task_prompt = f"分析股票 {symbol}。量化數據如下：{full_brain_data}。請給出投資建議。"
 
-    # 先定義好任務內容
-    task_content = f"股票代碼: {symbol}\n量化指標: {full_brain_data}\n任務: 請根據指標進行深度對撞分析並給出買賣戰略。"
-
+    # 3. 按鈕啟動
     if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"軍師正在分析數據..."):
+        # 再次確保只有 admin 按下才有反應
+        with st.spinner(f"軍師正為管理員分析數據..."):
             import google.generativeai as genai
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 💡 核心修正：使用最穩定的 1.5 Flash，並「移除」所有 tools
-            # 這樣可以完全避開 Unknown field 和 404 問題
-            try:
-                # 嘗試正式版模型名稱
-                model = genai.GenerativeModel(model_name="gemini-1.5-flash")
-                response = model.generate_content(task_content)
-                
-                if response.text:
-                    st.markdown(response.text)
-                    st.success("✅ 數據診斷完成")
-            except Exception as e:
-                if "429" in str(e):
-                    st.error("🚨 頻率過高：Google API 免費額度暫時耗盡。請等待 60 秒後再點擊。")
-                elif "404" in str(e):
-                    # 如果連 1.5 flash 都 404，嘗試加前綴
-                    try:
-                        m2 = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
-                        st.markdown(m2.generate_content(task_content).text)
-                    except:
-                        st.error("🚨 模型路徑錯誤，請確認 API Key 是否設定正確。")
+            # 💡 核心策略：徹底放棄連網工具 (解決 Unknown field)
+            # 使用最通用的模型名稱格式 (解決 404)
+            success = False
+            model_options = ["gemini-1.5-flash", "models/gemini-1.5-flash"]
+            
+            for m_path in model_options:
+                try:
+                    # 不傳入 tools 參數，這路徑最穩，絕對不會噴紅字錯誤
+                    model = genai.GenerativeModel(model_name=m_path)
+                    response = model.generate_content(task_prompt)
+                    
+                    if response.text:
+                        st.markdown(response.text)
+                        st.success("✅ 管理員診斷完成")
+                        success = True
+                        break # 成功就跳出迴圈
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+            
+            if not success:
+                if "429" in last_error:
+                    st.error("🚨 配額已達上限。Gemini 免費版每分鐘限制較多，請等 60 秒再試。")
                 else:
-                    st.error(f"❌ 分析中斷：{e}")
+                    st.error(f"❌ AI 呼叫失敗：{last_error}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
