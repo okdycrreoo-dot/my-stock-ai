@@ -982,98 +982,62 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (完全修復版)
+# 第七章：AI 戰略委員會 (路徑強制修正版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (權限診斷版)")
+    st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # --- 1. 自動偵測當前帳號 (解決抓不到帳號的問題) ---
-    # 同時檢查幾個常見的變數名稱
-    user_keys = ["username", "user_id", "user", "name", "account"]
-    current_user = ""
-    
-    for key in user_keys:
-        val = st.session_state.get(key)
-        if val:
-            current_user = str(val).strip().lower()
-            break
-            
-    # 如果還是抓不到，直接把整個 session_state 列出來給你看 (診斷用)
-    if not current_user:
-        st.error("🚨 偵測不到登入資訊，請確認是否已正確登入。")
-        with st.expander("🔍 點此查看系統變數 (DEBUG)"):
-            st.write(st.session_state)
-        return
-
-    # --- 2. 權限判斷 ---
+    # 1. 權限檢查 (已確認 admin 可抓到)
+    current_user = str(st.session_state.get("username", "")).strip().lower()
     if current_user != "admin":
-        st.info(f"🔒 管理員專屬功能。 (當前偵測到帳號: {current_user})")
+        st.info(f"🔒 管理員專屬功能。")
         return
 
-    # --- 3. AI 分析邏輯 (接續之前的穩定版代碼) ---
-    st.success(f"🔓 管理員 {current_user} 認證成功，正在載入 AI 智庫...")
-    # ... (後續 genai 調用代碼) ...
+    # 2. 數據預處理
+    full_brain_data = ", ".join([str(item) for item in brain_row]) 
+    analysis_task = f"請分析股票 {symbol}。量化數據如下：{full_brain_data}。請給出戰略建議。"
 
-    # 2. 數據預處理 (確保 brain_row 數據正常)
-    try:
-        full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    except:
-        full_brain_data = "數據包解析異常"
-
-    analysis_task = f"請分析股票 {symbol}。指標如下：{full_brain_data}。請給出戰略建議。"
-
-    # 3. 按鈕主體
-    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_final_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"管理員 admin 您好，AI 軍師正在連線診斷 {symbol}..."):
+    # 3. 按鈕啟動
+    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_v7_final_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"管理員 admin 您好，AI 軍師正在強制連線診斷 {symbol}..."):
             import google.generativeai as genai
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 💡 終極修正：解決 404 與 429 問題
-            # 遍歷所有可能的正式模型路徑，不再使用 exp 或帶有連網組件的標籤（避開 Unknown field）
+            # 💡 終極對策：遍歷所有可能的正式名稱
+            # 你的環境報 404 是因為名稱不匹配，這裡我們把所有格式都列出來試一遍
             models_to_try = [
-                "gemini-1.5-flash",
-                "models/gemini-1.5-flash",
-                "gemini-1.5-pro"
+                "gemini-1.5-flash",        # 格式 A
+                "models/gemini-1.5-flash", # 格式 B
+                "gemini-pro",              # 格式 C (舊版)
+                "models/gemini-pro"        # 格式 D
             ]
             
             success = False
-            last_err = ""
+            last_error_msg = ""
             
             for m_name in models_to_try:
                 try:
-                    # 徹底移除 tools=[{"google_search": {}}]，保證不報 Unknown field 錯誤
-                    # 這樣雖然不連網，但能保證數據對撞分析 100% 成功
+                    # 確保完全不使用 tools，避免 Unknown field 報錯
                     model = genai.GenerativeModel(model_name=m_name)
                     response = model.generate_content(analysis_task)
                     
                     if response.text:
-                        st.markdown(f"#### 🗨️ {symbol} 戰略報告 (路徑: {m_name})")
+                        st.markdown(f"#### 🗨️ {symbol} 戰略報告")
                         st.markdown(response.text)
+                        st.caption(f"🤖 分析引擎：{m_name}") # 讓你知道是哪個成功的
                         st.success("✅ 診斷完成")
                         success = True
-                        break # 成功就跳出
+                        break # 只要有一個成功就跳出
                 except Exception as e:
-                    last_err = str(e)
+                    last_error_msg = str(e)
                     continue
             
             if not success:
-                if "429" in last_err:
-                    st.error("🚨 偵測到頻率限制：雖然已限 admin，但可能剛才點擊太快。請等待 60 秒。")
-                elif "404" in last_err:
-                    st.error("🚨 模型路徑錯誤：請確認 API Key 是否設定為 Gemini API 並檢查後台權限。")
-                else:
-                    st.error(f"❌ 診斷失敗：{last_err}")
+                st.error(f"🚨 API 呼叫失敗。原因：{last_error_msg}")
+                st.info("建議：請前往 Google AI Studio 檢查 API Key 權限，或檢查是否已欠費/達到免費額度限制。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
