@@ -951,23 +951,30 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             target_model = next((m for m in available_models if "flash" in m), available_models[0])
             tool_config = [{"google_search": {}}] if "2.0" in target_model else [{"google_search_retrieval": {}}]
 
-            # --- 核心修改：自動重試邏輯 ---
+            # --- 強韌化重試邏輯 ---
             success = False
-            for attempt in range(2): # 嘗試 2 次
+            for attempt in range(2): 
                 try:
+                    # 如果是第二次嘗試，稍微多等一下，並簡化 Prompt 減輕負擔
+                    if attempt == 1:
+                        time.sleep(5) 
+                    
                     model = genai.GenerativeModel(model_name=target_model, tools=tool_config)
                     response = model.generate_content(prompt)
                     
                     if response.text:
                         st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                         st.markdown(response.text)
-                        st.success(f"✅ 連線成功！(第 {attempt+1} 次嘗試)")
+                        st.success(f"✅ 連線成功！")
                         success = True
                         break
                 except Exception as e:
-                    if attempt == 0: # 第一次失敗，等一下再試
-                        time.sleep(2) 
+                    if "429" in str(e): # 專指流量限制錯誤
+                        st.warning(f"正在避開 Google 流量高峰，請稍候...")
+                        time.sleep(8)
                         continue
+                    else:
+                        break
             
             # 如果兩次都失敗，才走數據診斷
             if not success:
@@ -982,6 +989,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
