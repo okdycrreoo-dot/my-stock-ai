@@ -988,69 +988,44 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # 1. 預處理數據 (確保變數在 button 觸發時存在)
+    # 數據轉字串
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
 
-    analysis_task = f"""
-    你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行診斷。
-    量化指標：{full_brain_data}
-    任務：
-    1. 🔍 連網搜尋 72 小時內關於 {symbol} 的新聞。
-    2. 🚩 與數據對撞，指出是否有「指標轉強但新聞利空」等背離。
-    3. 🛡️ 給出具體防守位與戰略建議。
-    """
+    # 先定義好任務內容
+    task_content = f"股票代碼: {symbol}\n量化指標: {full_brain_data}\n任務: 請根據指標進行深度對撞分析並給出買賣戰略。"
 
-    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"軍師正在準備數據..."):
+    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"軍師正在分析數據..."):
             import google.generativeai as genai
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # --- 修正關鍵：解決 404 與 Unknown field ---
-            # 定義嘗試順序：2.0 連網 -> 1.5 智庫
-            success = False
-            
-            # 第一階段：嘗試 2.0 連網 (包含工具相容性寫法)
+            # 💡 核心修正：使用最穩定的 1.5 Flash，並「移除」所有 tools
+            # 這樣可以完全避開 Unknown field 和 404 問題
             try:
-                # 這裡不加 models/，並嘗試最新的工具標籤
-                model_20 = genai.GenerativeModel(
-                    model_name="gemini-2.0-flash-exp",
-                    tools=[{"google_search": {}}]
-                )
-                response = model_20.generate_content(analysis_task)
+                # 嘗試正式版模型名稱
+                model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+                response = model.generate_content(task_content)
+                
                 if response.text:
-                    st.markdown(f"#### 🗨️ {symbol} 委員會紀錄 (連網模式)")
                     st.markdown(response.text)
-                    st.success("✅ 分析完成")
-                    success = True
+                    st.success("✅ 數據診斷完成")
             except Exception as e:
-                # 如果 2.0 失敗 (404 或工具不支援)，靜默進入下一階段
-                pass
-
-            # 第二階段：嘗試 1.5 智庫 (多重模型路徑備援)
-            if not success:
-                # 遍歷所有可能的模型名稱格式，解決 404 問題
-                backup_paths = ["gemini-1.5-flash", "models/gemini-1.5-flash"]
-                for path in backup_paths:
+                if "429" in str(e):
+                    st.error("🚨 頻率過高：Google API 免費額度暫時耗盡。請等待 60 秒後再點擊。")
+                elif "404" in str(e):
+                    # 如果連 1.5 flash 都 404，嘗試加前綴
                     try:
-                        # 備援模式「絕對不帶 tools」，避免 Unknown field 報錯
-                        model_15 = genai.GenerativeModel(model_name=path)
-                        response = model_15.generate_content(analysis_task + "\n(請專注於量化數據對撞分析)")
-                        if response.text:
-                            st.markdown(f"#### 🗨️ {symbol} 委員會紀錄 (內部智庫模式)")
-                            st.markdown(response.text)
-                            st.info(f"💡 目前模式：數據對撞 (已避開連網組件報錯)")
-                            success = True
-                            break
+                        m2 = genai.GenerativeModel(model_name="models/gemini-1.5-flash")
+                        st.markdown(m2.generate_content(task_content).text)
                     except:
-                        continue
-            
-            # 第三階段：如果全滅，報錯提示
-            if not success:
-                st.error("🚨 API 路徑暫時受阻。請確認 API Key 是否有效，或靜置 60 秒後再試。")
+                        st.error("🚨 模型路徑錯誤，請確認 API Key 是否設定正確。")
+                else:
+                    st.error(f"❌ 分析中斷：{e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
