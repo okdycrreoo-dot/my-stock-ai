@@ -982,63 +982,71 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (強制版本與 Key 更新版)
+# 第七章：AI 戰略委員會 (穩定路徑最終版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
     # 1. 嚴格權限檢查 (只允許 admin)
-    user_val = str(st.session_state.get("username", "")).strip().lower()
+    user_val = ""
+    # 增加更多可能的 Key 檢查，確保穩定抓到 admin
+    for k in ["username", "user_id", "user", "name", "login_user"]:
+        if k in st.session_state and st.session_state[k]:
+            if str(st.session_state[k]).strip().lower() == "admin":
+                user_val = "admin"
+                break
+
     if user_val != "admin":
         st.info("🔒 此功能為『系統管理員 admin』專屬。")
         return
 
     # 2. 數據預處理
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    analysis_task = f"請分析股票 {symbol}。量化數據：{full_brain_data}。請給出投資建議。"
+    analysis_task = f"你是首席戰略官。請分析股票 {symbol}。量化指標：{full_brain_data}。請給出投資建議。"
 
     # 3. 按鈕啟動
-    if st.button("🚀 啟動診斷：召開軍師會議", key="gem_admin_v8", type="primary", use_container_width=True):
-        with st.spinner(f"管理員 admin 您好，正在嘗試使用新 API Key 連線..."):
+    if st.button("🚀 啟動診斷：召開軍師會議", key="gem_admin_final_fix", type="primary", use_container_width=True):
+        with st.spinner(f"管理員 admin 您好，AI 軍師正在強制切換穩定路徑..."):
             import google.generativeai as genai
             
-            # 💡 核心修復：強制初始化
-            try:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                
-                # 測試清單：這次我們加上 "v1" 版本的嘗試，避開一直報錯的 v1beta
-                # 這是解決 404 最有效的方法
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                
-                # 強制使用最新的 generate_content 方法
-                response = model.generate_content(analysis_task)
-                
-                if response.text:
-                    st.markdown(f"#### 🗨️ {symbol} 戰略報告")
-                    st.markdown(response.text)
-                    st.success("✅ 診斷完成")
-                else:
-                    st.warning("⚠️ 模型回傳內容為空。")
+            # 配置 API
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            
+            # 💡 核心修正：使用穩定版名稱，避開 v1beta 找不到 gemini-pro 的問題
+            # 同時完全移除工具調用 (tools)，確保不會噴 Unknown field
+            models_to_try = [
+                "gemini-1.5-flash-latest", # 目前最穩定的全版本通用名稱
+                "gemini-1.5-flash", 
+                "models/gemini-1.5-flash"
+            ]
+            
+            success = False
+            last_err = ""
+            
+            for m_name in models_to_try:
+                try:
+                    model = genai.GenerativeModel(model_name=m_name)
+                    response = model.generate_content(analysis_task)
                     
-            except Exception as e:
-                err_msg = str(e)
-                if "404" in err_msg:
-                    st.error("🚨 依然 404！這通常代表 API Key 權限尚未全球同步，或模型名稱需加上 models/ 前綴。")
-                    # 自動備援嘗試：加上前綴
-                    try:
-                        model_retry = genai.GenerativeModel('models/gemini-1.5-flash')
-                        st.markdown(model_retry.generate_content(analysis_task).text)
-                    except:
-                        st.error("🚨 備援嘗試也失敗，請檢查 AI Studio 的模型權限。")
-                elif "429" in err_msg:
-                    st.error("🚨 頻率限制 (429)：請等待 60 秒後再試。")
-                else:
-                    st.error(f"❌ 發生錯誤：{err_msg}")
+                    if response and response.text:
+                        st.markdown(f"#### 🗨️ {symbol} 戰略報告")
+                        st.markdown(response.text)
+                        st.success(f"✅ 診斷完成 (路徑: {m_name})")
+                        success = True
+                        break
+                except Exception as e:
+                    last_err = str(e)
+                    continue
+            
+            if not success:
+                st.error(f"🚨 API 調用失敗。錯誤訊息：{last_err}")
+                st.info("💡 提示：請確認您的 API Key 是否在 Google AI Studio 中正確啟用，且沒有超過免費層級限制。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
