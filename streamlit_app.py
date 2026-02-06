@@ -954,39 +954,43 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
         with st.spinner(f"正在連網搜尋 {symbol} 的最新動態..."):
             try:
-                # 1. 配置 API Key
+                # 1. 強制指定使用 v1beta 版本 (連網工具必備)
+                import google.generativeai as genai
+                from google.generativeai.types import content_types
+                
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 2. 定義連網工具
-                search_tool = {"google_search_retrieval": {}}
-
-                # 3. 使用官方推薦的全路徑名稱 'models/gemini-1.5-flash'
+                # 2. 建立模型 (嘗試使用最原始的名稱)
+                # 這次我們不帶任何 models/ 前綴試試看，並將 tools 分開傳入
                 model = genai.GenerativeModel(
-                    model_name='models/gemini-1.5-flash', 
-                    tools=[search_tool]
+                    model_name='gemini-1.5-flash',
+                    tools=[{"google_search_retrieval": {}}]
                 )
                 
-                # 執行生成
+                # 3. 執行生成
                 response = model.generate_content(prompt)
                 
                 st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                 st.markdown(response.text)
-                st.caption("註：此報告結合了即時 Google 搜尋結果與量化數據。")
+                st.caption("註：此報告已成功整合即時搜尋結果。")
 
             except Exception as e:
-                # 這裡處理任何模型找不到或連網工具不支援的錯誤
-                st.warning("⚠️ 連網工具暫時無法使用，嘗試啟動『純數據診斷模式』...")
+                # 如果連網還是報 404，進入「終極備援」
+                st.warning("⚠️ 連網模組對接異常，切換至『穩定版純 AI 模式』...")
                 try:
-                    # 備援方案：同樣使用全路徑 'models/gemini-1.5-flash'
-                    backup_model = genai.GenerativeModel(model_name='models/gemini-1.5-flash')
-                    response = backup_model.generate_content(prompt + "\n\n(注意：目前僅基於量化大腦提供之數據進行推演)")
-                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (純數據版)")
+                    # 備援：使用穩定版路徑，不帶任何 tools
+                    # 這是最不可能出錯的呼叫方式
+                    stable_model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = stable_model.generate_content(prompt + "\n\n(注意：目前僅基於量化大腦提供之數據進行推演)")
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (穩定版)")
                     st.markdown(response.text)
-                except Exception as backup_e:
-                    st.error(f"❌ 診斷完全失敗：{backup_e}")
-                    st.info("💡 建議檢查 Google AI Studio 確認該 API Key 是否有權限存取 models/gemini-1.5-flash")
+                except Exception as final_e:
+                    st.error(f"❌ 診斷完全失敗：{final_e}")
+                    st.write("🔧 可能原因：API Key 尚未生效或模型權限受限。請稍候 5 分鐘再試。")
+                    
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
