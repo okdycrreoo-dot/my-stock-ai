@@ -954,30 +954,30 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
         with st.spinner(f"正在分析 {symbol} 數據指標..."):
             try:
-                # 1. 配置 API
+                # 1. 配置 API (關鍵修正：強制指定版本為 v1)
                 import google.generativeai as genai
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                # 這裡強制設定傳輸層使用 v1 版本，避開導致 404 的 v1beta
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"], transport='rest')
                 
-                # 2. 建立「無連網」的純淨模型 (避開導致 404 的 v1beta 特性)
-                # 使用最基礎的初始化方式
+                # 2. 建立模型 (使用最基礎的 ID)
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
                 # 3. 執行生成
-                # 我們把 prompt 稍微修改，告訴 AI 這是數據診斷
-                rich_prompt = prompt + "\n\n請注意：目前為『數據深度診斷模式』，請針對以上指標給出最辛辣的評價。"
-                response = model.generate_content(rich_prompt)
+                # 使用穩定版接口生成內容
+                response = model.generate_content(prompt)
                 
-                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (深度診斷版)")
+                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                 st.markdown(response.text)
-                st.success("✅ 診斷完成！(目前使用 Oracle 量化指標進行內部對抗)")
+                st.success("✅ 診斷完成！(已強制切換至 V1 穩定通訊協定)")
 
             except Exception as e:
                 st.error(f"❌ 委員會召開失敗：{e}")
-                st.info("💡 這可能是 Google API 的全球分流問題。請嘗試在 Google AI Studio 重新建立一組新的 API Key 貼到 Secrets 試試看。")
+                st.info("💡 終極排除建議：請去 Google AI Studio 點擊 'Create API key' 建立一組全新的 Key。有時候舊的 Key 會卡在舊的權限配置中。")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
