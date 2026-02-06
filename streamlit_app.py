@@ -301,20 +301,17 @@ def main():
                     # 3. 執行最新日期的邏輯掃描
                     strike_mask = df_oracle.apply(check_strike_zone, axis=1)
                     
-                    # 【核心修正】：抓取第 1 欄 (股票代號)，並使用 unique() 去重
-                    strike_list = df_oracle[strike_mask].iloc[:, 1].unique().tolist() 
+                    # 【核心修正】：抓取第 1 欄 (股票代號)，去重、並進行「由小到大」排序
+                    raw_list = df_oracle[strike_mask].iloc[:, 1].unique().tolist()
+                    strike_list = sorted(raw_list) # <--- 加入這行，讓代號排排站
                     
                     if strike_list:
                         st.info(f"🎯 **Oracle 核心偵測 ({latest_date})：💎 絕佳擊球點！**\n\n`{'`, `'.join(strike_list)}`")
                     else:
                         st.caption(f"🔍 雷達掃描 ({latest_date})：目前尚未發現『趨勢、資金、空間』三位一體之目標。")
-                else:
-                    st.caption("🔍 雷達待命中：資料庫目前尚無預測資料。")
 
-            except Exception as e:
-                # st.write(f"DEBUG: Radar Error - {e}") # 需要除錯時再打開
-                pass
 
+        
         # 1. 執行第三章 (控制台與監控清單管理)
         chapter_3_watchlist_management(
             db_dict["users"], 
@@ -1052,6 +1049,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
