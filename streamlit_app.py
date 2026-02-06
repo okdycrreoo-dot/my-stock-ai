@@ -986,36 +986,36 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write("### 🎖️ AI 戰略委員會 (免 Key 穩定版)")
+    st.write("### 🎖️ AI 戰略委員會 (全民開放診斷版)")
 
-    # 1. 保留你的 Admin 權限物理鎖
-    if not st.checkbox("🔑 管理員身分強制校驗"):
-        st.info("🔒 此功能為 admin 專屬。")
-        return
+    # 數據預處理：將量化數據轉為文字
+    full_brain_data = ", ".join([str(item) for item in brain_row]) 
+    analysis_prompt = f"請擔任專業分析師，針對股票 {symbol} 提供投資建議。數據指標如下：{full_brain_data}。請條列式給出戰略觀點。"
 
-    if st.button("🚀 啟動 AI 診斷 (DuckDuckGo 引擎)", use_container_width=True):
-        with st.spinner("正在呼叫外部 AI 智庫..."):
+    # 所有使用者都能看到按鈕
+    if st.button("🚀 啟動 AI 診斷 (全球通道)", key=f"ai_free_btn_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"正在連網診斷 {symbol}，請稍候..."):
             try:
-                # 需在 requirements.txt 加入 duckduckgo_search
+                # 使用 DuckDuckGo 的免費 AI 接口
                 from duckduckgo_search import DDGS
                 
-                full_brain_data = ", ".join([str(item) for item in brain_row])
-                prompt = f"分析股票 {symbol}。指標如下：{full_brain_data}。請給出專業投資建議。"
-                
                 with DDGS() as ddgs:
-                    # 使用 GPT-4o-mini 引擎
-                    results = ddgs.chat(prompt, model='gpt-4o-mini')
+                    # model 參數可選: 'gpt-4o-mini', 'claude-3-haiku', 'llama-3-70b', 'mixtral-8x7b'
+                    response = ddgs.chat(analysis_prompt, model='gpt-4o-mini')
                     
-                    st.markdown(f"#### 🗨️ {symbol} 戰略報告 (GPT 引擎)")
-                    st.markdown(results)
+                    st.markdown(f"#### 🗨️ {symbol} 投資戰略報告")
+                    st.markdown(response)
                     st.success("✅ 診斷完成")
+                    
             except Exception as e:
-                st.error(f"❌ 診斷失敗：{e}")
-                st.info("提示：若失敗，請確保環境已安裝 duckduckgo_search 套件。")
+                st.error(f"❌ 診斷暫時失效：{str(e)}")
+                st.info("💡 建議：這可能是伺服器繁忙，請 10 秒後再點擊一次。")
+
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
