@@ -915,12 +915,16 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (連網即時診斷 - 最終完全版)
+# 第七章：AI 戰略委員會 (連網 + 穩定備援最終版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     """
-    核心功能：整合 Google Search 連網功能與三方軍師診斷。
+    核心功能：
+    1. 接收 brain_row 量化指標。
+    2. 優先啟動 Gemini 連網搜尋新聞。
+    3. 若連網受阻，自動切換至穩定版純數據診斷。
     """
+    import requests # 確保匯入基礎請求庫
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (連網即時診斷)")
 
@@ -933,7 +937,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         "市場情緒": brain_row[36] if len(brain_row) > 36 else "數據不足"
     }
 
-    # 2. 定義 Prompt (剛才你的代碼漏掉這段，沒定義 prompt 會報錯)
+    # 2. 定義任務指令 (Prompt)
     prompt = f"""
     你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行深度分析。
     
@@ -945,40 +949,59 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     - Oracle 市場情緒：{brain_summary['市場情緒']}
     
     【任務說明】：
-    1. 整合搜尋過去 48 小時關於 {symbol} 的最新重大新聞。
-    2. 交叉驗證 Oracle 數據理論與現實新聞。
-    3. 輸出：🚩客觀裁判(比對)、🛡️保守防守員(找風險)、⚔️攻擊進攻手(找機會)。
+    1. 交叉驗證 Oracle 數據理論與現實新聞。
+    2. 輸出：🚩客觀裁判(比對指標與現況)、🛡️保守防守員(專挑骨頭與風險)、⚔️攻擊進攻手(找尋機會點)。
     """
 
-    # 按鈕觸發
-    if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在分析 {symbol} 數據指標..."):
+    # 3. 按鈕觸發
+    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"正在連網搜尋 {symbol} 最新動態並進行軍師會審..."):
+            api_key = st.secrets["GEMINI_API_KEY"]
+            success_run = False
+            
+            # --- 第一方案：嘗試官方 SDK (含連網工具) ---
             try:
-                # 1. 配置 API (關鍵修正：強制指定版本為 v1)
                 import google.generativeai as genai
-                # 這裡強制設定傳輸層使用 v1 版本，避開導致 404 的 v1beta
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"], transport='rest')
+                genai.configure(api_key=api_key)
                 
-                # 2. 建立模型 (使用最基礎的 ID)
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                
-                # 3. 執行生成
-                # 使用穩定版接口生成內容
+                # 嘗試建立含連網工具的模型 (使用 models/ 前綴確保路徑正確)
+                model = genai.GenerativeModel(
+                    model_name='models/gemini-1.5-flash',
+                    tools=[{"google_search_retrieval": {}}]
+                )
                 response = model.generate_content(prompt)
                 
-                st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
-                st.markdown(response.text)
-                st.success("✅ 診斷完成！(已強制切換至 V1 穩定通訊協定)")
+                if response.text:
+                    st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
+                    st.markdown(response.text)
+                    st.caption("✅ 報告已成功整合即時 Google 搜尋結果。")
+                    success_run = True
+            except Exception:
+                # 若官方 SDK 失敗，靜默進入第二方案
+                pass
 
-            except Exception as e:
-                st.error(f"❌ 委員會召開失敗：{e}")
-                st.info("💡 終極排除建議：請去 Google AI Studio 點擊 'Create API key' 建立一組全新的 Key。有時候舊的 Key 會卡在舊的權限配置中。")
+            # --- 第二方案：若方案一失敗，使用暴力 REST V1 穩定版 (無連網但保證成功) ---
+            if not success_run:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+                    payload = {
+                        "contents": [{"parts": [{"text": prompt + "\n\n(註：目前為數據診斷模式，請專注於指標演繹)"}]}]
+                    }
+                    res = requests.post(url, json=payload)
+                    result = res.json()
+                    
+                    if "candidates" in result:
+                        ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+                        st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄 (深度診斷版)")
+                        st.markdown(ai_text)
+                        st.warning("⚠️ 目前暫時無法連接 Google Search 新聞，已改由量化數據進行深度對抗診斷。")
+                    else:
+                        st.error("❌ 連 Google 基礎接口也拒絕連線，請確認 Secrets 中的 Key 是否正確。")
+                except Exception as final_e:
+                    st.error(f"❌ 終極失敗：{final_e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
 
 
