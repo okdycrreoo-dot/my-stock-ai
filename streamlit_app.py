@@ -915,20 +915,13 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (連網 + 穩定備援最終版)
+# 第七章：AI 戰略委員會 (連網 + 數據雙軌診斷)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
-    """
-    核心功能：
-    1. 接收 brain_row 量化指標。
-    2. 優先啟動 Gemini 連網搜尋新聞。
-    3. 若連網受阻，自動切換至穩定版純數據診斷。
-    """
-    import requests # 確保匯入基礎請求庫
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (連網即時診斷)")
 
-    # 1. 數據投影提取 (根據 38 欄定義)
+    # 1. 數據投影提取
     brain_summary = {
         "AI診斷": brain_row[27] if len(brain_row) > 27 else "無",
         "展望": brain_row[28] if len(brain_row) > 28 else "無",
@@ -937,7 +930,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         "市場情緒": brain_row[36] if len(brain_row) > 36 else "數據不足"
     }
 
-    # 2. 定義任務指令 (Prompt)
+    # 2. 強化版 Prompt：要求 AI 必須引用新聞
     prompt = f"""
     你現在是『AI戰略委員會』主席。針對股票 {symbol} 進行深度分析。
     
@@ -948,45 +941,44 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     - 投資性價比 (R/R)：{brain_summary['性價比']}
     - Oracle 市場情緒：{brain_summary['市場情緒']}
     
-    【任務說明】：
-    1. 交叉驗證 Oracle 數據理論與現實新聞。
-    2. 輸出：🚩客觀裁判(比對指標與現況)、🛡️保守防守員(專挑骨頭與風險)、⚔️攻擊進攻手(找尋機會點)。
+    【核心任務】：
+    1. 使用 Google Search 搜尋過去 72 小時關於 {symbol} 的重大新聞、財報評論或法說會消息。
+    2. 請將『量化指標』與『現實新聞』進行對撞：
+       - 如果新聞利多但量化指標轉弱，請發出警報。
+       - 如果新聞利空但量化指標強韌，請找尋轉機點。
+    3. 輸出：🚩客觀裁判(引用新聞)、🛡️保守防守員(找風險)、⚔️攻擊進攻手(找獲利空間)。
     """
 
-    # 3. 按鈕觸發
-    if st.button("🚀 啟動委員會：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
-        with st.spinner(f"正在喚醒 Google 智庫中心..."):
+    if st.button("🚀 啟動連網：召開三方軍師會議", key=f"gemini_v7_{symbol}", type="primary", use_container_width=True):
+        with st.spinner(f"正在連網搜尋 {symbol} 最新動態..."):
             try:
                 import google.generativeai as genai
-                import os
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                # 1. 取得 Key (請優先確保 Streamlit Secrets 已更新為 2/6 建立的那串)
-                api_key = st.secrets["GEMINI_API_KEY"]
-                genai.configure(api_key=api_key)
-                
-                # 2. 列出可用模型 (除錯用，會顯示在畫面上)
+                # 自動偵測可用模型
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                target_model = next((m for m in available_models if "flash" in m), available_models[0])
                 
-                if not available_models:
-                    st.error("❌ 你的 API Key 目前偵測不到任何可用模型。請回 AI Studio 確認是否有綁定信用卡或驗證電話。")
-                    return
-
-                # 3. 挑選清單中的第一個可用模型 (自動適配)
-                target_model = available_models[0]
-                model = genai.GenerativeModel(target_model)
+                # 配置模型與搜尋工具
+                model = genai.GenerativeModel(
+                    model_name=target_model,
+                    tools=[{"google_search_retrieval": {}}] # <--- 這是開啟新聞分析的鑰匙
+                )
                 
-                # 4. 執行生成
+                # 執行生成
                 response = model.generate_content(prompt)
                 
                 st.markdown(f"#### 🗨️ {symbol} 委員會會議紀錄")
                 st.markdown(response.text)
-                st.success(f"✅ 連線成功！(自動適配模型: {target_model})")
+                
+                # 額外的小提示
+                st.success(f"✅ 診斷完成！(已整合 Google Search 即時資訊)")
 
             except Exception as e:
-                st.error(f"❌ SDK 呼叫失敗：{e}")
-                st.info("💡 這是最後的物理排除：請確認你的 Watchlist 是否超過 20 支？過多的 API 請求有時會導致 Google 暫時封鎖你的 IP。")
+                st.error(f"❌ 委員會執行失敗：{e}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
