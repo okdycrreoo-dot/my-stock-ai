@@ -986,69 +986,58 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全球智庫聯網診斷")
+    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 專業級對撞診斷")
 
-    # 1. 強化數據格式：給指標加上標籤，讓 AI 更好讀
-    metrics_str = "、".join([str(x) for x in brain_row[:40]]) # 限制在前40項最關鍵指標
+    # 1. 整理 40 多項指標 (Groq 處理能力強，可以全放)
+    metrics_str = " | ".join([str(x) for x in brain_row])
 
-    if st.button(f"🚀 啟動 {symbol} 指標與新聞深度對撞", key="ai_final_v1", type="primary", use_container_width=True):
-        status_box = st.empty()
-        status_box.info("🔍 第一階段：正在檢索全球即時新聞...")
-        
+    if st.button(f"🚀 啟動 {symbol} 專業對撞 (Groq 引擎)", key="ai_groq_v1", type="primary", use_container_width=True):
+        status = st.empty()
         try:
+            # 準備新聞抓取 (DuckDuckGo 抓新聞很穩，不穩定的是它的 Chat)
             from duckduckgo_search import DDGS
-            import time
-            
+            status.info("📡 正在蒐集全球即時情報...")
             with DDGS() as ddgs:
-                # 取得新聞
-                news_query = f"{symbol} stock news 財報"
-                news_list = [n['body'] for n in ddgs.news(news_query, max_results=2)]
-                news_context = "\n".join(news_list) if news_list else "無即時重大新聞報告。"
-                
-                status_box.info("⚖️ 第二階段：量化指標與消息面對撞中...")
-                time.sleep(1) # 短暫停頓避免頻率限制
-                
-                # 構建深度分析 Prompt
-                prompt = f"""
-                請擔任首席策略官，針對「{symbol}」進行深度對撞分析。
-                
-                【量化數據 (40+指標)】：{metrics_str}
-                【即時新聞情報】：{news_context}
-                
-                請嚴格執行以下分析：
-                1. 找出指標數據與新聞消息的【矛盾與一致性】。
-                2. 根據這 40 多項數據，評估目前是「超買」還是「超賣」。
-                3. 給出具體的「戰略執行建議」。
-                
-                請用繁體中文回報，字數不限，力求精準。
-                """
+                news = [n['body'] for n in ddgs.news(f"{symbol} 股票 財報", max_results=3)]
+                latest_news = "\n".join(news) if news else "目前無重大新聞。"
 
-                # 執行診斷
-                try:
-                    # 優先使用 chat 模式
-                    report = ddgs.chat(prompt, model='gpt-4o-mini')
-                    status_box.empty()
-                    st.markdown(f"#### 🗨️ {symbol} 深度戰略診斷報告")
-                    st.markdown(report)
-                    st.success("✅ 深度診斷完成")
-                except:
-                    # 若 chat 繁忙，切換至高強度備援模式
-                    status_box.warning("⚠️ 智庫繁忙，切換至高速數據解析通道...")
-                    fallback_prompt = f"分析股票 {symbol} 投資建議：數據為 {metrics_str[:200]}"
-                    fallback_res = list(ddgs.text(fallback_prompt, max_results=1))
-                    if fallback_res:
-                        st.markdown("#### 🗨️ 戰略快速建議")
-                        st.write(fallback_res[0]['body'])
-                    else:
-                        st.error("❌ 目前所有免費通道皆繁忙，請 30 秒後再試。")
+            # 準備 Groq AI 分析
+            status.info("🧠 正在使用 Groq 加速引擎進行 40+ 指標對撞...")
+            import requests
+            
+            groq_key = st.secrets["GROQ_API_KEY"]
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+            
+            prompt = f"分析股票 {symbol}。量化數據：{metrics_str}。最新消息：{latest_news}。請針對數據與消息的矛盾點進行對撞分析，給出具體買賣戰略。"
+            
+            data = {
+                "model": "llama-3.3-70b-versatile", # 使用目前最強模型
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.5
+            }
+            
+            response = requests.post(url, headers=headers, json=data, timeout=15)
+            res_json = response.json()
+            
+            if response.status_code == 200:
+                status.empty()
+                report = res_json['choices'][0]['message']['content']
+                st.markdown(f"#### 🗨️ {symbol} 專業診斷報告 (Powered by Groq)")
+                st.markdown(report)
+                st.success("✅ 診斷完成")
+            else:
+                st.error(f"❌ Groq 報錯：{res_json.get('error', {}).get('message', '未知錯誤')}")
 
         except Exception as e:
-            st.error(f"💥 系統連線異常：{str(e)}")
+            st.error(f"❌ 系統異常：{str(e)}")
+
 
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
