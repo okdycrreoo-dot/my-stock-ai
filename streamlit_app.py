@@ -982,63 +982,73 @@ def chapter_5_ai_decision_report(row, pred_ws):
     else: st.info(f"**Oracle 總結建議：** {advice}")
 
 # ==========================================
-# 第七章：AI 戰略委員會 (權限防丟失 + 原生接口版)
+# 第七章：AI 戰略委員會 (原生 API 終極版)
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write("### 🎖️ AI 戰略委員會 (全指標對撞診斷)")
 
-    # --- 1. 強化版權限掃描 (解決 Session 遺失問題) ---
-    current_user = ""
-    # 遍歷所有可能的 Key，防止 Streamlit 因為重整把 username 搞丟
-    for k in ["username", "user_id", "user", "name", "login_user"]:
-        if k in st.session_state and st.session_state[k]:
-            temp_val = str(st.session_state[k]).strip().lower()
-            if temp_val == "admin":
-                current_user = "admin"
-                break
-
-    # 備援方案：如果系統真的抓不到，提供手動強制勾選 (只有你知道是 admin)
-    is_force_admin = st.checkbox("🔑 管理員身分校驗 (若自動識別失敗請勾選)")
-
-    if current_user != "admin" and not is_force_admin:
-        st.info("🔒 此功能為『系統管理員 admin』專屬。請確保您已登入。")
+    # 1. 權限檢查：提供「手動強制解鎖」以應對 Session 遺失
+    is_admin = False
+    for k in ["username", "user_id", "user", "name"]:
+        if st.session_state.get(k, "").strip().lower() == "admin":
+            is_admin = True
+            break
+    
+    # 物理開關：如果自動識別失敗，你可以勾選這個
+    force_unlock = st.checkbox("🔑 管理員身分校驗 (若自動識別失敗請勾選)")
+    
+    if not is_admin and not force_unlock:
+        st.info("🔒 此功能為『系統管理員 admin』專屬。")
         return
 
-    # --- 2. 數據與 API 邏輯 (使用 requests 避開 404/v1beta 問題) ---
+    # 2. 數據字串化
     full_brain_data = ", ".join([str(item) for item in brain_row]) 
-    prompt = f"請分析股票 {symbol}。量化數據：{full_brain_data}。請給出戰略建議。"
+    prompt = f"分析股票 {symbol}。量化數據：{full_brain_data}。請給出投資建議。"
 
-    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_admin_final_{symbol}", type="primary", use_container_width=True):
-        with st.spinner("正在對撞數據..."):
+    # 3. 核心 API 呼叫 (使用原生 requests 繞過所有 SDK 錯誤)
+    if st.button("🚀 啟動診斷：召開軍師會議", key=f"gem_admin_final_v10", type="primary", use_container_width=True):
+        with st.spinner("正在連線 Google 頂級智庫..."):
             import requests
             import json
 
-            # 強制使用 v1 穩定版 URL，徹底避開你之前遇到的 404 問題
             api_key = st.secrets["GEMINI_API_KEY"]
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
             
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}]
-            }
+            # 💡 終極對策：嘗試最標準的 v1beta 接口，但使用不帶前綴的模型名
+            # 如果失敗，會自動切換至 v1 接口
+            endpoint_v1beta = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            endpoint_v1 = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
             
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            headers = {'Content-Type': 'application/json'}
+
             try:
-                response = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload))
+                # 第一階段：嘗試 v1beta
+                response = requests.post(endpoint_v1beta, headers=headers, data=json.dumps(payload))
+                
+                # 如果 v1beta 失敗，立即嘗試 v1
+                if response.status_code != 200:
+                    response = requests.post(endpoint_v1, headers=headers, data=json.dumps(payload))
+                
                 res_data = response.json()
 
                 if response.status_code == 200:
                     ai_reply = res_data['candidates'][0]['content']['parts'][0]['text']
                     st.markdown(f"#### 🗨️ {symbol} 戰略報告")
                     st.markdown(ai_reply)
-                    st.success("✅ 診斷完成 (Admin 認證成功)")
+                    st.success(f"✅ 診斷完成 (連線模式: 原生 REST)")
                 else:
-                    st.error(f"❌ API 報錯: {res_data.get('error', {}).get('message', '未知錯誤')}")
+                    err_msg = res_data.get('error', {}).get('message', '未知錯誤')
+                    st.error(f"❌ API 連線異常: {err_msg}")
+                    st.info("建議：請確認 Google AI Studio 內的 API Key 是否有綠色打勾 (Active)。")
+            
             except Exception as e:
-                st.error(f"💥 連線失敗: {str(e)}")
+                st.error(f"💥 系統連線崩潰: {str(e)}")
                     
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
