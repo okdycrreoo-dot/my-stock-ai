@@ -1018,7 +1018,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                             return {"name": name, "industry": biz, "official_biz": biz}
             except: continue
         
-        # 備援路徑 (Yahoo)
+        # --- 備援路徑：如果 API 都沒中，改用 Yahoo 抓取 ---
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"https://tw.stock.yahoo.com/quote/{code}"
@@ -1028,7 +1028,9 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 if name_match:
                     return {"name": name_match.group(1).strip(), "industry": "市場核心", "official_biz": "通用財經業務"}
         except: pass
-        return {"name": None, "industry": None, "official_biz": ""}""}
+        
+        # 這裡就是出錯的地方，請確保跟下面這行一模一樣
+        return {"name": None, "industry": None, "official_biz": ""}
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
 
@@ -1121,6 +1123,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
