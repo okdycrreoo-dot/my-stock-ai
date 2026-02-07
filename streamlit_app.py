@@ -984,7 +984,16 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 # --- 7. AI 戰略委員會 ---
 # ==========================================
-@st.cache_data(ttl=3600) 
+def chapter_7_ai_committee_analysis(symbol, brain_row):
+    import requests
+    from duckduckgo_search import DDGS
+    import re
+
+    st.markdown("---")
+    pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
+    
+    # --- 流程 1: 實時穿透式正名 (絕不硬編碼) ---
+    @st.cache_data(ttl=3600) 
     def get_verified_info(code):
         # 完整的市場目標清單
         targets = [
@@ -1037,28 +1046,23 @@ def chapter_5_ai_decision_report(row, pred_ws):
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # 流程 2 & 3: 提取關鍵字並執行導航式搜尋
-            # 僅取官方業務前 20 字，避免長句干擾搜尋引擎
+            # 流程 2 & 3: 提取官方業務資訊並執行「導航式」搜尋
             official_biz = info.get("official_biz", "")
-            search_keywords = official_biz[:20] if official_biz else info['industry']
+            # 只取業務的前 15 個字作為標籤，避免搜尋引擎混亂
+            biz_tag = official_biz[:15] if official_biz else "主要業務"
             
-            status.info(f"Step 2 & 3: 依據官方核心「{search_keywords}」檢索實時情資...")
+            status.info(f"Step 2 & 3: 依據官方核心「{biz_tag}」檢索實時情資...")
             context_data = f"【官方登記業務】：{official_biz}\n"
             
             with DDGS() as ddgs:
-                # 組合優化：加入「台股」與「代號」強制過濾非財經資訊
-                # 這樣即便非開盤時間，也能精準抓到最近期的分析與新聞
-                q_combined = f'台股 "{c_name}" {pure_code} {search_keywords} 業務 供應鏈 新聞'
+                # 組合優化：公司名 + 代號 + 業務標籤，強制過濾無關雜訊
+                q_combined = f'"{c_name}" {pure_code} {biz_tag} 供應鏈 新聞'
                 
                 try:
-                    search_results = list(ddgs.text(q_combined, max_results=6))
-                    if search_results:
-                        for r in search_results: 
-                            context_data += f"【即時情資】{r['body']}\n"
-                    else:
-                        context_data += "（線上實時情資獲取較少，將優先依據官方登記業務分析）\n"
-                except Exception as e_ddgs:
-                    context_data += f"（搜尋連線受限，改由官方資料與量化數據對撞）\n"
+                    for r in ddgs.text(q_combined, max_results=6): 
+                        context_data += f"【擴展情資】{r['body']}\n"
+                except:
+                    context_data += "（線上搜尋連線受限，將優先以官方數據執行分析）\n"
             
             # 流程 4: 相關期指指數
             status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
@@ -1118,6 +1122,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
