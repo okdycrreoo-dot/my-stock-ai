@@ -1044,67 +1044,65 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         status.success(f"✅ 官方正名成功：{c_name} ({pure_code})")
 
         try:
-            # --- 步驟 2: 動態情資檢索 (不寫死關鍵字，讓 AI 自行關聯) ---
-            status.info(f"📡 搜尋「{c_name}」產業鏈與最新財報情報...")
+            # --- 步驟 2: 手術修正：精確情資檢索 (移除誤導詞，鎖定硬數據) ---
+            status.info(f"📡 搜尋「{c_name}」最新營收與業績動態...")
             local_news = ""
             with DDGS() as ddgs:
-                # 搜尋詞組合：名稱 + 財報 + 供應鏈 + 報價
-                search_q = f'"{c_name}" 財報 業績預測 供應鏈 報價 site:cnyes.com OR site:udn.com'
-                for r in ddgs.text(search_q, max_results=8):
+                # 關鍵修正：只找營收、業績、新聞，拿掉「供應鏈」避免航運變 AI
+                search_q = f'"{c_name}" 1月營富 2月營收 月增 年增 業績 獲利 site:cnyes.com OR site:udn.com OR site:moneydj.com'
+                for r in ddgs.text(search_q, max_results=5): 
                     local_news += f"【來源:{r['title']}】\n{r['body']}\n\n"
 
             # --- 步驟 3: 收集全球環境 (匯率、夜盤) ---
             status.info(f"📊 同步台指期夜盤與匯率動態...")
             global_env = ""
             with DDGS() as ddgs:
-                for r in ddgs.text("台指期夜盤 漲跌 美金對台幣匯率", max_results=3):
+                for r in ddgs.text("台指期夜盤 漲跌點數 美金對台幣匯率", max_results=3):
                     global_env += r['body'] + "\n"
 
-            # --- 步驟 4: AI 深度對撞分析 (強化實戰與事實對撞) ---
-            status.info(f"⚖️ AI 大腦正在進行「{c_name}」實時事實對撞...")
+            # --- 步驟 4: 手術修正：AI 深度對撞分析 (增加產業查核與防幻覺) ---
+            status.info(f"⚖️ AI 大腦正在進行「{c_name}」事實查核對撞...")
             
             metrics_summary = " | ".join([str(item) for item in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
-            # 這裡強化了 Prompt 的強制性，要求 AI 必須引用新聞細節
             prompt = f"""
-            你現在是頂尖法人的『首席策略長』，專長是將「最新時事」與「量化數據」進行硬核對撞。
-            分析目標：{c_name}
+            你現在是嚴謹的『法人稽核策略長』。請對 {c_name} 進行事實對撞，嚴禁任何編造。
 
-            【分析任務 - 拒絕空話】：
-            1. **時事事實對撞**：請從最新新聞「{local_news}」中，找出『具體』的營收數字、法說會結論、或供應鏈傳聞。禁止說「營收可能受影響」，要說「根據新聞，營收增長了X%或出現某項具體利空」。
-            2. **自適應產業因子**：自主判斷「{c_name}」核心驅動因子（如：銅價、匯率、美股費半、或AI伺服器拉貨動能）。
-            3. **40項指標對沖**：結合技術指標 [{metrics_summary}]，如果技術面看多但時事面利空，請給出『矛盾警示』。
-            4. **環境影響**：根據夜盤與匯率「{global_env}」，精算對明日開盤的實質衝擊。
+            【分析鐵律 - 絕對禁止幻覺】：
+            1. **產業別判定**：請根據搜尋結果先確認 {c_name} 的真正產業（例如：航運、半導體、化工）。嚴禁將航運股誤判為 AI 伺服器供應鏈。
+            2. **營收數據校對**：請從新聞「{local_news}」中找出『最新月份』的營收數字。如果新聞說營收下降，絕對不能寫成上升。若新聞無具體數字，請誠實回答「無具體營收數據」。
+            3. **40項指標對沖**：結合技術指標 [{metrics_summary}] 與『事實新聞』進行邏輯對撞。
+            4. **環境衝擊**：根據夜盤與匯率「{global_env}」判斷對該產業（外銷或內需）的影響。
 
             【強制規範】：
             - 嚴禁提及代號數字 '{pure_code}'，必須複讀中文正名「{c_name}」。
-            - 必須包含具體的「支撐位」與「壓力位」數字，嚴禁給出區間。
-            - 決策建議必須明確且唯一。
+            - 必須包含具體的「支撐位」與「壓力位」數字。
+            - 決策建議必須明確（買入 / 賣出 / 停損 / 停利 / 觀望）。
 
-            【綜合診斷報告格式 (務必換行兩次)】：
-            🔍 **{c_name} 實時事實與現況對撞**：(請直接列出搜尋到的最新具體營收數字或重大事件，並分析其對股價的即時衝擊)
+            【報告格式 (務必換行兩次)】：
+            🔍 **{c_name} 產業歸類與事實查核**：(先說明該公司核心業務，並校對最新新聞中的營收數據正負值)
 
-            📊 **供應鏈與量化數據對沖**：(結合具體外部變數如匯率或原材料價格，對照 40 項數據給出綜合解讀)
+            📊 **數據與新聞矛盾對沖**：(若技術指標看多但新聞利空，請指出不對稱點，不要盲目看多)
 
-            ⚖️ **夜盤環境衝擊判讀**：(根據夜盤最新數據，直接推算明日開盤的強弱勢預期)
+            ⚖️ **夜盤環境衝擊判讀**：(根據夜盤與匯率推算明日開盤影響)
 
             🎖️ **最終實戰結論 (條列式建議)**：
-            ■ 決策建議：(強烈買入 / 觀望 / 減碼)
+            ■ 決策建議：(請給出明確動作)
             
-            ■ 明日策略：(具體到開盤後的觀察關鍵點或具體執行價位)
+            ■ 明日策略：(具體開盤動作或價格觀察點)
             
-            ■ 目標與停損參考：(請根據技術面給出具體數字)
+            ■ 目標與停損位：(請給出具體數字)
             
-            ■ 盯盤重點：(列出明天最需要看的 2 個具體商品報價或特定板塊)
+            ■ 盯盤重點：(明天需關注的具體指標，如：BDI指數、匯率、或特定商品報價)
             """
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1, # 降低隨機性，強化事實邏輯
+                "temperature": 0.0, # 調降至 0 確保最嚴謹的事實輸出
                 "max_tokens": 1500
             }
 
@@ -1125,4 +1123,5 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
