@@ -988,82 +988,110 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全球實戰診斷")
 
+    # 1. 內部量化指標格式化 (40多項數據)
     metrics_summary = " | ".join([str(item) for item in brain_row])
-    groq_key = st.secrets.get("GROQ_API_KEY", "")
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-
-    if st.button(f"🚀 啟動 {symbol} 硬核數據對撞", key="ai_final_real_v12", type="primary", use_container_width=True):
+    
+    # 所有人開放使用，點擊啟動分析
+    if st.button(f"🚀 啟動 {symbol} 深度實戰分析", key="ai_final_ultimate_v14", type="primary", use_container_width=True):
         status = st.empty()
         
         try:
+            import yfinance as yf
             from duckduckgo_search import DDGS
-            pure_symbol = symbol.split('.')[0]
+            import requests
+
+            # --- 步驟 1: 利用 yfinance 精確正名 (落實：代碼轉正名) ---
+            status.info(f"🔍 步驟 1: 正在獲取 {symbol} 官方名稱與產業分類...")
+            ticker = yf.Ticker(symbol)
+            t_info = ticker.info
+            # 優先提取中文名稱，若無則用短名稱，確保搜尋精準度
+            c_name = t_info.get('shortName') or t_info.get('longName') or symbol
+            c_biz = t_info.get('industry', '電子科技相關')
             
-            # --- 步驟 1: 即時聯網正名與業務定義 (解決新股票找不到的問題) ---
-            status.info(f"🌐 聯網辨識 {pure_symbol} 最新公司名稱與業務...")
+            # --- 步驟 2: 多維度情報搜集 (落實：在地優先、主動感知題材) ---
+            status.info(f"📡 步驟 2: 正在抓取「{c_name}」在地新聞、供應鏈與夜盤點數...")
+            
+            search_data = []
             with DDGS() as ddgs:
-                # 抓取公司名稱與主要業務 (排除舊知識)
-                identity_raw = [n['body'] for n in ddgs.text(f"台股 {pure_symbol} 公司全名 主要業務 供應鏈", max_results=2)]
+                # A. 台灣在地即時新聞 (鎖定 Yahoo, 鉅亨, 工商)
+                news_q = f"{c_name} 股價 新聞 報價 減資 訂單 site:yahoo.com OR site:cnyes.com"
+                for r in ddgs.text(news_q, max_results=6):
+                    search_data.append(r['body'])
                 
-                # --- 步驟 2: 核心情報搜尋 (夜盤、在地新聞、全球題材) ---
-                status.info(f"📡 抓取台灣即時新聞、台指期夜盤具體點數...")
-                # 這裡會同時搜尋台灣在地新聞與台指期
-                tw_news = [n['body'] for n in ddgs.news(f"{pure_symbol} 股價 新聞 報價 減資 site:yahoo.com OR site:cnyes.com", max_results=5)]
-                futures_data = [n['body'] for n in ddgs.text("台指期 夜盤 盤後 漲跌點數 即時", max_results=3)]
+                # B. 台指期夜盤強制提取 (關鍵字優化：漲跌點數)
+                futures_q = "台指期 夜盤 漲跌點數 盤後最新數據 site:wantgoo.com OR site:yahoo.com"
+                futures_raw = []
+                for r in ddgs.text(futures_q, max_results=3):
+                    futures_raw.append(r['body'])
                 
-                # --- 步驟 3: 全球供應鏈與熱點自動掃描 ---
-                status.info(f"🌍 掃描全球產業鏈熱點 (AI/衛星/運價/稀土/地緣)...")
-                global_intel = [n['body'] for n in ddgs.text(f"{pure_symbol} 供應鏈 關鍵題材 SpaceX AI", max_results=3)]
+                # C. 全球供應鏈連動 (AI/GPU/低軌衛星/運價/稀土等主動感知)
+                global_q = f"{c_name} 供應鏈 關鍵題材 SpaceX NVIDIA AI 產業趨勢"
+                global_intel = []
+                for r in ddgs.text(global_q, max_results=4):
+                    global_intel.append(r['body'])
 
-                all_context = "\n".join(identity_raw + tw_news + futures_intel + global_intel)
+            # 統合所有情報內容
+            all_context = "\n".join(search_data + futures_raw + global_intel)
 
-            # --- 步驟 4: 最終對撞分析 (拒絕廢話，強制給結論) ---
-            status.info("⚖️ 執行 40+ 指標與實戰數據對撞...")
+            # --- 步驟 3: Groq 強制對撞分析 (落實：深度分析、拒絕廢話、明確指示) ---
+            status.info("⚖️ 步驟 3: 執行 40+ 指標與情報對撞分析中...")
+            
+            groq_key = st.secrets.get("GROQ_API_KEY", "")
+            if not groq_key:
+                st.error("❌ 找不到 GROQ_API_KEY，請在 Secrets 中設定。")
+                return
+
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
             prompt = f"""
-            你現在是頂尖操盤手，嚴禁使用「可能、預計、一定影響」等廢話。
+            你現在是頂尖操盤手，嚴禁使用模糊字眼。
+            目標公司：{c_name} ({symbol}) | 官方分類：{c_biz}
             
-            【搜尋到的情報 (包含公司名、業務、夜盤、新聞)】：
+            【搜尋到的情報 (包含夜盤、在地新聞、供應鏈)】：
             {all_context}
             
-            【內部量化指標 (40+)】：
+            【內部 40+ 量化數據】：
             {metrics_summary}
             
-            【任務】：
-            1. **正名與定位**：明確說出 {pure_symbol} 的公司名稱。識別其業務與供應鏈 (如：面板、低軌衛星、稀土等)。
-            2. **台指期夜盤實戰**：必須找出情報中的「夜盤漲跌點數」。例如「夜盤跌200點」，並結合該股 Beta 值判斷明日開盤衝擊。
-            3. **題材數據對撞**：找出新聞中具體的利多或利空 (如：SpaceX 訂單具體內容、報價跌幅)。
-            4. **指標陷阱分析**：將上述情報與內部 40 項指標 (如乖離率、Oracle 評分) 進行對比。
+            【執行任務 - 每一項都必須落實】：
+            1. **業務與鏈條鎖定**：精確判斷 {c_name} 在供應鏈中的地位 (如：面板、低軌衛星、AI GPU、稀土或全球運輸鏈)。
+            2. **台指期夜盤強制報數**：從情報中找出「台指期夜盤」最新的漲跌點數，並根據其與該股 Beta 值的關係，預判對明日開盤的具體衝擊點數。
+            3. **在地題材數據化**：提取最新在地利多/利空 (如：報價具體漲跌幅、SpaceX 具體訂單進度、減資比例或法人買賣具體數據)。
+            4. **指標陷阱對撞**：將新聞熱度與 40 項量化指標 (乖離率、Oracle 評等、盈虧比、籌碼集中度) 對比。
+               - 若消息面極好但指標轉差，警告「拉高出貨」風險。
+               - 若消息面極差但指標極強，指出「超跌低點」機會。
+            5. **週期預判**：分析此題材是短線消息(1-3天)還是產業結構性翻轉。
             
-            【5. 最終實戰操作指示】：
-            - **綜合建議**：(強烈買入 / 買入 / 觀望 / 減碼 / 停損)
-            - **開盤動作**：(具體點位或動作建議)
-            - **位階參考**：(給出具體的支撐與壓力位數字)
-            - **停損停利策略**：(具體百分比或執行邏輯)
+            【5. 最終實戰結論 - 禁止空話】：
+            ■ 綜合建議：(強烈買入 / 買入 / 觀望 / 減碼 / 停損)
+            ■ 明日開盤建議：(具體建議：如平盤下 2% 承接、或開高不追待拉回)
+            ■ 位階參考：(直接給出具體 支撐位 與 壓力位 價格數字)
+            ■ 停損停利策略：(給出具體的執行邏輯或百分比)
+            ■ 明早首要看盤指標：(例如：台指期開盤點數或美股費半走勢)
             """
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1
+                "temperature": 0.1 # 鎖定嚴謹度
             }
-            
-            response = requests.post(url, headers=headers, json=payload, timeout=35)
+
+            response = requests.post(url, headers=headers, json=payload, timeout=40)
             
             if response.status_code == 200:
                 status.empty()
-                st.markdown(response.json()['choices'][0]['message']['content'])
-                st.success("✅ 診斷完成，請依策略執行。")
+                report_content = response.json()['choices'][0]['message']['content']
+                st.markdown(f"#### 🗨️ {c_name} 全球實戰對撞診斷報告")
+                st.markdown(report_content)
+                st.success("✅ 全球題材感知與實戰對撞診斷完成。")
             else:
-                st.error(f"引擎繁忙 (Error: {response.status_code})")
+                st.error(f"分析引擎超時或報錯 (HTTP {response.status_code})。")
 
         except Exception as e:
             st.error(f"💥 系統連線異常：{str(e)}")
+            st.info("請檢查：1. 是否安裝 yfinance 與 duckduckgo_search。2. 網路是否能連通 Groq API。")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
