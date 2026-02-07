@@ -986,116 +986,132 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
+    from duckduckgo_search import DDGS
     import re
-    import google.generativeai as genai
-    import time
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
+    # --- 流程 1: 實時穿透式正名 (絕不硬編碼) ---
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
+        targets = [
+            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
+            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
+            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
+        ]
+        
+        for url, cid_key, name_key, ind_val in targets:
+            try:
+                r = requests.get(url, timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    items = data.get('aaData', data) if isinstance(data, dict) else data
+                    for item in items:
+                        curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
+                        if curr_id == code:
+                            name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
+                            ind = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else ind_val)
+                            return {"name": name, "industry": ind}
+            except: continue
+        
+        # Yahoo 備援搜尋 (僅作為 API 失效時的實時抓取，不存入本地)
         try:
-            r = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", timeout=5)
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            url = f"https://tw.stock.yahoo.com/quote/{code}"
+            r = requests.get(url, headers=headers, timeout=5)
             if r.status_code == 200:
-                for item in r.json():
-                    if item.get("公司代號") == code:
-                        return {"name": item.get("公司簡稱"), "industry": item.get("產業別")}
+                name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
+                return {"name": name, "industry": "市場核心產業"}
         except: pass
-        return {"name": "該標的", "industry": "市場標的"}
+        return {"name": None, "industry": None}
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
 
-    # 這裡將 key 版本號更新，確保 UI 刷新
-    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_final_v1_{pure_code}", type="primary", use_container_width=True):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
+        status = st.empty()
         
+        # 流程 1: 正名
+        status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
-        progress_bar.progress(20)
-
-        context_data = "即時情資搜尋超時，改由量化指標深度分析。" # 預設值
+        if not c_name:
+            st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
+            return
+        status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # --- Step 2-4: Gemini 搜尋 (加入嚴格 Time-box) ---
-            status_text.warning(f"📡 正在嘗試連線 Google... (若 API 失效將於 20 秒內自動跳過)")
-            
-            # 建立一個標記，記錄是否成功獲取 Gemini 資料
-            gemini_success = False
-            
-            try:
-                genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
-                # 使用 Flash 模型提速
-                model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
-                    tools=[{"google_search_retrieval": {}}]
-                )
+            # 流程 2 & 3: 用中文名稱搜業務、供應鏈、新聞
+            status.info(f"Step 2 & 3: 依據「{c_name}」名稱檢索業務範圍與供應鏈...")
+            context_data = ""
+            with DDGS() as ddgs:
+                # 流程 2: 搜公司基本資料與業務範圍
+                q_biz = f'"{c_name}" 公司基本資料 主要業務 產品範圍'
+                for r in ddgs.text(q_biz, max_results=4): context_data += f"【業務內容】{r['body']}\n"
                 
-                # 發送請求 (這是最容易卡住的地方)
-                response = model.generate_content(
-                    f"簡述股票 {pure_code} {c_name} 近期重大新聞。",
-                    request_options={'timeout': 20} # 強制 API Level 的超時
-                )
-                if response and response.text:
-                    context_data = response.text
-                    gemini_success = True
-            except Exception as e_inner:
-                # 這裡補捉 API 被鎖、超時或任何 Gemini 端的錯誤
-                status_text.error(f"⚠️ Gemini API 異常（可能已被鎖）：{str(e_inner)}")
-                time.sleep(2) # 讓你看一下錯誤訊息
+                # 流程 3: 搜供應鏈狀況與新聞
+                q_news = f'"{c_name}" 供應鏈上下游 產業現況 相關新聞 site:cnyes.com OR site:moneydj.com'
+                for r in ddgs.text(q_news, max_results=5): context_data += f"【供需與新聞】{r['body']}\n"
 
-            progress_bar.progress(60)
-            status_text.info(f"⚖️ 正在調配 Groq 引擎執行報告產出...")
+            # 流程 4: 相關期指指數
+            status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
+            index_data = ""
+            with DDGS() as ddgs:
+                q_idx = f"台指期夜盤 電子期 金融期 漲跌 趨勢"
+                for r in ddgs.text(q_idx, max_results=3): index_data += r['body'] + "\n"
 
-            # --- Step 5-6: Groq 對撞 ---
-            metrics_stream = " | ".join([str(x) for x in brain_row])
+            # 流程 5 & 6: 綜合對撞與結論
+            status.info(f"Step 5 & 6: 執行 40+ 項量化指標與實時情資對撞...")
             
-            # 根據 Gemini 是否成功，調整 Prompt 語氣
-            collision_type = "全維度對撞" if gemini_success else "純量化數據對撞"
+            metrics_stream = " | ".join([str(x) for x in brain_row])
+            groq_key = st.secrets.get("GROQ_API_KEY", "")
             
             prompt = f"""
-            你現在是避險基金執行合夥人。請執行【{collision_type}】：
-            公司：{c_name}({pure_code})
-            情資來源：{context_data}
-            量化數據：{metrics_stream}
-            
-            請產出精簡強悍的報告，包含業務診斷、數據矛盾點評與最終建議策略。
+            你現在是『避險基金執行合夥人』。請完全依照以下 6 大流程產出 {c_name} 的診斷報告：
+
+            【實時輸入情資】：
+            - 公司名稱與產業：{c_name} ({info['industry']})
+            - 業務與供應鏈新聞：{context_data}
+            - 相關期指環境：{index_data}
+            - 系統 AI 40+ 項量化分析結果：{metrics_stream}
+
+            【強制分析指令】：
+            1. **(流程 2 & 3)**：解析出該公司具體的「業務範圍」與「上下游影響」，嚴禁回答資訊不足。
+            2. **(流程 5)**：將上述現況與「40+ 項量化指標」對撞。分析數據顯示的技術強弱是否與新聞消息、供應鏈現況吻合。
+            3. **(流程 6)**：給出明確結論。
+
+            【報告格式】：
+            🔍 **公司業務與供應鏈診斷**：(分析業務範圍及上下游受損/獲利情況)
+            📊 **量化與質性因子對撞**：(綜合 40+ 指標與新聞，指出數據與現實的矛盾點)
+            ⚖️ **指數環境影響**：(期指對明日開盤的具體影響)
+            🎖 **最終實戰結論**：
+            ■ 建議：(買、賣、停利、停損、觀望)
+            ■ 理由：(結合數據與情資對撞的核心原因)
+            ■ 策略：(具體價位或明日開盤動作建議)
             """
 
-            # Groq 通常很穩，直接請求
-            res = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {st.secrets['GROQ_API_KEY']}"},
-                json={
-                    "model": "llama-3.3-70b-versatile",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.1
-                },
-                timeout=25
-            )
-            
-            if res.status_code == 200:
-                progress_bar.progress(100)
-                status_text.empty()
-                st.markdown(res.json()['choices'][0]['message']['content'])
-                st.success(f"✅ 分析完成（模式：{collision_type}）")
-                progress_bar.empty()
-                
-                # 依然幫你守著 Watchlist 提醒
-                if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
-                    st.warning("⚠️ 提醒：Watchlist 已超過 20 支上限，請汰弱留強。")
-            else:
-                st.error("❌ Groq 伺服器忙碌中，請稍後再試。")
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.0,
+                "max_tokens": 1500
+            }
 
+            response = requests.post("https://api.groq.com/openai/v1/chat/completions", 
+                                     headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=45)
+            
+            if response.status_code == 200:
+                status.empty()
+                st.markdown(f"#### 🗨️ {c_name} 六大流程對撞診斷報告")
+                st.markdown(response.json()['choices'][0]['message']['content'])
+                st.success(f"✅ {c_name} 全維度分析完畢。")
         except Exception as e:
-            status_text.empty()
-            progress_bar.empty()
-            st.error(f"💥 系統執行異常：{str(e)}")
+            st.error(f"💥 流程執行中斷：{str(e)}")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
