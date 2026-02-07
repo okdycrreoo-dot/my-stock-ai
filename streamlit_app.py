@@ -1060,58 +1060,52 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 for r in ddgs.text("台指期夜盤 漲跌 美金對台幣匯率", max_results=3):
                     global_env += r['body'] + "\n"
 
-            # --- 步驟 4: AI 深度對撞分析 ---
-            status.info(f"⚖️ AI 大腦正在解析「{c_name}」專屬產業因子...")
+            # --- 步驟 4: AI 深度對撞分析 (強化實戰與事實對撞) ---
+            status.info(f"⚖️ AI 大腦正在進行「{c_name}」實時事實對撞...")
             
             metrics_summary = " | ".join([str(item) for item in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
+            # 這裡強化了 Prompt 的強制性，要求 AI 必須引用新聞細節
             prompt = f"""
-            你現在是具備『全球供應鏈視野』的首席操盤手。
+            你現在是頂尖法人的『首席策略長』，專長是將「最新時事」與「量化數據」進行硬核對撞。
             分析目標：{c_name}
-            
-            【分析要求】：
-            1. **自適應產業識別**：自主判斷「{c_name}」的核心業務（如：PCB化學、造紙、半導體等），並找出影響該行業最深的「外部變數」（如：銅價、紙漿價格、費半指數）。
-            2. **多維度對撞**：
-               - 業績與財報對撞：營收成長對比毛利趨勢。
-               - 供應鏈對撞：原料端走勢與下游需求（伺服器、AI PC等）對比。
-               - 大盤環境對撞：夜盤與匯率（影響外銷）對比。
-            3. **40項指標融合**：參考技術指標 [{metrics_summary}]。
+
+            【分析任務 - 拒絕空話】：
+            1. **時事事實對撞**：請從最新新聞「{local_news}」中，找出『具體』的營收數字、法說會結論、或供應鏈傳聞。禁止說「營收可能受影響」，要說「根據新聞，營收增長了X%或出現某項具體利空」。
+            2. **自適應產業因子**：自主判斷「{c_name}」核心驅動因子（如：銅價、匯率、美股費半、或AI伺服器拉貨動能）。
+            3. **40項指標對沖**：結合技術指標 [{metrics_summary}]，如果技術面看多但時事面利空，請給出『矛盾警示』。
+            4. **環境影響**：根據夜盤與匯率「{global_env}」，精算對明日開盤的實質衝擊。
 
             【強制規範】：
             - 嚴禁提及代號數字 '{pure_code}'，必須複讀中文正名「{c_name}」。
-            - 報告中必須包含具體的「支撐位」與「壓力位」數字。
-            - 決策建議必須明確（買入、賣出、停損、停利、觀望）。
-
-            【情報背景】：
-            - 最新聞消息：{local_news}
-            - 外部環境：{global_env}
+            - 必須包含具體的「支撐位」與「壓力位」數字，嚴禁給出區間。
+            - 決策建議必須明確且唯一。
 
             【綜合診斷報告格式 (務必換行兩次)】：
-            🔍 **{c_name} 產業基因分析**：(說明核心業務與關鍵外部變數)
+            🔍 **{c_name} 實時事實與現況對撞**：(請直接列出搜尋到的最新具體營收數字或重大事件，並分析其對股價的即時衝擊)
 
-            📊 **財務與供應鏈對撞結論**：(分析財報業績與全球鏈動)
+            📊 **供應鏈與量化數據對沖**：(結合具體外部變數如匯率或原材料價格，對照 40 項數據給出綜合解讀)
 
-            ⚖️ **夜盤與匯率衝擊判讀**：(分析大盤環境對其影響)
+            ⚖️ **夜盤環境衝擊判讀**：(根據夜盤最新數據，直接推算明日開盤的強弱勢預期)
 
             🎖️ **最終實戰結論 (條列式建議)**：
             ■ 決策建議：(強烈買入 / 觀望 / 減碼)
             
-            ■ 明日策略：(具體開盤動作建議)
+            ■ 明日策略：(具體到開盤後的觀察關鍵點或具體執行價位)
             
-            ■ 位階支撐壓力：(給出具體數字)
+            ■ 目標與停損參考：(請根據技術面給出具體數字)
             
-            ■ 停損停利建議：(執行點位)
-            
-            ■ 盯盤重點：(明天需關注的特定板塊或商品報價)
+            ■ 盯盤重點：(列出明天最需要看的 2 個具體商品報價或特定板塊)
             """
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.2
+                "temperature": 0.1, # 降低隨機性，強化事實邏輯
+                "max_tokens": 1500
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=45)
@@ -1123,7 +1117,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 st.markdown(report)
                 st.success(f"✅ {c_name} 綜合診斷生成完畢。")
             else:
-                st.error("分析引擎響應失敗。")
+                st.error(f"分析引擎響應失敗，狀態碼：{response.status_code}")
 
         except Exception as e:
             st.error(f"💥 異常：{str(e)}")
@@ -1131,9 +1125,4 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
 
