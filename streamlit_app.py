@@ -984,21 +984,11 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 # --- 7. AI 戰略委員會 ---
 # ==========================================
-def chapter_7_ai_committee_analysis(symbol, brain_row):
-    import requests
-    from duckduckgo_search import DDGS
-    import re
-
-    st.markdown("---")
-    pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
-    
-    # --- 流程 1: 實時穿透式正名 (絕不硬編碼) ---
-    @st.cache_data(ttl=3600) 
+@st.cache_data(ttl=3600) 
     def get_verified_info(code):
+        # 完整的市場目標清單
         targets = [
-            # 上市：欄位 1 是代號，2 是簡稱，4 是主要業務內容
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "主要業務內容"),
-            # 上櫃/興櫃：結構較複雜，我們先確保抓到名稱與產業別作為基礎業務描述
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃產業"),
             ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃產業")
         ]
@@ -1008,28 +998,29 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 r = requests.get(url, timeout=5)
                 if r.status_code == 200:
                     data = r.json()
+                    # 處理不同 API 的數據結構
                     items = data.get('aaData', data) if isinstance(data, dict) else data
                     for item in items:
+                        # 處理 list 或 dict 結構的 item
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            # 抓取業務內容或產業別作為搜尋輔助標籤
-                            biz = (item.get(biz_val) if isinstance(item, dict) and biz_val in item else biz_val).strip()
-                            ind = biz if "產業" in biz_val else "市場核心"
-                            return {"name": name, "industry": ind, "official_biz": biz}
+                            biz = (item.get(biz_val) if isinstance(item, dict) and biz_val in item else str(biz_val)).strip()
+                            return {"name": name, "industry": biz, "official_biz": biz}
             except: continue
-        return {"name": None, "industry": None, "official_biz": ""}
         
-        # Yahoo 備援搜尋 (僅作為 API 失效時的實時抓取，不存入本地)
+        # --- 備援路徑：如果 API 都沒中，改用 Yahoo 抓取 ---
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"https://tw.stock.yahoo.com/quote/{code}"
             r = requests.get(url, headers=headers, timeout=5)
             if r.status_code == 200:
-                name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
-                return {"name": name, "industry": "市場核心產業"}
+                name_match = re.search(r'<title>(.*?)\s?\(', r.text)
+                if name_match:
+                    return {"name": name_match.group(1).strip(), "industry": "市場核心", "official_biz": "通用財經業務"}
         except: pass
-        return {"name": None, "industry": None}
+        
+        return {"name": None, "industry": None, "official_biz": ""}
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
 
@@ -1127,6 +1118,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
