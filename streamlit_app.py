@@ -992,83 +992,76 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     import re
 
     st.markdown("---")
-    # 核心修正：強制清洗代號，確保只有數字
+    # 強制清洗代號
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 步驟 1: 官方全市場正名 (最強效版本：穿透基本資料庫) ---
-    @st.cache_data(ttl=604800) # 基本資料變動不大，快取一週
-    def get_final_verified_name(code):
-        # A. 證交所上市公司「基本資料」API (包含所有掛牌公司，不論有無交易)
+    # --- 步驟 1: 官方全市場正名 (修正快取 key，確保換代號會更新) ---
+    @st.cache_data(ttl=3600) # 縮短至一小時，且 code 作為參數確保唯一性
+    def get_verified_name_dynamic(code):
+        # A. 證交所
         try:
-            # 這是 TWSE 的基本資料 OpenAPI
             url = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
             r = requests.get(url, timeout=5)
             if r.status_code == 200:
-                data = r.json()
-                for item in data:
+                for item in r.json():
                     if item.get('公司代號') == code:
                         return item.get('公司簡稱').strip()
         except: pass
-
-        # B. 櫃買中心 (上櫃/興櫃) 每日行情全清單
+        # B. 櫃買
         try:
-            # 這是 TPEx 最全的 JSON 接口，包含興櫃公司 (如 8438)
             url = "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw"
             r = requests.get(url, timeout=5)
             if r.status_code == 200:
-                data = r.json().get('aaData', [])
-                for item in data:
+                for item in r.json().get('aaData', []):
                     if str(item[0]).strip() == code:
                         return str(item[1]).strip()
         except: pass
-
-        # C. 終極防禦：直接從 Yahoo 股市網頁標題擷取
+        # C. Yahoo 補位
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"https://tw.stock.yahoo.com/quote/{code}"
             r = requests.get(url, headers=headers, timeout=5)
             if r.status_code == 200:
                 title = re.search(r'<title>(.*?)</title>', r.text).group(1)
-                # 格式通常為 "綠新-KY (8438) - 奇摩股市"
                 match = re.search(r'^(.+?)\s?\(', title)
                 if match: return match.group(1).strip()
         except: pass
         return None
 
-    st.write(f"### 🎖️ AI 戰略委員會：官方全資料庫診斷系統")
+    st.write(f"### 🎖️ AI 戰略委員會：動態產業因子對撞系統")
 
-    if st.button(f"🚀 啟動 {pure_code} 深度驗證分析", key="ai_final_v32", type="primary", use_container_width=True):
+    # 這裡的 Button Key 加入 pure_code 確保切換股票時按鈕狀態會重置
+    if st.button(f"🚀 啟動 {pure_code} 全球情資對撞分析", key=f"ai_v34_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
         status.info(f"🏛️ 正在穿透官方資料庫驗證「{pure_code}」...")
         
-        c_name = get_final_verified_name(pure_code)
+        c_name = get_verified_name_dynamic(pure_code)
         
-        # 【熔斷機制】：拿不到中文名代表代號不存在，直接停止，防止分析錯誤
         if not c_name:
-            st.error(f"❌ 驗證失敗：代號 {pure_code} 不在證交所/櫃買中心名單內，且 Yahoo 股市無法正名。請確認代號是否正確。")
+            st.error(f"❌ 驗證失敗：代號 {pure_code} 資訊不全。")
             return
         
         status.success(f"✅ 官方正名成功：{c_name} ({pure_code})")
 
         try:
-            # --- 步驟 2: 精準搜尋 (使用引號鎖定官方名稱) ---
-            status.info(f"📡 正在搜尋「{c_name}」最新實戰情報...")
+            # --- 步驟 2: 動態情資檢索 (不寫死關鍵字，讓 AI 自行關聯) ---
+            status.info(f"📡 搜尋「{c_name}」產業鏈與最新財報情報...")
             local_news = ""
             with DDGS() as ddgs:
-                # 關鍵修正：搜尋詞加上雙引號，避免 8438 被當成 3437 搜尋
-                search_q = f'"{c_name}" {pure_code} 營收 法說會 題材 site:cnyes.com OR site:udn.com OR site:chinatimes.com'
-                for r in ddgs.text(search_q, max_results=10):
+                # 搜尋詞組合：名稱 + 財報 + 供應鏈 + 報價
+                search_q = f'"{c_name}" 財報 業績預測 供應鏈 報價 site:cnyes.com OR site:udn.com'
+                for r in ddgs.text(search_q, max_results=8):
                     local_news += f"【來源:{r['title']}】\n{r['body']}\n\n"
 
-            # --- 步驟 3: 收集市場環境 ---
-            status.info(f"📊 同步台指期夜盤環境...")
-            night_intel = ""
+            # --- 步驟 3: 收集全球環境 (匯率、夜盤) ---
+            status.info(f"📊 同步台指期夜盤與匯率動態...")
+            global_env = ""
             with DDGS() as ddgs:
-                for r in ddgs.text("台指期夜盤 漲跌點數", max_results=2):
-                    night_intel += r['body'] + "\n"
+                for r in ddgs.text("台指期夜盤 漲跌 美金對台幣匯率", max_results=3):
+                    global_env += r['body'] + "\n"
 
-            # --- 步驟 4: Groq 分析 ---
-            status.info(f"⚖️ AI 大腦正在解析「{c_name}」...")
+            # --- 步驟 4: AI 深度對撞分析 ---
+            status.info(f"⚖️ AI 大腦正在解析「{c_name}」專屬產業因子...")
             
             metrics_summary = " | ".join([str(item) for item in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
@@ -1076,36 +1069,49 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
             prompt = f"""
-            你現在是頂尖投顧操盤手，請對以下官方資訊進行深度診斷。
-            目標公司：{c_name} (代碼: {pure_code})
+            你現在是具備『全球供應鏈視野』的首席操盤手。
+            分析目標：{c_name}
             
+            【分析要求】：
+            1. **自適應產業識別**：自主判斷「{c_name}」的核心業務（如：PCB化學、造紙、半導體等），並找出影響該行業最深的「外部變數」（如：銅價、紙漿價格、費半指數）。
+            2. **多維度對撞**：
+               - 業績與財報對撞：營收成長對比毛利趨勢。
+               - 供應鏈對撞：原料端走勢與下游需求（伺服器、AI PC等）對比。
+               - 大盤環境對撞：夜盤與匯率（影響外銷）對比。
+            3. **40項指標融合**：參考技術指標 [{metrics_summary}]。
+
             【強制規範】：
-            1. 全文『嚴禁』提及代號數字 '{pure_code}'。必須使用中文正名「{c_name}」。
-            2. 嚴禁稱呼「該公司」。
-            3. 必須根據新聞內容判斷「{c_name}」的精確業務。
+            - 嚴禁提及代號數字 '{pure_code}'，必須複讀中文正名「{c_name}」。
+            - 報告中必須包含具體的「支撐位」與「壓力位」數字。
+            - 決策建議必須明確（買入、賣出、停損、停利、觀望）。
+
+            【情報背景】：
+            - 最新聞消息：{local_news}
+            - 外部環境：{global_env}
+
+            【綜合診斷報告格式 (務必換行兩次)】：
+            🔍 **{c_name} 產業基因分析**：(說明核心業務與關鍵外部變數)
+
+            📊 **財務與供應鏈對撞結論**：(分析財報業績與全球鏈動)
+
+            ⚖️ **夜盤與匯率衝擊判讀**：(分析大盤環境對其影響)
+
+            🎖️ **最終實戰結論 (條列式建議)**：
+            ■ 決策建議：(強烈買入 / 觀望 / 減碼)
             
-            【輸入數據】：
-            - 官方名稱：{c_name}
-            - 市場利多新聞：{local_news}
-            - 外部環境(夜盤)：{night_intel}
-            - 技術數據指標：{metrics_summary}
+            ■ 明日策略：(具體開盤動作建議)
             
-            【報告格式 (務必換行兩次)】：
-            ■ 實戰評等：(強烈買入 / 觀望 / 減碼)
+            ■ 位階支撐壓力：(給出具體數字)
             
-            ■ 明日策略：(針對開盤動作)
+            ■ 停損停利建議：(執行點位)
             
-            ■ 關鍵點位參考：(支撐壓力)
-            
-            ■ 停損停利建議：(執行價格)
-            
-            ■ 盯盤重點：(需關注的新聞題材)
+            ■ 盯盤重點：(明天需關注的特定板塊或商品報價)
             """
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1
+                "temperature": 0.2
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=45)
@@ -1113,11 +1119,11 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             if response.status_code == 200:
                 status.empty()
                 report = response.json()['choices'][0]['message']['content']
-                st.markdown(f"#### 🗨️ {c_name} 官方實戰診斷報告")
+                st.markdown(f"#### 🗨️ {c_name} 全球實戰對撞診斷報告")
                 st.markdown(report)
-                st.success(f"✅ {c_name} 診斷報告完成。")
+                st.success(f"✅ {c_name} 綜合診斷生成完畢。")
             else:
-                st.error("AI 引擎超時，請點擊按鈕重試。")
+                st.error("分析引擎響應失敗。")
 
         except Exception as e:
             st.error(f"💥 異常：{str(e)}")
@@ -1125,6 +1131,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
