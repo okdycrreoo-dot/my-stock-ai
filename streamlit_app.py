@@ -986,15 +986,29 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全球實戰診斷")
+    
+    # --- 步驟 1: 官方正名提取 (優先使用官方登記名) ---
+    pure_code = symbol.split('.')[0]
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        # yfinance 的 longName 有時會包含中文公司名
+        official_name = ticker.info.get('longName', '')
+        # 如果是台灣股票，通常可以用更精準的對撞過濾
+        if not any('\u4e00' <= char <= '\u9fff' for char in official_name):
+            official_name = "" 
+    except:
+        official_name = ""
+
+    # 如果官方名沒抓到，才動用預設按鈕文字，後續會由 AI 修正
+    st.write(f"### 🎖️ AI 戰略委員會：{official_name if official_name else symbol} 全球實戰診斷")
 
     metrics_summary = " | ".join([str(item) for item in brain_row])
     
-    if st.button(f"🚀 啟動 {symbol} 深度實戰分析", key="ai_final_ultimate_v16", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {official_name if official_name else pure_code} 深度實戰分析", key="ai_final_ultimate_v17", type="primary", use_container_width=True):
         status = st.empty()
         
         try:
-            import yfinance as yf
             from duckduckgo_search import DDGS
             import requests
 
@@ -1002,72 +1016,68 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
 
-            # --- 步驟 1: 手術刀切入 - 極速名稱本地化 ---
-            status.info(f"🔍 步驟 1: 正在鎖定 {symbol} 的台灣在地正名...")
-            pure_code = symbol.split('.')[0]
-            
-            # 這裡不依賴 yfinance 的英文名，直接問 AI 該代號的台灣中文名
-            name_check_prompt = f"請僅回傳代號 {pure_code} 對應的台灣上市公司簡短中文名稱，例如：2330 回傳 台積電。若不知道請回傳 {pure_code}。"
+            # --- 修正 1: 強化名稱在地化 (強制轉中文) ---
+            status.info(f"🔍 步驟 1: 正在鎖定「{pure_code}」的官方在地正名...")
+            name_check_prompt = f"請僅回傳代號 {pure_code} 對應的台灣上市公司簡短中文名稱，例如：2330 回傳 '台積電'。嚴禁回傳代號。"
             name_payload = {
-                "model": "llama3-8b-8192", # 用小模型跑極速回傳
+                "model": "llama3-8b-8192",
                 "messages": [{"role": "user", "content": name_check_prompt}],
                 "temperature": 0
             }
             name_res = requests.post(url, headers=headers, json=name_payload, timeout=10)
-            localized_name = name_res.json()['choices'][0]['message']['content'].strip() if name_res.status_code == 200 else pure_code
+            localized_name = name_res.json()['choices'][0]['message']['content'].replace("'","").strip() if name_res.status_code == 200 else pure_code
             
-            # --- 步驟 2: 多維度情報搜集 (使用 localized_name 進行暴力搜尋) ---
-            status.info(f"📡 步驟 2: 以「{localized_name}」抓取台灣實時新聞與夜盤...")
+            # --- 修正 2: 以中文名進行暴力搜尋 ---
+            status.info(f"📡 步驟 2: 以「{localized_name}」抓取實時新聞與夜盤...")
             
-            search_data = []
-            futures_raw = []
-            global_intel = []
-            
+            search_data, futures_raw, global_intel = [], [], []
             with DDGS() as ddgs:
-                # A. 台灣在地即時新聞 (使用中文正名 + 關鍵字)
-                news_q = f"{localized_name} {pure_code} 股價 新聞 報價 減資 site:yahoo.com OR site:cnyes.com OR site:udn.com"
+                news_q = f"{localized_name} 股價 新聞 報價 減資 site:yahoo.com OR site:cnyes.com OR site:udn.com"
                 for r in ddgs.text(news_q, max_results=8):
                     search_data.append(r['body'])
                 
-                # B. 台指期夜盤強制提取 (針對台灣財經環境優化)
                 futures_q = "台指期 夜盤 漲跌 點數 最新 玩股網 OR site:yahoo.com"
                 for r in ddgs.text(futures_q, max_results=3):
                     futures_raw.append(r['body'])
                 
-                # C. 全球供應鏈連動 (加入產業熱點對撞)
                 global_q = f"{localized_name} 供應鏈 SpaceX AI 產業趨勢 訂單"
                 for r in ddgs.text(global_q, max_results=4):
                     global_intel.append(r['body'])
 
-            all_context = f"公司名稱: {localized_name} ({symbol})\n" + "\n".join(search_data + futures_raw + global_intel)
+            all_context = f"公司中文全名: {localized_name}\n代號: {pure_code}\n" + "\n".join(search_data + futures_raw + global_intel)
 
-            # --- 步驟 3: Groq 深度對撞分析 ---
+            # --- 修正 3: 強制分段與禁用代號的 Prompt ---
             status.info(f"⚖️ 步驟 3: 執行「{localized_name}」數據與題材對撞...")
             
             prompt = f"""
-            你現在是硬核台灣操盤手。
-            分析對象：{localized_name} ({symbol})
+            你現在是硬核台灣操盤手。分析對象：{localized_name}。
+            
+            【重要禁令】：
+            1. 嚴禁在報告中使用數字代號 '{pure_code}'，請一律使用中文名稱 '{localized_name}'。
+            2. 最終實戰結論的每一項「■」必須獨立成段，嚴禁連在一起。
             
             【搜尋情報】：
             {all_context}
             
-            【內部 40+ 量化指標數據】：
+            【量化指標】：
             {metrics_summary}
             
-            【執行任務 - 嚴禁廢話與空話】：
-            1. **業務與鏈條對撞**：精確分析 {localized_name} 在供應鏈(AI/低軌衛星/面板/半導體)的地位。
-            2. **台指期夜盤強制報數**：從情報中提取最新的「台指期夜盤」漲跌點數，並判斷對明日開盤的心理影響。
-            3. **在地題材數據化**：分析 {localized_name} 最新利多利空(如：高層持股變動、面板報價、減資、訂單)。
-            4. **指標對撞陷阱**：將新聞題材與「40項量化數據」對比。
-               - 若新聞瘋狂吹捧但「5日乖離」過高或「籌碼中性」，警告「拉高出貨」。
-               - 若新聞冷清但「盈虧比」與「Oracle評分」轉強，指出「潛在起漲點」。
+            【任務】：
+            1. **業務對撞**：分析 {localized_name} 在 AI/面板/供應鏈的具體地位。
+            2. **夜盤數據**：找出台指期夜盤最新漲跌點數。
+            3. **在地題材**：分析 {localized_name} 最新利多利空（高層持股變動、報價、訂單）。
+            4. **指標陷阱**：將新聞熱度與量化數據對比，指出是否為拉高出貨或超跌機會。
             
-            【5. 最終實戰結論 - 必須極致明確】：
-            ■ 綜合建議：(強烈買入 / 買入 / 觀望 / 避險 / 停損)
-            ■ 明日開盤建議：(具體動作：如開高不追待拉回、或平盤下分批承接)
-            ■ 位階參考：(直接給出具體 支撐位 與 壓力位 價格數字)
-            ■ 停損停利策略：(具體的執行邏輯)
-            ■ 明早看盤重點：(關注哪個產業指數或特定數據)
+            【5. 最終實戰結論 - 每一項請務必換行分段】：
+            ■ 綜合建議：(在此輸入)
+            
+            ■ 明日開盤建議：(在此輸入)
+            
+            ■ 位階參考：(具體支撐與壓力位數字)
+            
+            ■ 停損停利策略：(具體執行邏輯)
+            
+            ■ 明早看盤重點：(關注數據)
             """
 
             payload = {
@@ -1081,7 +1091,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             if response.status_code == 200:
                 status.empty()
                 report_content = response.json()['choices'][0]['message']['content']
-                st.markdown(f"#### 🗨️ {localized_name} ({pure_code}) 實戰對撞診斷報告")
+                st.markdown(f"#### 🗨️ {localized_name} 全球實戰對撞診斷報告")
                 st.markdown(report_content)
                 st.success(f"✅ {localized_name} 實戰診斷完成。")
             else:
@@ -1093,5 +1103,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
