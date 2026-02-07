@@ -986,83 +986,91 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 全球熱點題材感知對撞")
+    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 台灣在地化深度分析")
 
-    # 1. 量化指標預處理
     metrics_summary = " | ".join([str(item) for item in brain_row])
 
-    if st.button(f"🚀 啟動 {symbol} 全球視野深度分析", key="ai_final_global_pro", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {symbol} 全球視野深度分析", key="ai_final_taiwan_v6", type="primary", use_container_width=True):
         status = st.empty()
         
         try:
             from duckduckgo_search import DDGS
             import requests
             
-            # --- 第一階段：AI 自主感知全球與產業鏈情報 ---
-            status.info("🌍 正在自動掃描全球當前熱門題材 (運價/稀土/AI/衛星/地緣)...")
+            # 處理代碼 (例如 3481.TW -> 3481)
+            pure_symbol = symbol.split('.')[0]
+            
+            # --- 第一階段：正名與業務識別 ---
+            status.info(f"🔍 正在辨識 {pure_symbol} 公司名稱與核心業務...")
             with DDGS() as ddgs:
-                # A. 抓取全球最即時影響股價的熱門題材 (讓 AI 自行判斷哪些影響你的股)
-                global_topics = [n['body'] for n in ddgs.news("全球股市熱門題材 影響股價 新聞", max_results=3)]
-                
-                # B. 抓取目標股票的業務定位、供應鏈與核心客戶 (確認是否在熱點鏈條內)
-                company_intel = [n['body'] for n in ddgs.text(f"{symbol} 業務範圍 核心客戶 供應鏈定位 產業屬性", max_results=3)]
-                
-                # C. 抓取台美聯動情報 (ADR、美股費半、台指期夜盤)
-                macro_intel = [n['body'] for n in ddgs.news(f"{symbol} ADR 台指期夜盤 美股大盤走勢", max_results=3)]
-                
-                all_intel = "\n".join(global_topics + company_intel + macro_intel)
+                # 1. 取得公司全名
+                name_results = [n['title'] for n in ddgs.text(f"{pure_symbol} 台股 公司名稱", max_results=2)]
+                company_name = name_results[0] if name_results else pure_symbol
+                # 簡單過濾掉雜訊，提取中文名 (例如從 "3481群創光電-台股" 提取 "群創")
+                # 這裡讓 AI 稍後在 Prompt 處理即可
 
-            # --- 第二階段：Groq 深度對撞分析 ---
-            status.info("⚖️ 正在對撞 40+ 指標與全球熱門題材...")
+                # 2. 台灣在地新聞搜尋 (使用中文名 + 關鍵字)
+                status.info(f"📡 抓取「{company_name}」台灣在地即時新聞與台指期...")
+                tw_news = [n['body'] for n in ddgs.news(f"{company_name} 股價 新聞 財報", max_results=5)]
+                
+                # 3. 台指期與宏觀動態
+                macro_data = [n['body'] for n in ddgs.news("台指期夜盤 漲跌 走勢分析", max_results=3)]
+                
+                # 4. 全球供應鏈聯動 (由 AI 決定搜尋什麼)
+                status.info(f"🌍 掃描全球相關產業鏈與最新熱點...")
+                supply_chain_news = [n['body'] for n in ddgs.news(f"{company_name} 供應鏈 產業趨勢", max_results=3)]
+
+                all_intel = "\n".join(tw_news + macro_data + supply_chain_news)
+
+            # --- 第二階段：Groq 深度對撞 ---
+            status.info("⚖️ 正在進行「數據 + 在地新聞 + 供應鏈」對撞分析...")
             
             groq_key = st.secrets.get("GROQ_API_KEY", "")
-            if not groq_key:
-                st.error("❌ 找不到 GROQ_API_KEY，請在 Secrets 中設定。")
-                return
-
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
             prompt = f"""
-            你現在是具備全球宏觀視野與供應鏈專家背景的首席策略官。請針對「{symbol}」執行以下深度分析：
+            你現在是精通台灣股市與全球供應鏈的首席分析師。
             
-            【1. 全球當前題材與產業鏈背景】：
+            【目標股票】：{symbol} ({company_name})
+            【在地即時情報】：
             {all_intel}
             
-            【2. 該股 40 多項內部量化指標數據】：
+            【量化指標 (40+)】：
             {metrics_summary}
             
-            【分析任務 - 必須嚴格執行以下維度】：
-            1. **熱點感知與定位**：自動判斷目前全球熱點（如 AI GPU、低軌衛星、全球運輸、稀土禁運或特定地緣風險）是否直接或間接影響 {symbol}。先確認其業務範圍是否在這些鏈條內。
-            2. **多維對撞**：將「新聞題材熱度」與「40項量化數據」對比。分析：股價是靠實質獲利支撐，還是純粹受題材（如美股連動、消息面）帶動的泡沫？
-            3. **跨市場聯動分析**：必須納入美股對標企業（如 NVIDIA、TSM 等）與台指期夜盤動向，判斷對明日台股開盤的具體衝擊。
-            4. **週期判定**：判斷此題材影響是「一次性消息」、「1週短線題材」還是「長線結構趨勢」。
-            5. **綜合判斷**：請分開列出「量化結論」、「消息/題材結論」，最後給出明確的執行建議（買入/觀望/避險）。
+            【分析指令】：
+            1. **正名與定位**：首先確認該公司 (如：群創、台積電) 的主營業務。
+            2. **題材感知**：自主判斷當前影響該公司的關鍵題材（不僅限於我提到的 AI 或衛星，請自行從新聞判斷如：面板報價、運價、減資、高層持股變動等）。
+            3. **台指期對撞**：結合「台指期夜盤」動向，分析大盤環境對該股明日開盤的壓力。
+            4. **指標對撞**：將新聞中的「利多/利空」與 40 多項量化數據對照。
+               - 若新聞大好但指標（如營收成長、ROE）不佳，警示泡沫風險。
+               - 若新聞大壞但指標極強，分析超跌機會。
+            5. **綜合結論**：必須給出「數據面」、「消息面」與「最終建議」。
             
-            請用繁體中文回報，條列式呈現，風格專業硬核。
+            請用繁體中文回報，條列式呈現。
             """
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.2 # 降低隨機性，增加嚴謹度
+                "temperature": 0.3
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             
             if response.status_code == 200:
                 status.empty()
-                report = response.json()['choices'][0]['message']['content']
-                st.markdown(f"#### 🗨️ {symbol} 全球熱點題材與量化對撞報告")
-                st.markdown(report)
-                st.success("✅ 全球題材感知與指標對撞診斷完成")
+                st.markdown(response.json()['choices'][0]['message']['content'])
+                st.success("✅ 深度對撞分析完成")
             else:
-                st.error(f"❌ Groq 報錯：{response.text}")
+                st.error("分析引擎繁忙，請稍後再試。")
 
         except Exception as e:
-            st.error(f"💥 系統連線異常：{str(e)}")
+            st.error(f"系統異常：{str(e)}")
 
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
