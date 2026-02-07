@@ -1042,6 +1042,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             return
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
+        # 流程 2 & 3: 用中文名稱搜業務、供應鏈、新聞
         try:
             official_biz = info.get("official_biz", "")
             # 這是最強的搜尋組合：台股 + 名稱 + 代號 + 官方產業別 + "營收項目"
@@ -1118,6 +1119,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
