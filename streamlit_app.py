@@ -1026,24 +1026,29 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
 
-    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v37_{pure_code}", type="primary", use_container_width=True):
-        status = st.empty()
+    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v38_{pure_code}", type="primary", use_container_width=True):
+        # --- 初始化進度元件 ---
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
         # 流程 1: 正名
-        status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
+        status_text.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
         if not c_name:
             st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
+            progress_bar.empty()
             return
-        status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
+        
+        progress_bar.progress(15)
+        status_text.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # --- 核心更新：配置 Gemini 搜尋 (1500次/日) ---
+            # --- 核心更新：配置 Gemini 搜尋 (並強制關閉安全鎖) ---
             gemini_key = st.secrets.get("GEMINI_API_KEY", "")
             genai.configure(api_key=gemini_key)
             
-            # 強制關閉安全過濾，避免財經負面詞彙被擋
+            # 暴力破解安全過濾器，防止「崩盤、騙線、洗盤」被擋
             safety_settings = [
                 {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -1057,11 +1062,13 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 safety_settings=safety_settings
             )
 
-            # 流程 2, 3 & 4: 調用 Gemini 進行 Google 實時情資抓取
-            status.info(f"Step 2, 3 & 4: 調用 Gemini 搜尋「{c_name}」即時業務情資與指數環境...")
+            # --- Step 2, 3 & 4: Gemini 搜尋與冷卻 ---
+            progress_bar.progress(30)
+            for i in range(4, 0, -1):
+                status_text.warning(f"📡 Step 2-4: 請求冷卻中 ({i}s)... 準備穿透搜尋「{c_name}」即時情資")
+                time.sleep(1)
             
-            # 冷卻 4 秒確保不超過 15 RPM 限制
-            time.sleep(4) 
+            status_text.info(f"🔭 Gemini 正在調閱 Google 實時數據、產業新聞與期指環境...")
             
             search_prompt = f"""
             請搜尋並彙整股票 {c_name} ({pure_code}) 的以下情資：
@@ -1073,15 +1080,18 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             try:
                 gemini_res = search_model.generate_content(search_prompt)
                 context_data = gemini_res.text
+                progress_bar.progress(70)
             except Exception as e_gemini:
+                # 攔截配額用盡或 API 關鍵字鎖死
                 if "429" in str(e_gemini) or "RESOURCE_EXHAUSTED" in str(e_gemini).upper():
                     st.error("🚫 今日 Gemini 分析配額已用完（1,500次限制），請等候明日重置。")
+                    progress_bar.empty()
                     st.stop()
                 else:
                     raise e_gemini
 
-            # 流程 5 & 6: 綜合對撞與結論 (送往 Groq)
-            status.info(f"Step 5 & 6: 執行 40+ 項量化指標與 Gemini 情資深度對撞...")
+            # --- Step 5 & 6: Groq 對撞 ---
+            status_text.info(f"Step 5 & 6: 執行 40+ 項量化指標與實時情資深度對撞中...")
             
             metrics_stream = " | ".join([str(x) for x in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
@@ -1121,7 +1131,11 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                                      headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=45)
             
             if response.status_code == 200:
-                status.empty()
+                progress_bar.progress(100)
+                status_text.empty()
+                time.sleep(0.5) 
+                progress_bar.empty()
+                
                 st.markdown(f"#### 🗨️ {c_name} 六大流程對撞診斷報告")
                 st.markdown(response.json()['choices'][0]['message']['content'])
                 st.success(f"✅ {c_name} 全維度分析完畢。")
@@ -1131,9 +1145,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                     st.warning("⚠️ 提醒：您的 Watchlist 已超過 20 支，請根據分析結果汰弱留強以維持績效。")
 
         except Exception as e:
+            status_text.empty()
+            progress_bar.empty()
             st.error(f"💥 流程執行中斷：{str(e)}")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
