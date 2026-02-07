@@ -996,12 +996,14 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
         targets = [
-            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
-            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
-            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
+            # 上市：欄位 1 是代號，2 是簡稱，4 是主要業務內容
+            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "主要業務內容"),
+            # 上櫃/興櫃：結構較複雜，我們先確保抓到名稱與產業別作為基礎業務描述
+            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃產業"),
+            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃產業")
         ]
         
-        for url, cid_key, name_key, ind_val in targets:
+        for url, cid_key, name_key, biz_val in targets:
             try:
                 r = requests.get(url, timeout=5)
                 if r.status_code == 200:
@@ -1011,9 +1013,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            ind = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else ind_val)
-                            return {"name": name, "industry": ind}
+                            # 抓取業務內容或產業別作為搜尋輔助標籤
+                            biz = (item.get(biz_val) if isinstance(item, dict) and biz_val in item else biz_val).strip()
+                            ind = biz if "產業" in biz_val else "市場核心"
+                            return {"name": name, "industry": ind, "official_biz": biz}
             except: continue
+        return {"name": None, "industry": None, "official_biz": ""}
         
         # Yahoo 備援搜尋 (僅作為 API 失效時的實時抓取，不存入本地)
         try:
@@ -1041,29 +1046,17 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # 流程 2 & 3: 分波段自動精準檢索
-            status.info(f"🚀 正在執行三波段情報檢索：{c_name} {pure_code}")
-            context_data = ""
+            # 流程 2 & 3: 提取官方業務資訊並執行精準搜尋
+            official_biz = info.get("official_biz", "")
+            status.info(f"Step 2 & 3: 依據官方業務「{official_biz}」檢索實時情資...")
+            context_data = f"【官方登記業務】：{official_biz}\n"
             
             with DDGS() as ddgs:
-                # 第一波：鎖定「官方業務」 (強迫加上股票與代碼)
-                status.write(f"🔍 第一波：確認 {pure_code} 官方業務範圍...")
-                q_biz = f'"{c_name}" "{pure_code}" 股票 主要業務 產品範圍'
-                for r in ddgs.text(q_biz, max_results=3): 
-                    context_data += f"【官方業務】{r['body']}\n"
-                
-                # 第二波：鎖定「產業鏈位置」 (加上財經關鍵字)
-                status.write(f"🔍 第二波：檢索 {pure_code} 產業鏈上下游...")
-                q_supply = f'"{c_name}" "{pure_code}" 財經 供應鏈 產業現況'
-                for r in ddgs.text(q_supply, max_results=3): 
-                    context_data += f"【供應鏈情資】{r['body']}\n"
-                
-                # 第三波：鎖定「最新新聞」 (限定財經來源)
-                status.write(f"🔍 第三波：檢索 {pure_code} 最新重大新聞...")
-                q_news = f'"{c_name}" "{pure_code}" 新聞 site:cnyes.com OR site:moneydj.com'
-                for r in ddgs.text(q_news, max_results=3): 
-                    context_data += f"【最新新聞】{r['body']}\n"
-                    
+                # 組合關鍵字：名稱 + 代號 + 官方業務描述 + 財經標籤
+                q_combined = f'"{c_name}" "{pure_code}" {official_biz} 主要業務 供應鏈 新聞'
+                for r in ddgs.text(q_combined, max_results=8): 
+                    context_data += f"【擴展情資】{r['body']}\n"
+            
             # 流程 4: 相關期指指數
             status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
             index_data = ""
@@ -1122,6 +1115,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
