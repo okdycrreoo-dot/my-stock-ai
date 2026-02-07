@@ -996,11 +996,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
         targets = [
-            # 上市：欄位 4 改抓「產業別」，這是最精準的分類標籤
+            # 上市：抓產業別
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
-            # 上櫃/興櫃：產業別通常在對應欄位
-            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃"),
-            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃")
+            # 上櫃：修正索引，通常第 4 或 5 欄是產業名稱 (如建材營造)
+            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, 4),
+            # 興櫃
+            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, 4)
         ]
         
         for url, cid_key, name_key, biz_val in targets:
@@ -1010,25 +1011,20 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                     data = r.json()
                     items = data.get('aaData', data) if isinstance(data, dict) else data
                     for item in items:
+                        # 處理代號比對
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            # 強制抓取官方產業分類
-                            biz = (item.get(biz_val) if isinstance(item, dict) and biz_val in item else str(biz_val)).strip()
+                            # 針對 list 結構，嘗試抓取產業描述欄位
+                            if isinstance(item, list) and len(item) > 4:
+                                biz = item[4].strip() # 5324 在這裡會拿到「建材營造」
+                            else:
+                                biz = (item.get(biz_val) if isinstance(item, dict) else str(biz_val)).strip()
                             return {"name": name, "industry": biz, "official_biz": biz}
             except: continue
-        
-        # 備援 (Yahoo)
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(f"https://tw.stock.yahoo.com/quote/{code}", headers=headers, timeout=5)
-            if r.status_code == 200:
-                name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
-                return {"name": name, "industry": "台股企業", "official_biz": "市場掛牌公司"}
-        except: pass
         return {"name": None, "industry": None, "official_biz": ""}
-
-    st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
+        
+    st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
 
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
@@ -1044,22 +1040,20 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
         # 流程 2 & 3: 用中文名稱搜業務、供應鏈、新聞
         try:
-            official_biz = info.get("official_biz", "")
-            # 這是最強的搜尋組合：台股 + 名稱 + 代號 + 官方產業別 + "營收項目"
-            # 營收項目這四個字能精準勾出法說會或財報摘要
-            q_combined = f'台股 "{c_name}" {pure_code} {official_biz} 營收項目 供應鏈'
+            official_biz = info.get("official_biz", "台股")
+            # 加入「營收來源」與「排除詞」-金融 -投資，防止 AI 腦補
+            q_combined = f'"{c_name}" {pure_code} {official_biz} "營收來源" -金融 -投資 -保險'
             
-            status.info(f"Step 2 & 3: 正在穿透檢索 {c_name} 的真實業務結構...")
+            status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構（排除雜訊）...")
             context_data = f"【官方登記產業】：{official_biz}\n"
             
             with DDGS() as ddgs:
-                # 限制搜尋結果，只取前 5 條最相關的，避免雜訊過多
-                results = list(ddgs.text(q_combined, max_results=5))
+                # 提高 max_results 到 8，增加抓到正確資訊的機率
+                results = list(ddgs.text(q_combined, max_results=8))
                 if results:
-                    for r in results: 
-                        context_data += f"【核心情資】{r['body']}\n"
+                    for r in results: context_data += f"【即時財報情資】{r['body']}\n"
                 else:
-                    context_data += "（未搜得即時新聞，將依據官方產業別進行量化對撞）\n"
+                    context_data += f"（搜尋未果，請 AI 嚴格僅依據「{official_biz}」產業進行推論）\n"
             
             # 流程 4: 相關期指指數
             status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
@@ -1119,6 +1113,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
