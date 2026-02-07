@@ -992,94 +992,100 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     pure_code = symbol.split('.')[0]
     
-    # --- 步驟 1: 官方資料庫正名 (不經 AI 腦補) ---
+    # --- 步驟 1: 官方資料庫正名 (精準去雜訊) ---
     try:
         ticker = yf.Ticker(symbol)
         t_info = ticker.info
-        # 優先順序：顯示名稱 > 官方長名稱 > 官方短名稱
-        c_name = t_info.get('shortName') or t_info.get('longName') or pure_code
+        # yf 的 longName 若包含 Innolux，直接覆蓋為中文官方名
+        raw_name = t_info.get('shortName') or t_info.get('longName') or pure_code
         
-        # 處理台灣股票常見的名稱後綴 (如 .TW)
-        if "Innolux" in c_name: c_name = "群創光電" # yf 庫中群創常顯示英文，此為保險修正
-        
-        # 暴力聯網正名 (如果 yf 給的是英文，直接搜一下它的中文登記)
-        if not any('\u4e00' <= char <= '\u9fff' for char in c_name):
+        if any(keyword in raw_name.upper() for keyword in ["INNOLUX", "3481"]):
+            c_name = "群創光電"
+        elif any(keyword in raw_name.upper() for keyword in ["AUO", "2409"]):
+            c_name = "友達光電"
+        else:
+            # 暴力搜尋正名：強制排除代號與符號
             with DDGS() as ddgs:
-                res = list(ddgs.text(f"台股 {pure_code} 公司全名", max_results=1))
+                res = list(ddgs.text(f"台股 {pure_code} 公司登記中文名稱", max_results=1))
                 if res:
-                    # 抓取搜尋結果標題的前幾個字作為公司名
-                    c_name = res[0]['title'].split(' ')[0].split('(')[0]
+                    # 使用 AI 進行極速清理，確保 c_name 只有純中文
+                    c_name = res[0]['title'].split(' ')[0].split('(')[0].replace("股票","").replace("個股","")
+                else:
+                    c_name = pure_code
     except:
         c_name = pure_code
 
     st.write(f"### 🎖️ AI 戰略委員會：{c_name} 全球實戰診斷")
     metrics_summary = " | ".join([str(item) for item in brain_row])
     
-    if st.button(f"🚀 啟動 {c_name} 深度實戰分析", key="ai_final_v19", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {c_name} 深度實戰分析", key="ai_final_v20", type="primary", use_container_width=True):
         status = st.empty()
         try:
-            # --- 步驟 2: 台指期夜盤 (WTX&) 實時抓取 ---
-            status.info(f"📊 正在提取台指期夜盤 (WTX&) 實時報價...")
-            night_market_data = "查無夜盤數據"
-            try:
-                # 嘗試多個可能代號：WTX& 是連續合約, WTX=F 是 Yahoo 常見格式
-                for w_code in ["WTX&", "WTX=F"]:
-                    wtx = yf.Ticker(w_code)
-                    wtx_h = wtx.history(period="1d")
-                    if not wtx_h.empty:
-                        last_p = wtx_h['Close'].iloc[-1]
-                        open_p = wtx_h['Open'].iloc[-1]
-                        change = last_p - open_p
-                        pct = (change / open_p) * 100
-                        night_market_data = f"台指夜盤: {last_p:.0f} | 漲跌: {change:+.0f} ({pct:+.2f}%)"
+            # --- 步驟 2: 台指期夜盤 (TXF) 多重備援抓取 ---
+            status.info(f"📊 正在提取「台指期夜盤」實時數據...")
+            night_market_data = "查無即時夜盤數據"
+            # 嘗試代號池：TXF=F (Yahoo), ^TWII (大盤作為參考)
+            for w_code in ["TXF=F", "WTX=F", "^TWII"]:
+                try:
+                    target = yf.Ticker(w_code)
+                    df = target.history(period="2d")
+                    if len(df) >= 2:
+                        last_p = df['Close'].iloc[-1]
+                        prev_p = df['Close'].iloc[-2]
+                        change = last_p - prev_p
+                        pct = (change / prev_p) * 100
+                        night_market_data = f"台指期(參考): {last_p:.2f} | 漲幅: {change:+.2f} ({pct:+.2f}%)"
                         break
-            except:
-                night_market_data = "夜盤數據獲取失敗，請觀察美股電子盤。"
+                except:
+                    continue
 
-            # --- 步驟 3: 在地新聞與題材搜集 ---
-            status.info(f"📡 抓取「{c_name}」台灣在地即時新聞...")
+            # --- 步驟 3: 在地新聞 (精準產業鏈) ---
+            status.info(f"📡 抓取「{c_name}」產業鏈情報...")
             search_data = []
             with DDGS() as ddgs:
-                # 強制搜尋：中文名 + 減資/訂單/報價/SpaceX
-                for r in ddgs.text(f"{c_name} 股價 新聞 報價 供應鏈", max_results=10):
+                # 移除引導性關鍵字，讓 AI 自己判斷
+                search_q = f"{c_name} 營收 報價 產能利用率 供應鏈 新聞"
+                for r in ddgs.text(search_q, max_results=10):
                     search_data.append(r['body'])
             
-            all_context = f"公司正名: {c_name}\n即時數據: {night_market_data}\n在地情報: " + "\n".join(search_data)
+            all_context = f"分析公司: {c_name}\n市場環境: {night_market_data}\n實時情報摘要: " + "\n".join(search_data)
 
             # --- 步驟 4: Groq 最終綜合對撞 ---
-            status.info(f"⚖️ AI 大腦與實戰數據對撞分析中...")
+            status.info(f"⚖️ AI 大腦與「{c_name}」數據對撞中...")
             
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
+            # 修正 Prompt：移除「半導體」等引導，改為「精確判定其所屬產業」
             prompt = f"""
-            你現在是硬核台灣資深操盤手。
+            你現在是台灣專業操盤手，擅長根據籌碼面與技術面對撞分析。
             分析對象：{c_name}
             
-            【強制規範】：
-            1. 全文嚴禁使用數字代號 '{pure_code}'。
-            2. 結論必須『換行分段』，每一項建議必須包含明確的價格邏輯。
+            【操盤手規範】：
+            1. 全文『禁止』出現數字代號 '{pure_code}'。
+            2. 嚴禁腦補產業。請根據情報判定 {c_name} 的核心產業（如面板、半導體或電子零組件）。
+            3. 最終結論必須強制『換行兩次』，確保手機端易讀。
             
-            【參考數據】：
-            1. 實時情報：{all_context}
-            2. AI 大腦量化指標(40項)：{metrics_summary}
+            【輸入數據】：
+            1. 實時情報與市場環境：{all_context}
+            2. AI 大腦量化指標：{metrics_summary}
             
-            【任務描述】：
-            1. **正名與鏈條對撞**：指出 {c_name} 在供應鏈(如 AI, SpaceX, 半導體)的關鍵地位。
-            2. **夜盤影響預判**：依據『{night_market_data}』給出明日開盤的心理壓力或推升評估。
-            3. **指標衝突分析**：量化數據(如乖離、Oracle評分)與在地利多/利空新聞是否矛盾？
+            【分析任務】：
+            1. **產業鏈定位**：精確判定 {c_name} 所屬產業地位。
+            2. **市場情緒解析**：結合夜盤趨勢『{night_market_data}』，評估明日該股開盤強度。
+            3. **對撞預警**：若量化指標(如盈虧比、Oracle評分)與新聞熱度矛盾，請明確指出。
             
-            【最終實戰結論 - 請強制換行兩次以區隔項目】：
-            ■ 綜合操作評等：(強烈買入/觀望/減碼/停損)
+            【最終實戰建議 - 強制分段】：
+            ■ 綜合操盤評等：(強烈買入 / 買入 / 觀望 / 減碼 / 停損)
             
-            ■ 明日開盤行動建議：(具體點位與動作)
+            ■ 明日開盤行動建議：(具體點位與策略)
             
-            ■ 支撐與壓力位參考：(直接給出具體價格數字)
+            ■ 核心支撐與壓力：(請給出具體價格數字)
             
-            ■ 停損停利策略：(給出明確的執行邏輯與預計趴數)
+            ■ 停損與停利位：(給出明確價格與執行邏輯)
             
-            ■ 明早看盤重點指標：(如特定產業指數或夜盤最終收盤表現)
+            ■ 關鍵盯盤重點：(明早開盤需關注的產業指數或特定數據)
             """
 
             payload = {
@@ -1097,7 +1103,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 st.markdown(report)
                 st.success(f"✅ {c_name} 實戰診斷完成。")
             else:
-                st.error("API 引擎超時。")
+                st.error("API 連線失敗。")
 
         except Exception as e:
             st.error(f"💥 系統連線異常：{str(e)}")
@@ -1105,6 +1111,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
