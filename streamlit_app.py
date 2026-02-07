@@ -995,7 +995,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     # 強制清洗代號
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 步驟 1: 官方全市場正名 (手術級補完：上市、上櫃、興櫃、備援) ---
+    # --- 步驟 1: 官方全市場正名 (涵蓋上市、上櫃、興櫃、備援) ---
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
         # A. 證交所 (上市)
@@ -1018,7 +1018,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         return {"name": str(item[1]).strip(), "industry": "上櫃相關產業"}
         except: pass
 
-        # C. 櫃買中心 (興櫃) - 補完拼圖
+        # C. 櫃買中心 (興櫃)
         try:
             url = "https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json"
             r = requests.get(url, timeout=5)
@@ -1041,7 +1041,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 
         return {"name": None, "industry": "一般產業"}
 
-    st.write(f"### 🎖️ AI 戰略委員會：動態產業因子對撞系統")
+    st.write(f"### 🎖️ AI 戰略委員會：全維度因子對撞系統")
 
     if st.button(f"🚀 啟動 {pure_code} 全球情資對撞分析", key=f"ai_v34_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
@@ -1058,67 +1058,69 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         status.success(f"✅ 官方正名成功：{c_name} | 官方類別：{c_industry}")
 
         try:
-            # --- 步驟 2: 精確情資檢索 ---
+            # --- 步驟 2: 情資檢索 ---
             status.info(f"📡 搜尋「{c_name}」最新營收與業績動態...")
             local_news = ""
             with DDGS() as ddgs:
-                search_q = f'"{c_name}" 營收 月增 年增 業績 獲利 site:cnyes.com OR site:udn.com OR site:moneydj.com'
+                search_q = f'"{c_name}" 營收 獲利 財報 業績 site:cnyes.com OR site:udn.com OR site:moneydj.com'
                 for r in ddgs.text(search_q, max_results=5): 
                     local_news += f"【來源:{r['title']}】\n{r['body']}\n\n"
 
-            # --- 步驟 3: 收集全球環境 ---
+            # --- 步驟 3: 全球環境 ---
             status.info(f"📊 同步台指期夜盤與匯率動態...")
             global_env = ""
             with DDGS() as ddgs:
-                for r in ddgs.text("台指期夜盤 漲跌點數 美金對台幣匯率", max_results=3):
+                for r in ddgs.text("台指期夜盤 漲跌 匯率 趨勢", max_results=3):
                     global_env += r['body'] + "\n"
 
-            # --- 步驟 4: AI 深度對撞分析 (強化鎖定官方資料與標籤) ---
-            status.info(f"⚖️ AI 大腦正在將「官方產業數據」與「即時時事」進行對撞...")
+            # --- 步驟 4: AI 深度對撞分析 (強化標籤與主動推論) ---
+            status.info(f"⚖️ AI 大腦正在進行 40+ 項指標與產業實況對撞...")
             
+            # 將數據流標籤化，防止 AI 裝傻
             metrics_summary = " | ".join([str(item) for item in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
             prompt = f"""
-            你現在是嚴謹的『首席法人稽核策略長』。請針對 {c_name} 進行全維度事實對撞，嚴禁任何編造。
+            你現在是頂尖『避險基金首席策略長』。請針對 {c_name} 進行全維度事實對撞。
 
-            【官方認證背景】：
-            - 官方產業類別：{c_industry} (資料來源：證交所/櫃買中心)
-            - 核心量化指標：{metrics_summary} 
-            (註：指標內含該公司最新 EPS、毛利率、本益比等重要財務數據，請務必解析並作為首要依據)
+            【絕對事實背景】：
+            - 官方產業分類：{c_industry}
+            - 核心量化指標流 (含 40+ 技術因子及試算表結果)：{metrics_summary}
+            - 最新市場情資：{local_news}
+            - 外部宏觀環境：{global_env}
 
-            【分析鐵律】：
-            1. **產業定位**：必須以官方類別「{c_industry}」為分析基石，嚴禁回答「業務不明」。若為永光則鎖定化學工業分析。
-            2. **數據獲利對撞**：
-               - 強制解析並引用【核心量化指標】中的 EPS 與毛利率數字。
-               - 對照新聞「{local_news}」查核近期業績。
-               - 即使新聞無數字，也必須根據底層量化指標給出結論，嚴禁回答「無營收數據」。
-            3. **環境衝擊**：根據「{global_env}」預判明日對該股/產業的開盤衝擊。
+            【分析任務 - 展現主動性】：
+            1. **產業深度診斷**：必須以「{c_industry}」為核心。若是航運，必須主動討論 BDI 指數、SCFI 指數與燃油成本；若是化學，必須主動分析特化毛利與原料報價。嚴禁說出業務不明。
+            2. **量化數據對撞**：
+               - 直接從 {metrics_summary} 中提取 EPS 與毛利率。
+               - **關鍵分析**：若 EPS 成長但毛利率下降，必須主動提出「成本侵蝕」或「競爭加劇」的警告。
+               - 整合試算表中 40+ 項技術指標的綜合強弱判讀。
+            3. **多空矛盾解析**：若新聞利多但技術面/毛利走弱，必須指出法人是否正在「拉高出貨」。
 
             【報告格式 (務必換行兩次)】：
-            🔍 **{c_name} ({c_industry}) 財務事實查核**：(列出 EPS、毛利率表現，並結合官方產業定位說明其核心業務)
+            🔍 **{c_name} ({c_industry}) 財務事實與產業定位**：(具體列出 EPS、毛利率，並以專業角度分析該公司在當前產業環境的處境)
 
-            📊 **數據與時事矛盾對沖**：(分析量化指標與最新消息是否同步。若數據強勁但新聞偏空，請指出矛盾點)
+            📊 **量化因子與時事對撞 (40+ 指標綜合判讀)**：(整合試算表數據與新聞。分析量化指標是否支撐目前的股價走勢)
 
-            ⚖️ **夜盤環境與匯率衝擊**：(根據夜盤與匯率推算對明日開盤影響)
+            ⚖️ **外部環境與夜盤衝擊**：(預判明日 09:00 開盤影響)
 
-            🎖️ **最終實戰結論 (條列式建議)**：
-            ■ 決策建議：(買入 / 觀望 / 減碼)
+            🎖️ **最終實戰結論 (頂級法人建議)**：
+            ■ 綜合評價：(整合 40+ 項因子與財報後的最終定性)
             
-            ■ 明日策略：(具體開盤動作或價位觀察點)
+            ■ 決策建議：(強烈買入 / 觀望 / 減碼 / 停損)
             
-            ■ 目標與停損位：(給出具體數字)
+            ■ 明日策略：(具體支撐/壓力觀察點與開盤動作)
             
-            ■ 盯盤重點：(關注具體指標，如：BDI、原料價格、匯率)
+            ■ 盯盤雷達：(明天最需關注的關鍵指標，如：特定商品報價、匯率或成交量)
             """
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": 1500
+                "temperature": 0.1,
+                "max_tokens": 2000
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=45)
@@ -1138,6 +1140,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
