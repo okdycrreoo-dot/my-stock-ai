@@ -12,9 +12,3 @@ requests
 google-generativeai
 duckduckgo_search
 
-
-
-
-
-
-
