@@ -993,103 +993,98 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
+    # --- 流程 1: 實時正名 (維持穩定) ---
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
-        targets = [
-            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
-            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
-            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
-        ]
-        for url, cid_key, name_key, ind_val in targets:
-            try:
-                r = requests.get(url, timeout=5)
-                if r.status_code == 200:
-                    data = r.json()
-                    items = data.get('aaData', data) if isinstance(data, dict) else data
-                    for item in items:
-                        curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
-                        if curr_id == code:
-                            name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            ind = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else ind_val)
-                            return {"name": name, "industry": ind}
-            except: continue
-        return {"name": None, "industry": None}
+        try:
+            r = requests.get("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", timeout=5)
+            if r.status_code == 200:
+                for item in r.json():
+                    if item.get("公司代號") == code:
+                        return {"name": item.get("公司簡稱"), "industry": item.get("產業別")}
+        except: pass
+        return {"name": "該標的", "industry": "市場標的"}
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
 
-    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v39_{pure_code}", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v40_{pure_code}", type="primary", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        status_text.info(f"Step 1: 驗證「{pure_code}」正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
-        if not c_name:
-            st.error(f"❌ 找不到代號 {pure_code}")
-            progress_bar.empty()
-            return
-        
-        progress_bar.progress(15)
+        progress_bar.progress(20)
 
         try:
-            # Gemini 配置
+            # --- Step 2-4: Gemini 核心搜尋 (加入嚴格保護) ---
+            status_text.warning(f"📡 正在連線 Google 獲取「{c_name}」情資... (若超過 30 秒請重新點擊)")
+            
             genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
+            # 調低候選結果數量以加快速度
             search_model = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
-                tools=[{"google_search_retrieval": {}}],
-                safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
+                tools=[{"google_search_retrieval": {}}]
             )
 
-            # Step 2-4: Gemini 實時搜尋 (精簡關鍵字以提速)
-            progress_bar.progress(30)
-            status_text.warning("📡 正在穿透搜尋即時情資... (預計 20 秒內完成)")
+            # 極簡化 Prompt：搜尋過多關鍵字是導致卡住的主因
+            search_prompt = f"整理股票 {pure_code} {c_name} 近一週重大財經新聞與業務變動點。"
             
-            # 精簡 Prompt，減少 AI 猶豫時間
-            search_prompt = f"整理股票 {c_name} ({pure_code}) 的主要業務、供應鏈近況與今日台指期趨勢。僅需核心重點。"
-            
-            # 執行搜尋 (此處 Gemini SDK 本身有內建 timeout)
-            gemini_res = search_model.generate_content(search_prompt)
-            context_data = gemini_res.text
-            
-            if not context_data:
-                raise ValueError("Gemini 搜尋結果為空")
+            # 這是最容易卡住的地方，加入簡單的錯誤處理
+            try:
+                gemini_res = search_model.generate_content(search_prompt)
+                context_data = gemini_res.text if gemini_res else "無法取得即時新聞情資。"
+            except Exception as search_err:
+                context_data = "即時搜尋暫時不可用，切換至純量化數據對撞模式。"
+                st.warning("⚠️ 搜尋連線過久，已自動切換至純數據對撞模式。")
 
-            progress_bar.progress(70)
-            status_text.info(f"⚖️ 情資獲取成功！正在由 Groq 執行殘酷對撞...")
+            progress_bar.progress(60)
+            status_text.info(f"⚖️ 正在調度 Groq Llama-3.3 執行數據對撞分析...")
 
-            # Step 5-6: Groq 對撞
+            # --- Step 5-6: Groq 對撞 (這部分通常極快) ---
             metrics_stream = " | ".join([str(x) for x in brain_row])
-            prompt = f"我是執行合夥人，請將情資與指標對撞產出報告：\n公司：{c_name}\n情資：{context_data}\n指標：{metrics_stream}"
+            
+            # 加入對撞邏輯
+            prompt = f"""
+            你現在是避險基金首席分析師。請針對 {c_name}({pure_code}) 進行診斷：
+            【即時情資】：{context_data}
+            【量化指標數據】：{metrics_stream}
+            
+            請直接產出報告：
+            1. 🔍 業務診斷：結合情資判斷產品前景。
+            2. 📊 對撞評估：數據與新聞是否有矛盾（如利多不漲）。
+            3. 🎖 實戰結論：建議（買、賣、觀望）與具體策略。
+            """
 
             response = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {st.secrets['GROQ_API_KEY']}"},
-                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0},
-                timeout=30 # 設定 Groq 強制 30 秒超時
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2, # 稍微增加一點靈活性
+                    "max_tokens": 1000
+                },
+                timeout=25
             )
             
             if response.status_code == 200:
                 progress_bar.progress(100)
                 status_text.empty()
-                st.markdown(f"#### 🗨️ {c_name} 對撞診斷報告")
                 st.markdown(response.json()['choices'][0]['message']['content'])
-                st.success(f"✅ 分析完畢。")
+                st.success(f"✅ {c_name} 分析完成")
                 progress_bar.empty()
-                
-                if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
-                    st.warning("⚠️ Watchlist 已超 20 支，請汰弱留強。")
+            else:
+                st.error(f"❌ Groq 對撞引擎反應異常 (Error: {response.status_code})")
 
         except Exception as e:
             status_text.empty()
             progress_bar.empty()
-            if "429" in str(e):
-                st.error("🚫 API 請求過於頻繁（配額限制），請稍等 1 分鐘再點擊。")
-            else:
-                st.error(f"💥 系統對撞中斷：{str(e)}")
+            st.error(f"💥 分析中斷：{str(e)}")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
