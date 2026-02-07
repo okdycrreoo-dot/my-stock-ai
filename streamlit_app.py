@@ -1040,60 +1040,48 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             return
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
-        # 流程 2 & 3: 用中文名稱搜業務、供應鏈、新聞
-        try:
-            official_biz = info.get("official_biz", "台股")
-            # 加入「營收來源」與「排除詞」-金融 -投資，防止 AI 腦補
-            q_combined = f'"{c_name}" {pure_code} {official_biz} "營收來源" -金融 -投資 -保險'
+        # 流程 2 & 3: 穿透檢索
+            status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
             
-            status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構（排除雜訊）...")
-            context_data = f"【官方登記產業】：{official_biz}\n"
+            has_web_data = False
+            web_context = ""
             
             with DDGS() as ddgs:
-                # 提高 max_results 到 8，增加抓到正確資訊的機率
                 results = list(ddgs.text(q_combined, max_results=8))
                 if results:
-                    for r in results: context_data += f"【即時財報情資】{r['body']}\n"
+                    has_web_data = True
+                    for r in results: 
+                        web_context += f"- 【即時財報/新聞情資】: {r['body']}\n"
                 else:
-                    context_data += f"（搜尋未果，請 AI 嚴格僅依據「{official_biz}」產業進行推論）\n"
-            
-            # 流程 4: 相關期指指數
-            status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
-            index_data = ""
-            with DDGS() as ddgs:
-                q_idx = f"台指期夜盤 電子期 金融期 漲跌 趨勢"
-                for r in ddgs.text(q_idx, max_results=3): index_data += r['body'] + "\n"
+                    web_context = "- 【即時財報/新聞情資】: 暫無外部最新情資（嚴禁虛構）\n"
 
-            # 流程 5 & 6: 綜合對撞與結論
-            status.info(f"Step 5 & 6: 執行 40+ 項量化指標與實時情資對撞...")
-            
+            # 流程 5 & 6: 綜合對撞
             metrics_stream = " | ".join([str(x) for x in brain_row])
-            groq_key = st.secrets.get("GROQ_API_KEY", "")
             
+            # 重新設計 Prompt，加入嚴格的「無資料處理」指令
             prompt = f"""
-            你現在是『避險基金執行合夥人』。請完全依照以下 6 大流程產出 {c_name} 的診斷報告：
+            你現在是『避險基金執行合夥人』。請針對 {c_name} ({pure_code}) 產出專業報告。
+            
+            【輸入數據來源】：
+            1. 官方登記產業：{info['industry']}
+            2. 實時檢索情資：
+            {web_context}
+            3. 量化指標數值：{metrics_stream}
 
-            【實時輸入情資】：
-            - 公司名稱與產業：{c_name} ({info['industry']})
-            - 業務與供應鏈新聞：{context_data}
-            - 相關期指環境：{index_data}
-            - 系統 AI 40+ 項量化分析結果：{metrics_stream}
-
-            【強制分析指令】：
-            1. **(流程 2 & 3)**：解析出該公司具體的「業務範圍」與「上下游影響」，嚴禁回答資訊不足。
-            2. **(流程 5)**：將上述現況與「40+ 項量化指標」對撞。分析數據顯示的技術強弱是否與新聞消息、供應鏈現況吻合。
-            3. **(流程 6)**：給出明確結論。
+            【分析準則 - 絕對禁止腦補】：
+            - **業務診斷**：請『優先』根據「實時檢索情資」描述。若該部分標註為「暫無」，則僅能針對「官方登記產業」({info['industry']}) 之一般特性進行極簡描述，嚴禁自行編造公司的具體客戶或合約。
+            - **數據對撞**：若無外部情資，則此處僅針對量化指標（如 Beta、乖離率、籌碼）進行技術面解釋。
+            - **誠實原則**：若缺乏證據判斷上下游，請直接回答「目前外部供應鏈情資不足，僅依據量化數據決策」。
 
             【報告格式】：
-            🔍 **公司業務與供應鏈診斷**：(分析業務範圍及上下游受損/獲利情況)
-            📊 **量化與質性因子對撞**：(綜合 40+ 指標與新聞，指出數據與現實的矛盾點)
+            🔍 **公司業務與供應鏈診斷**：(若無具體新聞，僅描述 {info['industry']} 產業概況，嚴禁提及無關的金融或證券業務)
+            📊 **量化因子對撞分析**：(結合數據與「已知」事實，若無事實則專注於指標意義)
             ⚖️ **指數環境影響**：(期指對明日開盤的具體影響)
             🎖 **最終實戰結論**：
             ■ 建議：(買、賣、停利、停損、觀望)
-            ■ 理由：(結合數據與情資對撞的核心原因)
+            ■ 理由：(結合數據與「確定」情資的核心原因)
             ■ 策略：(具體價位或明日開盤動作建議)
             """
-
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
@@ -1115,6 +1103,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
