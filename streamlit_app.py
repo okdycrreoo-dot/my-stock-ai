@@ -992,94 +992,99 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     pure_code = symbol.split('.')[0]
     
-    # --- 步驟 1: 強制官方正名邏輯 (針對台股優化) ---
-    # 建立核心權值股映射，確保 2330/3481 絕對不出錯
+    # --- 步驟 1: 強制正名與取得英文搜尋名 ---
     stock_map = {
         "2330": "台積電", "3481": "群創光電", "2409": "友達光電", 
         "2317": "鴻海", "2454": "聯發科", "2303": "聯電"
     }
-    
     c_name = stock_map.get(pure_code)
-    
+    ticker = yf.Ticker(symbol)
+    eng_name = ticker.info.get('shortName') or pure_code # 用於全球搜尋
+
     if not c_name:
         try:
-            # 嘗試從 yf 抓取，並過濾掉英文
-            ticker = yf.Ticker(symbol)
             info_name = ticker.info.get('longName', '')
             if any('\u4e00' <= char <= '\u9fff' for char in info_name):
                 c_name = info_name.split('(')[0].strip()
             else:
-                # 聯網抓取登記名稱
                 with DDGS() as ddgs:
-                    search_res = list(ddgs.text(f"台股代號 {pure_code} 公司登記中文名稱", max_results=1))
-                    if search_res:
-                        # 排除代號與多餘文字
-                        raw_title = search_res[0]['title']
-                        c_name = raw_title.split(' ')[0].split('(')[0].replace(pure_code, "").strip()
+                    search_res = list(ddgs.text(f"台股代號 {pure_code} 公司名稱", max_results=1))
+                    c_name = search_res[0]['title'].split(' ')[0] if search_res else pure_code
         except:
             c_name = f"台股{pure_code}"
 
-    # 介面顯示徹底去代號
     st.write(f"### 🎖️ AI 戰略委員會：{c_name} 全球實戰診斷")
     metrics_summary = " | ".join([str(item) for item in brain_row])
     
-    if st.button(f"🚀 啟動 {c_name} 深度實戰分析", key="ai_final_v21", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {c_name} 雙路情資實戰分析", key="ai_final_v22", type="primary", use_container_width=True):
         status = st.empty()
         try:
-            # --- 步驟 2: 台指期夜盤數據強化提取 ---
-            status.info(f"📊 正在同步「台指期夜盤」即時點數...")
+            # --- 步驟 2: 台指期夜盤點數強效提取 ---
+            status.info(f"📊 正在提取台指期夜盤實時點數...")
             night_intel = ""
             with DDGS() as ddgs:
-                # 直接搜即時點數文字，這比 yf 報價更準
-                night_search = list(ddgs.text("台指期 夜盤 漲跌 點數 最新", max_results=2))
-                for r in night_search:
-                    night_intel += r['body']
+                # 專門抓「漲跌點數」
+                for r in ddgs.text("台指期 夜盤 最新 漲跌 點數", max_results=3):
+                    night_intel += r['body'] + "\n"
             
-            # --- 步驟 3: 產業鏈與新聞搜集 ---
-            status.info(f"📡 抓取「{c_name}」專屬產業情資...")
-            news_context = ""
+            # --- 步驟 3: 雙路情資搜集 (中文在地 + 英文全球) ---
+            status.info(f"📡 執行雙路搜尋：同步抓取 {c_name} 在地與全球情資...")
+            local_news = ""
+            global_news = ""
             with DDGS() as ddgs:
-                # 針對群創/台積電等不同屬性自動調整關鍵字
-                industry_q = f"{c_name} 營收 報價 產能 供應鏈 新聞"
-                for r in ddgs.text(industry_q, max_results=8):
-                    news_context += r['body'] + "\n"
+                # 第一路：中文在地新聞 (鎖定台灣大報)
+                tw_q = f"{c_name} 營收 產能 報價 site:udn.com OR site:chinatimes.com OR site:cnyes.com"
+                for r in ddgs.text(tw_q, max_results=5):
+                    local_news += r['body'] + "\n"
+                
+                # 第二路：全球產業鏈英文情資 (鎖定供應鏈與技術)
+                en_q = f"{eng_name} supply chain semiconductor revenue outlook"
+                for r in ddgs.text(en_q, max_results=5):
+                    global_news += r['body'] + "\n"
             
-            all_data_pack = f"公司中文名: {c_name}\n夜盤情資: {night_intel}\n最新新聞: {news_context}"
+            all_data_pack = f"""
+            公司中文名: {c_name}
+            公司英文/代號: {eng_name}
+            夜盤情資: {night_intel}
+            台灣在地新聞: {local_news}
+            全球產業情資: {global_news}
+            """
 
-            # --- 步驟 4: Groq 最終診斷 (強制正名指令) ---
-            status.info(f"⚖️ AI 大腦正在進行「{c_name}」綜合判讀...")
+            # --- 步驟 4: Groq 最終診斷 ---
+            status.info(f"⚖️ 雙路情資對撞分析中...")
             
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             
             prompt = f"""
-            你現在是台灣頂尖操盤手，嚴格執行以下任務：
+            你現在是具備全球視野的台灣資深操盤手。
+            分析對象：{c_name}
             
-            【禁令】：
-            1. 全文嚴禁出現數字代號 '{pure_code}'。
-            2. 嚴禁稱呼「該公司」，請一律使用中文正名「{c_name}」。
-            3. 嚴禁腦補產業。
+            【強制規範】：
+            1. 全文嚴禁出現數字代號 '{pure_code}'，必須複讀「{c_name}」。
+            2. 嚴禁腦補產業。請從情資中判斷其具體產業鏈位置。
+            3. 結論必須『換行分段』，且中間空兩行。
             
-            【資料背景】：
-            1. 實時情資：{all_data_pack}
-            2. AI 大腦數據：{metrics_summary}
+            【輸入數據】：
+            1. 實時情資包：{all_data_pack}
+            2. AI 大腦指標：{metrics_summary}
             
-            【分析要求】：
-            1. **產業精準定位**：根據新聞判定 {c_name} 的核心業務（如：台積電是半導體晶圓代工、群創是光電面板）。
-            2. **夜盤點數對撞**：從情資中提取台指期夜盤具體漲跌點數（如 +850 點），分析對 {c_name} 明日開盤的衝擊。
-            3. **結論分段**：每一項建議必須獨立成段，中間空兩行。
+            【分析任務】：
+            1. **雙路對撞**：結合「台灣在地新聞」與「全球產業情資」判斷 {c_name} 的利多/利空真實性。
+            2. **夜盤影響預判**：必須從夜盤情資中抓出「漲跌點數」，分析對明天開盤的直接衝擊。
+            3. **指標診斷**：量化指標與新聞面是否背離？
             
             【最終實戰結論】：
             ■ 綜合建議：(強烈買入 / 觀望 / 減碼)
             
-            ■ 明日開盤建議：(針對開盤具體動作)
+            ■ 明日開盤建議：(具體點位動作)
             
-            ■ 位階參考：(具體支撐位與壓力位數字)
+            ■ 位階參考：(具體支撐與壓力數字)
             
-            ■ 停損停利策略：(具體執行點位與邏輯)
+            ■ 停損停利策略：(執行點位與邏輯)
             
-            ■ 明早看盤重點：(需盯緊的特定數據或板塊)
+            ■ 明早看盤重點：(需盯緊的數據或全球連動板塊)
             """
 
             payload = {
@@ -1097,7 +1102,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 st.markdown(report)
                 st.success(f"✅ {c_name} 實戰診斷完成。")
             else:
-                st.error("API 連線失敗。")
+                st.error("API 連線失敗，請檢查網路。")
 
         except Exception as e:
             st.error(f"💥 系統連線異常：{str(e)}")
@@ -1105,6 +1110,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
