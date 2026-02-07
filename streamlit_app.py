@@ -985,99 +985,101 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # --- 7. AI 戰略委員會 ---
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
-    st.markdown("---")
+    import yfinance as yf
+    from duckduckgo_search import DDGS
+    import requests
     
-    # --- 步驟 1: 官方正名提取 (優先使用官方登記名) ---
+    st.markdown("---")
     pure_code = symbol.split('.')[0]
+    
+    # --- 步驟 1: 官方資料庫正名 (不經 AI 腦補) ---
     try:
-        import yfinance as yf
         ticker = yf.Ticker(symbol)
-        # yfinance 的 longName 有時會包含中文公司名
-        official_name = ticker.info.get('longName', '')
-        # 如果是台灣股票，通常可以用更精準的對撞過濾
-        if not any('\u4e00' <= char <= '\u9fff' for char in official_name):
-            official_name = "" 
+        t_info = ticker.info
+        # 優先順序：顯示名稱 > 官方長名稱 > 官方短名稱
+        c_name = t_info.get('shortName') or t_info.get('longName') or pure_code
+        
+        # 處理台灣股票常見的名稱後綴 (如 .TW)
+        if "Innolux" in c_name: c_name = "群創光電" # yf 庫中群創常顯示英文，此為保險修正
+        
+        # 暴力聯網正名 (如果 yf 給的是英文，直接搜一下它的中文登記)
+        if not any('\u4e00' <= char <= '\u9fff' for char in c_name):
+            with DDGS() as ddgs:
+                res = list(ddgs.text(f"台股 {pure_code} 公司全名", max_results=1))
+                if res:
+                    # 抓取搜尋結果標題的前幾個字作為公司名
+                    c_name = res[0]['title'].split(' ')[0].split('(')[0]
     except:
-        official_name = ""
+        c_name = pure_code
 
-    # 如果官方名沒抓到，才動用預設按鈕文字，後續會由 AI 修正
-    st.write(f"### 🎖️ AI 戰略委員會：{official_name if official_name else symbol} 全球實戰診斷")
-
+    st.write(f"### 🎖️ AI 戰略委員會：{c_name} 全球實戰診斷")
     metrics_summary = " | ".join([str(item) for item in brain_row])
     
-    if st.button(f"🚀 啟動 {official_name if official_name else pure_code} 深度實戰分析", key="ai_final_ultimate_v17", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {c_name} 深度實戰分析", key="ai_final_v19", type="primary", use_container_width=True):
         status = st.empty()
-        
         try:
-            from duckduckgo_search import DDGS
-            import requests
+            # --- 步驟 2: 台指期夜盤 (WTX&) 實時抓取 ---
+            status.info(f"📊 正在提取台指期夜盤 (WTX&) 實時報價...")
+            night_market_data = "查無夜盤數據"
+            try:
+                # 嘗試多個可能代號：WTX& 是連續合約, WTX=F 是 Yahoo 常見格式
+                for w_code in ["WTX&", "WTX=F"]:
+                    wtx = yf.Ticker(w_code)
+                    wtx_h = wtx.history(period="1d")
+                    if not wtx_h.empty:
+                        last_p = wtx_h['Close'].iloc[-1]
+                        open_p = wtx_h['Open'].iloc[-1]
+                        change = last_p - open_p
+                        pct = (change / open_p) * 100
+                        night_market_data = f"台指夜盤: {last_p:.0f} | 漲跌: {change:+.0f} ({pct:+.2f}%)"
+                        break
+            except:
+                night_market_data = "夜盤數據獲取失敗，請觀察美股電子盤。"
 
+            # --- 步驟 3: 在地新聞與題材搜集 ---
+            status.info(f"📡 抓取「{c_name}」台灣在地即時新聞...")
+            search_data = []
+            with DDGS() as ddgs:
+                # 強制搜尋：中文名 + 減資/訂單/報價/SpaceX
+                for r in ddgs.text(f"{c_name} 股價 新聞 報價 供應鏈", max_results=10):
+                    search_data.append(r['body'])
+            
+            all_context = f"公司正名: {c_name}\n即時數據: {night_market_data}\n在地情報: " + "\n".join(search_data)
+
+            # --- 步驟 4: Groq 最終綜合對撞 ---
+            status.info(f"⚖️ AI 大腦與實戰數據對撞分析中...")
+            
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-
-            # --- 修正 1: 強化名稱在地化 (強制轉中文) ---
-            status.info(f"🔍 步驟 1: 正在鎖定「{pure_code}」的官方在地正名...")
-            name_check_prompt = f"請僅回傳代號 {pure_code} 對應的台灣上市公司簡短中文名稱，例如：2330 回傳 '台積電'。嚴禁回傳代號。"
-            name_payload = {
-                "model": "llama3-8b-8192",
-                "messages": [{"role": "user", "content": name_check_prompt}],
-                "temperature": 0
-            }
-            name_res = requests.post(url, headers=headers, json=name_payload, timeout=10)
-            localized_name = name_res.json()['choices'][0]['message']['content'].replace("'","").strip() if name_res.status_code == 200 else pure_code
-            
-            # --- 修正 2: 以中文名進行暴力搜尋 ---
-            status.info(f"📡 步驟 2: 以「{localized_name}」抓取實時新聞與夜盤...")
-            
-            search_data, futures_raw, global_intel = [], [], []
-            with DDGS() as ddgs:
-                news_q = f"{localized_name} 股價 新聞 報價 減資 site:yahoo.com OR site:cnyes.com OR site:udn.com"
-                for r in ddgs.text(news_q, max_results=8):
-                    search_data.append(r['body'])
-                
-                futures_q = "台指期 夜盤 漲跌 點數 最新 玩股網 OR site:yahoo.com"
-                for r in ddgs.text(futures_q, max_results=3):
-                    futures_raw.append(r['body'])
-                
-                global_q = f"{localized_name} 供應鏈 SpaceX AI 產業趨勢 訂單"
-                for r in ddgs.text(global_q, max_results=4):
-                    global_intel.append(r['body'])
-
-            all_context = f"公司中文全名: {localized_name}\n代號: {pure_code}\n" + "\n".join(search_data + futures_raw + global_intel)
-
-            # --- 修正 3: 強制分段與禁用代號的 Prompt ---
-            status.info(f"⚖️ 步驟 3: 執行「{localized_name}」數據與題材對撞...")
             
             prompt = f"""
-            你現在是硬核台灣操盤手。分析對象：{localized_name}。
+            你現在是硬核台灣資深操盤手。
+            分析對象：{c_name}
             
-            【重要禁令】：
-            1. 嚴禁在報告中使用數字代號 '{pure_code}'，請一律使用中文名稱 '{localized_name}'。
-            2. 最終實戰結論的每一項「■」必須獨立成段，嚴禁連在一起。
+            【強制規範】：
+            1. 全文嚴禁使用數字代號 '{pure_code}'。
+            2. 結論必須『換行分段』，每一項建議必須包含明確的價格邏輯。
             
-            【搜尋情報】：
-            {all_context}
+            【參考數據】：
+            1. 實時情報：{all_context}
+            2. AI 大腦量化指標(40項)：{metrics_summary}
             
-            【量化指標】：
-            {metrics_summary}
+            【任務描述】：
+            1. **正名與鏈條對撞**：指出 {c_name} 在供應鏈(如 AI, SpaceX, 半導體)的關鍵地位。
+            2. **夜盤影響預判**：依據『{night_market_data}』給出明日開盤的心理壓力或推升評估。
+            3. **指標衝突分析**：量化數據(如乖離、Oracle評分)與在地利多/利空新聞是否矛盾？
             
-            【任務】：
-            1. **業務對撞**：分析 {localized_name} 在 AI/面板/供應鏈的具體地位。
-            2. **夜盤數據**：找出台指期夜盤最新漲跌點數。
-            3. **在地題材**：分析 {localized_name} 最新利多利空（高層持股變動、報價、訂單）。
-            4. **指標陷阱**：將新聞熱度與量化數據對比，指出是否為拉高出貨或超跌機會。
+            【最終實戰結論 - 請強制換行兩次以區隔項目】：
+            ■ 綜合操作評等：(強烈買入/觀望/減碼/停損)
             
-            【5. 最終實戰結論 - 每一項請務必換行分段】：
-            ■ 綜合建議：(在此輸入)
+            ■ 明日開盤行動建議：(具體點位與動作)
             
-            ■ 明日開盤建議：(在此輸入)
+            ■ 支撐與壓力位參考：(直接給出具體價格數字)
             
-            ■ 位階參考：(具體支撐與壓力位數字)
+            ■ 停損停利策略：(給出明確的執行邏輯與預計趴數)
             
-            ■ 停損停利策略：(具體執行邏輯)
-            
-            ■ 明早看盤重點：(關注數據)
+            ■ 明早看盤重點指標：(如特定產業指數或夜盤最終收盤表現)
             """
 
             payload = {
@@ -1090,12 +1092,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             
             if response.status_code == 200:
                 status.empty()
-                report_content = response.json()['choices'][0]['message']['content']
-                st.markdown(f"#### 🗨️ {localized_name} 全球實戰對撞診斷報告")
-                st.markdown(report_content)
-                st.success(f"✅ {localized_name} 實戰診斷完成。")
+                report = response.json()['choices'][0]['message']['content']
+                st.markdown(f"#### 🗨️ {c_name} 全球實戰對撞診斷報告")
+                st.markdown(report)
+                st.success(f"✅ {c_name} 實戰診斷完成。")
             else:
-                st.error(f"分析引擎故障 (HTTP {response.status_code})。")
+                st.error("API 引擎超時。")
 
         except Exception as e:
             st.error(f"💥 系統連線異常：{str(e)}")
@@ -1103,6 +1105,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
