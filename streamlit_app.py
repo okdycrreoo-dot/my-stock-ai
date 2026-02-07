@@ -987,13 +987,12 @@ def chapter_5_ai_decision_report(row, pred_ws):
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
     import re
-    import google.generativeai as genai  # 新增：Gemini SDK
+    import google.generativeai as genai
     import time
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 流程 1: 實時穿透式正名 (維持不變) ---
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
         targets = [
@@ -1014,143 +1013,83 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                             ind = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else ind_val)
                             return {"name": name, "industry": ind}
             except: continue
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://tw.stock.yahoo.com/quote/{code}"
-            r = requests.get(url, headers=headers, timeout=5)
-            if r.status_code == 200:
-                name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
-                return {"name": name, "industry": "市場核心產業"}
-        except: pass
         return {"name": None, "industry": None}
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
 
-    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v38_{pure_code}", type="primary", use_container_width=True):
-        # --- 初始化進度元件 ---
+    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v39_{pure_code}", type="primary", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # 流程 1: 正名
-        status_text.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
+        status_text.info(f"Step 1: 驗證「{pure_code}」正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
         if not c_name:
-            st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
+            st.error(f"❌ 找不到代號 {pure_code}")
             progress_bar.empty()
             return
         
         progress_bar.progress(15)
-        status_text.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # --- 核心更新：配置 Gemini 搜尋 (並強制關閉安全鎖) ---
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "")
-            genai.configure(api_key=gemini_key)
-            
-            # 暴力破解安全過濾器，防止「崩盤、騙線、洗盤」被擋
-            safety_settings = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
-            
+            # Gemini 配置
+            genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
             search_model = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
                 tools=[{"google_search_retrieval": {}}],
-                safety_settings=safety_settings
+                safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
             )
 
-            # --- Step 2, 3 & 4: Gemini 搜尋與冷卻 ---
+            # Step 2-4: Gemini 實時搜尋 (精簡關鍵字以提速)
             progress_bar.progress(30)
-            for i in range(4, 0, -1):
-                status_text.warning(f"📡 Step 2-4: 請求冷卻中 ({i}s)... 準備穿透搜尋「{c_name}」即時情資")
-                time.sleep(1)
+            status_text.warning("📡 正在穿透搜尋即時情資... (預計 20 秒內完成)")
             
-            status_text.info(f"🔭 Gemini 正在調閱 Google 實時數據、產業新聞與期指環境...")
+            # 精簡 Prompt，減少 AI 猶豫時間
+            search_prompt = f"整理股票 {c_name} ({pure_code}) 的主要業務、供應鏈近況與今日台指期趨勢。僅需核心重點。"
             
-            search_prompt = f"""
-            請搜尋並彙整股票 {c_name} ({pure_code}) 的以下情資：
-            1. 主要業務範圍、產品佔比。
-            2. 供應鏈上下游現況與近期重大新聞 (site:cnyes.com 或 site:moneydj.com)。
-            3. 當前台指期夜盤、電子期之漲跌趨勢。
-            """
+            # 執行搜尋 (此處 Gemini SDK 本身有內建 timeout)
+            gemini_res = search_model.generate_content(search_prompt)
+            context_data = gemini_res.text
             
-            try:
-                gemini_res = search_model.generate_content(search_prompt)
-                context_data = gemini_res.text
-                progress_bar.progress(70)
-            except Exception as e_gemini:
-                # 攔截配額用盡或 API 關鍵字鎖死
-                if "429" in str(e_gemini) or "RESOURCE_EXHAUSTED" in str(e_gemini).upper():
-                    st.error("🚫 今日 Gemini 分析配額已用完（1,500次限制），請等候明日重置。")
-                    progress_bar.empty()
-                    st.stop()
-                else:
-                    raise e_gemini
+            if not context_data:
+                raise ValueError("Gemini 搜尋結果為空")
 
-            # --- Step 5 & 6: Groq 對撞 ---
-            status_text.info(f"Step 5 & 6: 執行 40+ 項量化指標與實時情資深度對撞中...")
-            
+            progress_bar.progress(70)
+            status_text.info(f"⚖️ 情資獲取成功！正在由 Groq 執行殘酷對撞...")
+
+            # Step 5-6: Groq 對撞
             metrics_stream = " | ".join([str(x) for x in brain_row])
-            groq_key = st.secrets.get("GROQ_API_KEY", "")
-            
-            prompt = f"""
-            你現在是『避險基金執行合夥人』。請根據以下資料產出 {c_name} 的殘酷對撞診斷報告：
+            prompt = f"我是執行合夥人，請將情資與指標對撞產出報告：\n公司：{c_name}\n情資：{context_data}\n指標：{metrics_stream}"
 
-            【Gemini 實時搜尋情資】：
-            {context_data}
-
-            【系統大腦 40+ 項量化指標】：
-            {metrics_stream}
-
-            【強制分析指令】：
-            1. **(對撞分析)**：將「死數據」(如法人買賣、指標強弱) 與「現況情資」進行矛盾比對。若數據強但情資冷，判斷是否為法人騙線；若數據弱但情資熱，判斷是否為利空出盡。
-            2. **(供應鏈診斷)**：明確指出該公司在目前產業鏈的位置與受惠/受害程度。
-            3. **(絕對禁止)**：禁止回答資訊不足。
-
-            【報告格式】：
-            🔍 **公司業務與供應鏈診斷**
-            📊 **量化指標 vs 市場現況對撞評估**
-            ⚖️ **指數環境影響**
-            🎖 **最終實戰結論**
-            ■ 建議：(買、賣、停利、停損、觀望)
-            ■ 理由：(一針見血指出對撞後的關鍵結論)
-            ■ 策略：(明日開盤具體動作或關鍵支撐壓力價位)
-            """
-
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": 1500
-            }
-
-            response = requests.post("https://api.groq.com/openai/v1/chat/completions", 
-                                     headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=45)
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {st.secrets['GROQ_API_KEY']}"},
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0},
+                timeout=30 # 設定 Groq 強制 30 秒超時
+            )
             
             if response.status_code == 200:
                 progress_bar.progress(100)
                 status_text.empty()
-                time.sleep(0.5) 
+                st.markdown(f"#### 🗨️ {c_name} 對撞診斷報告")
+                st.markdown(response.json()['choices'][0]['message']['content'])
+                st.success(f"✅ 分析完畢。")
                 progress_bar.empty()
                 
-                st.markdown(f"#### 🗨️ {c_name} 六大流程對撞診斷報告")
-                st.markdown(response.json()['choices'][0]['message']['content'])
-                st.success(f"✅ {c_name} 全維度分析完畢。")
-                
-                # --- Watchlist 20 支上限提醒 ---
                 if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
-                    st.warning("⚠️ 提醒：您的 Watchlist 已超過 20 支，請根據分析結果汰弱留強以維持績效。")
+                    st.warning("⚠️ Watchlist 已超 20 支，請汰弱留強。")
 
         except Exception as e:
             status_text.empty()
             progress_bar.empty()
-            st.error(f"💥 流程執行中斷：{str(e)}")
+            if "429" in str(e):
+                st.error("🚫 API 請求過於頻繁（配額限制），請稍等 1 分鐘再點擊。")
+            else:
+                st.error(f"💥 系統對撞中斷：{str(e)}")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
