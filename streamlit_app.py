@@ -1047,10 +1047,10 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             context_data = ""
             with DDGS() as ddgs:
                 # 搜尋業務與供應鏈
-                q1 = f'"{c_name}" 產業分類 主要業務 供應鏈 上下游 客戶'
+                q1 = f'"{c_name}" 公司產業分類 公司主要業務 相關供應鏈 上下游 客戶'
                 for r in ddgs.text(q1, max_results=5): context_data += r['body'] + "\n"
                 # 搜尋新聞
-                q2 = f'"{c_name}" 營收 獲利 利多 利空 新聞 site:cnyes.com OR site:moneydj.com'
+                q2 = f'"{c_name}" 公司營收 公司獲利 股市利多 股市利空 相關新聞 site:cnyes.com OR site:moneydj.com'
                 for r in ddgs.text(q2, max_results=5): context_data += r['body'] + "\n"
 
             # 流程 4: 相關期指
@@ -1111,6 +1111,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
