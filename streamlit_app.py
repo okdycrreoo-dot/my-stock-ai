@@ -1041,23 +1041,28 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # 流程 2 & 3: 用名稱+代碼精準搜尋
-            status.info(f"Step 2 & 3: 依據「{c_name} {pure_code}」檢索業務與供應鏈...")
+            # 流程 2 & 3: 分波段精準檢索
+            status.info(f"正在執行分波段情報檢索：{c_name} {pure_code}...")
             context_data = ""
-            try:
-                with DDGS() as ddgs:
-                    # 加入 pure_code 強迫搜尋引擎鎖定證券標的
-                    q_biz = f'"{c_name} {pure_code}" 公司基本資料 公司主要業務 公司產品相關'
-                    for r in ddgs.text(q_biz, max_results=4): 
-                        context_data += f"【業務內容】{r['body']}\n"
-                    
-                    q_news = f'"{c_name} {pure_code}" 供應鏈上下游相關 產業現況相關 相關新聞 site:cnyes.com OR site:moneydj.com'
-                    for r in ddgs.text(q_news, max_results=5): 
-                        context_data += f"【供需與新聞】{r['body']}\n"
-            except Exception as e_search:
-                status.warning("⚠️ 搜尋連線過於頻繁，改由量化數據執行對撞。")
-                context_data = "即時情資獲取受限。"
-
+            
+            with DDGS() as ddgs:
+                # 第一波：鎖定「官方基本面」
+                status.write("🔍 第一波：檢索官方業務範圍...")
+                q1 = f'"{c_name} {pure_code}" 官方網站 主要產品 核心業務'
+                for r in ddgs.text(q1, max_results=3):
+                    context_data += f"【核心業務】{r['body']}\n"
+                
+                # 第二波：鎖定「產業地位與供應鏈」
+                status.write("🔍 第二波：檢索產業上下游與地位...")
+                q2 = f'"{c_name} {pure_code}" 產業地位 競爭對手 供應鏈上下游'
+                for r in ddgs.text(q2, max_results=3):
+                    context_data += f"【產業地位】{r['body']}\n"
+                
+                # 第三波：鎖定「近期重大新聞」 (限制來源提高品質)
+                status.write("🔍 第三波：檢索近期市場焦點新聞...")
+                q3 = f'"{c_name} {pure_code}" 營收展望 擴產 轉投資 site:cnyes.com OR site:moneydj.com'
+                for r in ddgs.text(q3, max_results=3):
+                    context_data += f"【最新情資】{r['body']}\n"
             # 流程 4: 相關期指指數
             status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
             index_data = ""
@@ -1116,5 +1121,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
