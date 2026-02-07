@@ -997,9 +997,9 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     def get_verified_info(code):
         # 完整的市場目標清單
         targets = [
-            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "經營範圍"),
-            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "經營範圍"),
-            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "經營範圍")
+            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業類別"),
+            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
+            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
         ]
         
         for url, cid_key, name_key, biz_val in targets:
@@ -1049,7 +1049,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             # 流程 2 & 3: 提取官方業務資訊並執行「導航式」搜尋
             official_biz = info.get("official_biz", "")
             # 只取業務的前 15 個字作為標籤，避免搜尋引擎混亂
-            biz_tag = official_biz[:15] if official_biz else "主要業務"
+            biz_tag = official_biz[:15] if official_biz else "產業類別"
             
             status.info(f"Step 2 & 3: 依據官方核心「{biz_tag}」檢索實時情資...")
             context_data = f"【官方登記業務】：{official_biz}\n"
@@ -1122,6 +1122,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
