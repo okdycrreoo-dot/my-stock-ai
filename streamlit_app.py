@@ -1046,16 +1046,28 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # 流程 2 & 3: 提取官方業務資訊並執行精準搜尋
+            # 流程 2 & 3: 提取關鍵字並執行導航式搜尋
+            # 僅取官方業務前 20 字，避免長句干擾搜尋引擎
             official_biz = info.get("official_biz", "")
-            status.info(f"Step 2 & 3: 依據官方業務「{official_biz}」檢索實時情資...")
+            search_keywords = official_biz[:20] if official_biz else info['industry']
+            
+            status.info(f"Step 2 & 3: 依據官方核心「{search_keywords}」檢索實時情資...")
             context_data = f"【官方登記業務】：{official_biz}\n"
             
             with DDGS() as ddgs:
-                # 組合關鍵字：名稱 + 代號 + 官方業務描述 + 財經標籤
-                q_combined = f'"{c_name}" "{pure_code}" {official_biz} 主要業務 供應鏈 新聞'
-                for r in ddgs.text(q_combined, max_results=8): 
-                    context_data += f"【擴展情資】{r['body']}\n"
+                # 組合優化：加入「台股」與「代號」強制過濾非財經資訊
+                # 這樣即便非開盤時間，也能精準抓到最近期的分析與新聞
+                q_combined = f'台股 "{c_name}" {pure_code} {search_keywords} 業務 供應鏈 新聞'
+                
+                try:
+                    search_results = list(ddgs.text(q_combined, max_results=6))
+                    if search_results:
+                        for r in search_results: 
+                            context_data += f"【即時情資】{r['body']}\n"
+                    else:
+                        context_data += "（線上實時情資獲取較少，將優先依據官方登記業務分析）\n"
+                except Exception as e_ddgs:
+                    context_data += f"（搜尋連線受限，改由官方資料與量化數據對撞）\n"
             
             # 流程 4: 相關期指指數
             status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
@@ -1115,6 +1127,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
