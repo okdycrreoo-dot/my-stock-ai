@@ -996,9 +996,9 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     @st.cache_data(ttl=3600) 
     def get_verified_info(code):
         targets = [
-            # 上市：欄位名稱修正為「產業別」
+            # 上市：欄位 4 改抓「產業別」，這是最精準的分類標籤
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
-            # 上櫃/興櫃：維持現有結構
+            # 上櫃/興櫃：產業別通常在對應欄位
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃"),
             ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃")
         ]
@@ -1013,23 +1013,19 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            # 抓取產業別，若無則回傳該市場標籤
+                            # 強制抓取官方產業分類
                             biz = (item.get(biz_val) if isinstance(item, dict) and biz_val in item else str(biz_val)).strip()
                             return {"name": name, "industry": biz, "official_biz": biz}
             except: continue
         
-        # --- 備援路徑：如果 API 都沒中，改用 Yahoo 抓取 ---
+        # 備援 (Yahoo)
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://tw.stock.yahoo.com/quote/{code}"
-            r = requests.get(url, headers=headers, timeout=5)
+            r = requests.get(f"https://tw.stock.yahoo.com/quote/{code}", headers=headers, timeout=5)
             if r.status_code == 200:
-                name_match = re.search(r'<title>(.*?)\s?\(', r.text)
-                if name_match:
-                    return {"name": name_match.group(1).strip(), "industry": "市場核心", "official_biz": "通用財經業務"}
+                name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
+                return {"name": name, "industry": "台股企業", "official_biz": "市場掛牌公司"}
         except: pass
-        
-        # 這裡就是出錯的地方，請確保跟下面這行一模一樣
         return {"name": None, "industry": None, "official_biz": ""}
 
     st.write(f"### 🎖️ AI 戰略委員會：六大流程深度對撞系統")
@@ -1047,23 +1043,22 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
 
         try:
-            # 流程 2 & 3: 使用「台股 + 公司名 + 代號 + 產業別」組合
             official_biz = info.get("official_biz", "")
-            # biz_tag 專注於產業屬性，例如「半導體」或「電子化學」
-            biz_tag = official_biz if official_biz else "產業動態"
+            # 這是最強的搜尋組合：台股 + 名稱 + 代號 + 官方產業別 + "營收項目"
+            # 營收項目這四個字能精準勾出法說會或財報摘要
+            q_combined = f'台股 "{c_name}" {pure_code} {official_biz} 營收項目 供應鏈'
             
-            status.info(f"Step 2 & 3: 依據「台股 {c_name} {pure_code}」檢索實時情資...")
+            status.info(f"Step 2 & 3: 正在穿透檢索 {c_name} 的真實業務結構...")
             context_data = f"【官方登記產業】：{official_biz}\n"
             
             with DDGS() as ddgs:
-                # 組合優化：加入「台股」字眼是為了防止搜尋引擎跑去抓全球同名公司
-                q_combined = f'台股 "{c_name}" {pure_code} {biz_tag} 供應鏈 營收 新聞'
-                
-                try:
-                    for r in ddgs.text(q_combined, max_results=6): 
-                        context_data += f"【擴展情資】{r['body']}\n"
-                except:
-                    context_data += "（線上搜尋連線受限，改由官方資料與量化數據對撞）\n"
+                # 限制搜尋結果，只取前 5 條最相關的，避免雜訊過多
+                results = list(ddgs.text(q_combined, max_results=5))
+                if results:
+                    for r in results: 
+                        context_data += f"【核心情資】{r['body']}\n"
+                else:
+                    context_data += "（未搜得即時新聞，將依據官方產業別進行量化對撞）\n"
             
             # 流程 4: 相關期指指數
             status.info(f"Step 4: 查核與「{c_name}」相關之期指指數...")
@@ -1123,6 +1118,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
