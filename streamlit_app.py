@@ -1054,82 +1054,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             else:
                 st.error("分析引擎繁忙。")
 
-        except Exception asdef chapter_7_ai_committee_analysis(symbol, brain_row):
-    st.markdown("---")
-    st.write(f"### 🎖️ AI 戰略委員會：{symbol} 實戰數據對撞")
-
-    metrics_summary = " | ".join([str(item) for item in brain_row])
-
-    if st.button(f"🚀 啟動 {symbol} 實戰數據診斷", key="ai_real_data_v7", type="primary", use_container_width=True):
-        status = st.empty()
-        
-        try:
-            from duckduckgo_search import DDGS
-            import requests
-            
-            pure_symbol = symbol.split('.')[0]
-            
-            # --- 第一階段：強制數據掃描 ---
-            status.info(f"📊 正在強制提取「{pure_symbol}」即時報價與夜盤數據...")
-            with DDGS() as ddgs:
-                # 1. 取得公司全名與最新消息 (包含面板報價、減資具體進度)
-                raw_news = [n['body'] for n in ddgs.news(f"{pure_symbol} 群創 報價 減資 新聞", max_results=5)]
-                
-                # 2. 強制抓取「台指期夜盤」的具體點數與漲幅
-                futures_data = [n['body'] for n in ddgs.text("台指期 夜盤 漲跌點數 即時", max_results=3)]
-                
-                # 3. 抓取產業鏈具體動態 (如：友達、彩晶或全球面板大廠動向)
-                industry_news = [n['body'] for n in ddgs.news(f"{pure_symbol} 產業鏈 報價趨勢", max_results=3)]
-
-                all_context = "\n".join(raw_news + futures_data + industry_news)
-
-            # --- 第二階段：強迫 AI 進行「數據關聯」分析 ---
-            status.info("⚖️ 正在將「夜盤點數」與「個股利多」進行量化對撞...")
-            
-            groq_key = st.secrets.get("GROQ_API_KEY", "")
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-            
-            prompt = f"""
-            你現在是資深交易員，拒絕空話，只要實戰分析。針對「{symbol}」進行診斷：
-            
-            【搜尋到的原始情報】：
-            {all_context}
-            
-            【該股量化數據】：
-            {metrics_summary}
-            
-            【你的任務 - 禁止說廢話】：
-            1. **夜盤數據定調**：從情報中找出「台指期夜盤」最新的漲跌點數或百分比。直接說：「夜盤漲/跌 X 點，對明日開盤屬 [利多/利空]」。
-            2. **題材具體化**：不要只說有「面板報價」題材。請從新聞中找出：報價是漲還是跌？減資具體日期或金額？高層持股變動了多少？
-            3. **供應鏈連動**：根據該公司業務（如：面板），分析目前全球熱點（如：運價上漲影響面板運輸、或AI帶動面板更新）的具體「影響方向」。
-            4. **開盤預測**：結合「夜盤數據」與「個股最新新聞」，預判明日該股開盤的走勢強弱，並給出支撐與壓力位的具體建議。
-            5. **指標對撞**：如果新聞在炒作題材，但 40 項量化指標中的「法人籌碼」或「乖離率」已經過高，請直接指出這是「拉高出貨」還是「實質起漲」。
-            
-            請用繁體中文回報，條列式呈現，且每一條分析都必須帶有「具體數據」或「明確方向」。
-            """
-
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1 # 調低隨機性，強迫 AI 根據現有資料說話
-            }
-
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                status.empty()
-                st.markdown(response.json()['choices'][0]['message']['content'])
-                st.success("✅ 實戰數據對撞完成")
-            else:
-                st.error("分析引擎繁忙。")
-
         except Exception as e:
             st.error(f"系統異常：{str(e)}")
-
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
