@@ -10,8 +10,5 @@ extra-streamlit-components
 ta
 requests
 google-generativeai
-duckduckgo_search
+duckduckgo_search>=4.4.3
 beautifulsoup4>=4.12.3
-requests-html
-
-
