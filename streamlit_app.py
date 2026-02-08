@@ -988,9 +988,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
-    from bs4 import BeautifulSoup
-    from requests.adapters import HTTPAdapter
-    from requests.packages.urllib3.util.retry import Retry
+    from requests_html import HTMLSession  # 自動渲染 JS，解決防爬與動態內容
     import re
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
@@ -1066,7 +1064,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
        
-        # 流程 1: 正名
         status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
@@ -1079,36 +1076,20 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
            
-            # 加 retry 機制
-            session = requests.Session()
-            retry_strategy = Retry(
-                total=4,
-                backoff_factor=1.5,
-                status_forcelist=[429, 500, 502, 503, 504, 403],
-                allowed_methods=["GET"]
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-           
+            session = HTMLSession()
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Referer': 'https://goodinfo.tw/',
-                'Connection': 'keep-alive'
+                'Referer': 'https://www.google.com/'
             }
            
-            # 主來源：Goodinfo
             goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
             st.caption(f"Debug: 嘗試抓取 Goodinfo URL: {goodinfo_url}")
-            r = session.get(goodinfo_url, headers=headers, timeout=30)
-            st.caption(f"Debug: Goodinfo 狀態碼: {r.status_code}，最終 URL: {r.url}")
+            r = session.get(goodinfo_url, headers=headers, timeout=40)
+            r.html.render(timeout=40, sleep=5)  # 強制渲染 JS，等待 5 秒確保載入
+            st.caption(f"Debug: Goodinfo 渲染完成，頁面標題: {r.html.find('title', first=True).text if r.html.find('title') else '無標題'}")
            
-            if r.status_code != 200:
-                raise Exception(f"Goodinfo 失敗，狀態碼 {r.status_code}")
-           
-            soup = BeautifulSoup(r.text, 'html.parser')
+            soup = BeautifulSoup(r.html.html, 'html.parser')
            
             web_context = ""
            
@@ -1128,39 +1109,51 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         break
             web_context += f"**Industry Sector:** {industry_text}\n"
            
-            # 主要業務
+            # 主要業務（擴大搜尋）
             web_context += "**Business Overview & Revenue Sources:**\n"
             business_text = ""
-            for tr in soup.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 2 and any(kw in tds[0].get_text(strip=True) for kw in ['主要業務', '產品組合', '營收來源', '事業群']):
-                    business_text += tds[1].get_text(strip=True) + " "
+            business_keywords = ['主要業務', '產品組合', '營收來源', '事業群', '主要產品', '主要營收']
+            for td in soup.find_all('td'):
+                txt = td.get_text(strip=True)
+                if any(kw in txt for kw in business_keywords):
+                    parent_tr = td.find_parent('tr')
+                    if parent_tr:
+                        business_text += parent_tr.get_text(strip=True, separator=' ') + " "
             if business_text:
                 web_context += f"- {business_text[:1500]}...\n"
             else:
-                web_context += "- 無詳細業務描述\n"
+                # fallback 整頁搜尋業務相關
+                for elem in soup.find_all(['p', 'div', 'font', 'span']):
+                    txt = elem.get_text(strip=True)
+                    if len(txt) > 80 and any(kw in txt for kw in ['製造', '代工', '晶圓', '半導體', '產品', '營收', '事業']):
+                        business_text += txt + " "
+                if business_text:
+                    web_context += f"- {business_text[:1500]}...\n"
+                else:
+                    web_context += "- 無詳細業務描述（頁面可能防爬或結構變動）\n"
            
             # 新聞與影響
             web_context += "**Recent News & Market Influences:**\n"
             news_text = ""
-            for tr in soup.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 2 and any(kw in tds[0].get_text(strip=True) for kw in ['最新消息', '公告', '事件', '影響']):
-                    news_text += tds[1].get_text(strip=True) + " "
+            for elem in soup.find_all(['div', 'td', 'span']):
+                txt = elem.get_text(strip=True)
+                if any(kw in txt for kw in ['最新消息', '公告', '事件', '影響', '新聞', '展望']):
+                    news_text += txt[:400] + " "
             if news_text:
-                web_context += f"- {news_text[:800]}...\n"
+                web_context += f"- {news_text}...\n"
             else:
-                web_context += "- 無新聞或影響資訊\n"
+                web_context += "- 無最新新聞或影響資訊\n"
            
             # 供應鏈
             web_context += "**Supply Chain Details:**\n"
             supply_text = ""
-            for tr in soup.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 2 and any(kw in tds[0].get_text(strip=True) for kw in ['供應鏈', '供應商', '客戶', '合作', '風險', '地緣']):
-                    supply_text += tds[1].get_text(strip=True) + " "
+            supply_keywords = ['供應鏈', '供應商', '客戶', '合作', '風險', '地緣', 'AI', '需求']
+            for elem in soup.find_all(['td', 'div', 'span']):
+                txt = elem.get_text(strip=True)
+                if any(kw in txt for kw in supply_keywords):
+                    supply_text += txt[:400] + " "
             if supply_text:
-                web_context += f"- {supply_text[:800]}...\n"
+                web_context += f"- {supply_text}...\n"
             else:
                 web_context += "- 暫無供應鏈資訊\n"
            
@@ -1216,6 +1209,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
