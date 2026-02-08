@@ -1044,23 +1044,17 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             "28": "汽車工業",
             "29": "電子零組件",
             "30": "半導體",
-            # 可以繼續加其他代號...
         }
        
-        # 轉換產業
         if isinstance(industry_code, str) and industry_code.isdigit():
             industry_text = industry_map.get(industry_code, f"產業代號 {industry_code}（未知細項）")
         else:
             industry_text = industry_code if industry_code else "未知產業"
        
-        # 強制修正熱門股產業（優先級最高）
-        forced_industry = {
-            "2330": "半導體",
-            "1711": "化學工業",
-            # 可以加更多
-        }
-        if pure_code in forced_industry:
-            industry_text = forced_industry[pure_code]
+        # 強制修正熱門股
+        forced = {"2330": "半導體", "1711": "化學工業"}
+        if pure_code in forced:
+            industry_text = forced[pure_code]
        
         return {"name": name or "未知公司", "industry": industry_text}
    
@@ -1068,7 +1062,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
        
-        # 流程 1: 正名
         status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
@@ -1081,43 +1074,44 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
            
-            # 加強 headers 防重定向
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+                'Accept-Language': 'zh-TW,zh;q=0.9',
                 'Referer': 'https://tw.stock.yahoo.com/',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
             }
+           
+            # 先試 Yahoo profile
             profile_url = f"https://tw.stock.yahoo.com/quote/{pure_code}.TW/profile"
             r = requests.get(profile_url, headers=headers, timeout=15, allow_redirects=True)
-            if r.status_code != 200 or "profile" not in r.url:
-                st.warning("Yahoo profile 頁面重定向或失敗，嘗試備用來源 Goodinfo...")
-                # fallback 到 Goodinfo 基本資料頁
+            st.caption(f"Debug: Yahoo 實際抓到的 URL: {r.url}")
+           
+            if r.status_code != 200 or "profile" not in r.url.lower() or "yahoo股市" in r.text.lower():
+                st.warning("Yahoo profile 失敗或重定向到首頁，使用 Goodinfo 備用來源...")
                 goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
                 r = requests.get(goodinfo_url, headers=headers, timeout=15)
                 if r.status_code != 200:
-                    raise Exception(f"無法訪問 Goodinfo 頁面，狀態碼 {r.status_code}")
+                    raise Exception(f"Goodinfo 也失敗，狀態碼 {r.status_code}")
            
             soup = BeautifulSoup(r.text, 'html.parser')
            
             web_context = ""
            
             # 公司名稱
-            company_tag = soup.find('h1') or soup.find('title')
-            company_name = company_tag.get_text(strip=True).split('(')[0].strip() if company_tag else c_name
+            title_tag = soup.find('title') or soup.find('h1')
+            company_name = title_tag.get_text(strip=True).split('(')[0].strip() if title_tag else c_name
             web_context += f"**Company Name:** {company_name}\n"
            
-            # 產業別（多來源解析）
+            # 產業別
             industry_text = info['industry']
-            industry_patterns = [
+            patterns = [
                 r'產業別\s*[:：]\s*([^<>\n]+)',
                 r'Industry\s*[:：]\s*([^<>\n]+)',
-                r'Sector\s*[:：]\s*([^<>\n]+)',
                 r'所屬產業\s*[:：]\s*([^<>\n]+)',
                 r'產業類別\s*[:：]\s*([^<>\n]+)'
             ]
-            for pattern in industry_patterns:
-                match = re.search(pattern, str(soup), re.I | re.DOTALL)
+            for p in patterns:
+                match = re.search(p, str(soup), re.I)
                 if match:
                     industry_text = match.group(1).strip()
                     break
@@ -1126,42 +1120,35 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             # 業務與營收
             web_context += "**Business Overview & Revenue Sources:**\n"
             business_text = ""
-            keywords = ['業務', '營收', '主要產品', '事業群', 'revenue', 'business', '製造', '代工', '晶圓']
-            for p in soup.find_all(['p', 'div', 'td', 'span']):
-                txt = p.get_text(strip=True)
-                if any(kw in txt for kw in keywords) and len(txt) > 50:
+            for elem in soup.find_all(['p', 'div', 'td', 'span']):
+                txt = elem.get_text(strip=True)
+                if len(txt) > 60 and any(kw in txt for kw in ['業務', '營收', '主要', '產品', '事業', 'revenue', '代工', '晶圓', '製造']):
                     business_text += txt + " "
             if business_text:
                 web_context += f"- {business_text[:1200]}...\n"
             else:
-                web_context += f"- 主要業務：{industry_text} 相關領域（無詳細描述）\n"
+                web_context += "- 無詳細業務描述\n"
            
-            # 最新新聞
-            web_context += "**Recent Business News:**\n"
-            news_items = soup.find_all(['div', 'li', 'article'], class_=re.compile(r'(news|News|Mb|Py|Mt|List|update|feed|article)', re.I))[:6]
+            # 新聞與影響
+            web_context += "**Recent News & Market Influences:**\n"
+            news_items = soup.find_all(['div', 'li'], class_=re.compile(r'(news|update|feed|Mb|Py|Mt|List)', re.I))[:5]
             if news_items:
                 for item in news_items:
-                    title = item.find(['h3', 'h4', 'a', 'span']).get_text(strip=True) if item.find(['h3', 'h4', 'a', 'span']) else "無標題"
-                    date = item.find('time').get_text(strip=True) if item.find('time') else ""
-                    web_context += f"- **{date}**: {title}\n"
+                    title = item.get_text(strip=True)[:100]
+                    web_context += f"- {title}\n"
             else:
-                web_context += "- 無最新新聞或無法解析\n"
+                web_context += "- 無新聞或影響資訊\n"
            
-            # 供應鏈與市場影響
-            web_context += "**Supply Chain Details & Market Influences:**\n"
-            supply_keywords = ['供應鏈', '供應商', '合作', '風險', '地緣', 'AI', '需求', '影響', '事件', '夥伴', '客戶']
-            supply_found = False
+            # 供應鏈
+            web_context += "**Supply Chain Details:**\n"
+            supply_keywords = ['供應鏈', '供應商', '合作', '風險', '地緣', 'AI', '需求', '影響']
             for kw in supply_keywords:
-                tags = soup.find_all(string=re.compile(kw, re.I))
-                for tag in tags[:5]:
-                    parent = tag.find_parent(['div', 'p', 'span', 'td'])
+                tag = soup.find(string=re.compile(kw, re.I))
+                if tag:
+                    parent = tag.find_parent(['div', 'p', 'span'])
                     if parent:
                         text = parent.get_text(strip=True)[:400]
-                        if len(text) > 20:
-                            web_context += f"- {text}...\n"
-                            supply_found = True
-            if not supply_found:
-                web_context += "- 暫無供應鏈或市場影響資訊\n"
+                        web_context += f"- {text}...\n"
            
             # Debug 顯示
             st.caption("Debug: 抓取內容預覽（供檢查）")
@@ -1215,3 +1202,4 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
