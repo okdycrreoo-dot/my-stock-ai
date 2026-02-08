@@ -1035,7 +1035,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         
         return None # 3 次都失敗才回傳 None
 
-    st.write(f"### 🎖️ AI 戰略委員會：FinMind 純淨對撞系統 ")
+    st.write(f"### 🎖️ AI 戰略委員會：現況&指標對撞系統 ")
     
     if st.button(f"🚀 啟動 {pure_code} 深度分析流程", key=f"v100_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
@@ -1104,6 +1104,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
