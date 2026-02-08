@@ -1103,15 +1103,15 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         industry_text = text.strip()
             web_context += f"**Industry Sector:** {industry_text}\n"
             
-            # 最新新聞
+                        # 最新新聞（抓新聞相關的 ul/li 或 div，模糊匹配 class）
             web_context += "**Recent Business News:**\n"
-            news_containers = soup.find_all(['ul', 'div'], class_=re.compile(r'(news|News|List|Mb\(|\Py\(|Py\(8px\)|Mt\(20px\))', re.I))[:1]
+            news_containers = soup.find_all(['ul', 'div'], class_=re.compile(r'(news|News|List|Mb\\(|Py\\(|Py\\(8px\\)|Mt\\(20px\\))', re.I))[:1]
             news_items = []
             if news_containers:
                 news_items = news_containers[0].find_all(['li', 'div'], recursive=False)[:5]
             news_count = 0
             for item in news_items:
-                title_tag = item.find(['h3', 'a', 'span'], class_=re.compile(r'(Fw\(b\)|title|Link|Fw\(700\))'))
+                title_tag = item.find(['h3', 'a', 'span'], class_=re.compile(r'(Fw\\(b\\)|title|Link|Fw\\(700\\))'))
                 title = title_tag.get_text(strip=True) if title_tag else "無標題"
                 time_tag = item.find('time')
                 date = time_tag.get_text(strip=True) if time_tag else ""
@@ -1209,6 +1209,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
