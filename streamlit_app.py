@@ -1044,7 +1044,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             return None
         return full_text
 
-    st.write(f"### 🎖️ AI 戰略委員會：深度對撞系統 (V50 強化版)")
+    st.write(f"### 🎖️ AI 戰略委員會：深度對撞系統 ")
 
     # [個人化設定] Watchlist 20 隻上限提醒
     if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
@@ -1104,6 +1104,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
