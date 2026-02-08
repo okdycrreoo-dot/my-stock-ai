@@ -991,22 +991,17 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     import re
     import time
     import streamlit as st
-    # 這裡加入 try-except 保護，防止庫沒裝好時直接白屏
-    try:
-        from FinMind.data import DataLoader
-    except ImportError:
-        st.error("請在 requirements.txt 中新增 'FinMind' 並重新部署。")
-        return
+    from FinMind.data import DataLoader
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # 初始化 FinMind (免 Token 模式)
+    # 初始化 FinMind
     api = DataLoader()
 
-    # --- 1. 官方 Truth 獲取 (背景自動化) ---
+    # --- 1. 官方 Truth 獲取 ---
     @st.cache_data(ttl=86400)
-    def get_info_from_finmind(code):
+    def get_finmind_truth(code):
         try:
             df = api.taiwan_stock_info()
             target = df[df['stock_id'] == code]
@@ -1018,85 +1013,85 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         except: pass
         return {"name": f"代號 {code}", "industry": "未知產業"}
 
-    # --- 2. 深度情資獲取 (模擬 Perplexity 等待機制) ---
-    @st.cache_data(ttl=3600)
-    def get_deep_news(code, name):
+    # --- 2. 強力重試機制：純 FinMind 情資抓取 ---
+    def fetch_finmind_intel_with_retry(code, max_retries=3):
         import datetime
         start_date = (datetime.datetime.now() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
-        full_context = ""
         
-        # A. 抓取 FinMind 官方新聞
-        try:
-            df_news = api.taiwan_stock_news(stock_id=code, start_date=start_date)
-            if not df_news.empty:
-                news_list = df_news.tail(8)
-                full_context += "【FinMind 財經新聞】:\n"
-                full_context += "\n".join([f"- {t}" for t in news_list['title']])
-        except: pass
+        for i in range(max_retries):
+            try:
+                # 模擬 Perplexity 的等待感，每次重試增加延遲
+                time.sleep(1.5 * (i + 1)) 
+                df_news = api.taiwan_stock_news(stock_id=code, start_date=start_date)
+                
+                if not df_news.empty:
+                    # 成功抓到資料，整理回傳
+                    news_list = df_news.tail(10)
+                    summary = "【FinMind 官方新聞庫】:\n"
+                    summary += "\n".join([f"- [{d}] {t}" for d, t in zip(news_list['date'], news_list['title'])])
+                    return summary
+            except:
+                continue # 失敗則進入下一次循環
+        
+        return None # 3 次都失敗才回傳 None
 
-        # B. 補強搜尋 (DuckDuckGo)
-        from duckduckgo_search import DDGS
-        try:
-            with DDGS() as ddgs:
-                # 這裡就是你說的：等久一點，讓資料反饋完畢
-                q = f'"{name}" {code} 核心業務 營收比重 供應鏈'
-                results = list(ddgs.text(q, max_results=5))
-                if results:
-                    full_context += "\n\n【市場檢索情資】:\n"
-                    full_context += "\n".join([r['body'] for r in results])
-        except: pass
+    st.write(f"### 🎖️ AI 戰略委員會：FinMind 純淨對撞系統 (V100)")
 
-        return full_context if len(full_context) > 100 else None
-
-    # --- 介面呈現 ---
-    st.write(f"### 🎖️ AI 戰略委員會：全自動深度對撞系統")
-
-    # [個人化設定] 20 隻上限提醒
+    # [個人化設定] Watchlist 20 隻上限提醒
     if 'watchlist' in st.session_state and len(st.session_state.watchlist) >= 20:
-        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
+        st.warning(f"⚠️ 提醒：觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
 
-    if st.button(f"🚀 啟動 {pure_code} 深度分析流程", key=f"v_final_{pure_code}", type="primary", use_container_width=True):
-        info = get_info_from_finmind(pure_code)
+    if st.button(f"🚀 啟動 {pure_code} 深度分析流程", key=f"v100_{pure_code}", type="primary", use_container_width=True):
+        truth = get_finmind_truth(pure_code)
         
-        # 模擬 Perplexity 等待進度條
-        with st.status(f"📡 正在為 {info['name']} 進行背景情資對撞...", expanded=True) as status:
-            st.write("🔄 正在從 FinMind 提取官方產業定義...")
-            time.sleep(1) # 強制等待確保同步
+        with st.status(f"📡 正在從 FinMind 獲取「{truth['name']}」情資...", expanded=True) as status:
+            st.write("🔄 正在確認官方產業分類...")
             
-            st.write("🔍 正在檢索實時新聞與供應鏈資料 (預計等待 20s)...")
-            intel = get_deep_news(pure_code, info['name'])
+            # 執行重試邏輯
+            intel = None
+            for attempt in range(3):
+                st.write(f"🔍 正在嘗試提取實時新聞 (第 {attempt + 1} 次嘗試)...")
+                intel = fetch_finmind_intel_with_retry(pure_code, max_retries=1)
+                if intel:
+                    break
+                if attempt < 2:
+                    st.write("⏳ 暫無反饋，等待 3 秒後重試...")
+                    time.sleep(3)
             
             if not intel:
-                status.update(label="❌ 資料反饋不足，請確認代碼後重試", state="error")
-                return
-            
-            status.update(label="✅ 情資提取完畢，啟動 Llama-3 決策對撞", state="complete")
+                st.error("❌ 資訊不足：FinMind 伺服器目前未反饋相關新聞。")
+                status.update(label="❌ 流程終止：情資獲取失敗", state="error")
+                # 雖然新聞失敗，但我們還是可以讓 AI 基於量化指標做「純技術面分析」
+                intel = "（目前實時新聞資訊不足，請僅針對量化指標進行分析）"
+            else:
+                status.update(label="✅ 情資提取完畢，啟動 AI 對撞", state="complete")
 
-        # --- AI 指標對撞 ---
+        # --- AI 決策分析 ---
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
         
         prompt = f"""
-        你現在是資深基金經理人。請針對 {info['name']} ({pure_code}) 進行「量化指標」與「實時情資」的對撞分析。
-        官方產業：{info['industry']} (以此為準，嚴禁偏離)。
+        你現在是資深基金經理。
+        公司名稱：{truth['name']} ({pure_code})
+        官方產業：{truth['industry']} (以此為準，嚴禁偏離)
         
-        【背景情資】：
+        【實時新聞情資】：
         {intel}
         
         【量化數據矩陣】：
         {metrics_stream}
 
-        請產出：業務解析(過濾噪音)、指標對撞診斷、實戰結論。
+        請產出報告：
+        1. 業務解析：若新聞充足則結合新聞；若無新聞則依據產業別分析。
+        2. 指標對撞：數據與情資是否吻合？
+        3. 明日實戰建議。
         """
 
-        with st.spinner("對撞中..."):
+        with st.spinner("Llama-3 深度思考中..."):
             res = requests.post("https://api.groq.com/openai/v1/chat/completions",
                                 headers={"Authorization": f"Bearer {groq_key}"},
-                                json={
-                                    "model": "llama-3.3-70b-versatile",
-                                    "messages": [{"role": "user", "content": prompt}],
-                                    "temperature": 0.0
-                                })
+                                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0})
+            
             if res.status_code == 200:
                 st.markdown(res.json()['choices'][0]['message']['content'])
                 st.success("✅ 背景全自動對撞作業完成。")
@@ -1104,6 +1099,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
