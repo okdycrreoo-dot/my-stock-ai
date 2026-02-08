@@ -986,12 +986,12 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
-    from bs4 import BeautifulSoup  # 新增：用來解析頁面，pip install beautifulsoup4
+    from bs4 import BeautifulSoup  # 新增：用來解析頁面
     import re
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
-   
-    # --- 流程 1: 實時穿透式正名 --- (保持原樣)
+    
+    # --- 流程 1: 實時穿透式正名 ---
     @st.cache_data(ttl=3600)
     def get_verified_info(code):
         targets = [
@@ -999,7 +999,10 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
             ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
         ]
-       
+        
+        industry_code = None
+        name = None
+        
         for url, cid_key, name_key, ind_val in targets:
             try:
                 r = requests.get(url, timeout=5)
@@ -1010,98 +1013,162 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            ind = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else ind_val)
-                            return {"name": name, "industry": ind}
-            except: continue
-       
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://tw.stock.yahoo.com/quote/{code}"
-            r = requests.get(url, headers=headers, timeout=5)
-            if r.status_code == 200:
-                name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
-                return {"name": name, "industry": "市場核心產業"}
-        except: pass
-        return {"name": None, "industry": None}
-       
+                            industry_code = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else None)
+                            if name and industry_code:
+                                break
+            except:
+                continue
+            if name and industry_code:
+                break
+        
+        # Yahoo fallback
+        if not name:
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                url = f"https://tw.stock.yahoo.com/quote/{code}"
+                r = requests.get(url, headers=headers, timeout=5)
+                if r.status_code == 200:
+                    name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
+            except:
+                pass
+        
+        # 產業代號轉文字映射表
+        industry_map = {
+            "21": "化學工業",
+            "22": "塑膠工業",
+            "23": "橡膠工業",
+            "24": "水泥工業",
+            "25": "玻璃陶瓷",
+            "26": "造紙工業",
+            "27": "鋼鐵工業",
+            "28": "汽車工業",
+            "29": "電子零組件",
+            "30": "半導體",
+            # 可以繼續加其他代號...
+        }
+        
+        # 轉換產業
+        if isinstance(industry_code, str) and industry_code.isdigit():
+            industry_text = industry_map.get(industry_code, f"產業代號 {industry_code}（未知細項）")
+        else:
+            industry_text = industry_code if industry_code else "未知產業"
+        
+        return {"name": name or "未知公司", "industry": industry_text}
+    
     st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
-       
-        # 流程 1: 正名 (保持原樣)
+        
+        # 流程 1: 正名
         status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
-        if not c_name:
+        if not c_name or c_name == "未知公司":
             st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
             return
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
-        # 流程 2 & 3: 穿透檢索 (修改為 Yahoo 頁面解析，取代 DDGS)
+        st.caption(f"（產業確認：{info['industry']}）")  # debug 顯示
+        
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
-           
-            # 修改點：用 requests + BS4 抓 Yahoo 頁面並解析
+            
+            # Yahoo 頁面解析（更穩定版本）
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             yahoo_url = f"https://tw.stock.yahoo.com/quote/{pure_code}.TW"
             r = requests.get(yahoo_url, headers=headers, timeout=10)
             if r.status_code != 200:
-                raise Exception("無法訪問 Yahoo 頁面")
+                raise Exception(f"無法訪問 Yahoo 頁面，狀態碼 {r.status_code}")
             
             soup = BeautifulSoup(r.text, 'html.parser')
             
-            # 提取結構化情資 (根據 Yahoo 頁面結構)
             web_context = ""
             
-            # 公司名稱 (從 h1 或 title)
-            company_name = soup.find('h1', class_='C($c-link-text) Fz(24px) Fw(b)').text.strip() if soup.find('h1', class_='C($c-link-text) Fz(24px) Fw(b)') else c_name
+            # 公司名稱
+            company_tag = soup.find(attrs={"data-testid": "quote-header-symbol"}) or \
+                          soup.find('h1', class_=re.compile(r'Fz.*C\(\$c-link-text\)')) or \
+                          soup.find('h1')
+            company_name = company_tag.get_text(strip=True) if company_tag else c_name
             web_context += f"**Company Name:** {company_name}\n"
             
-            # 產業部門 (從 profile 區塊或推斷)
-            industry = info['industry']  #  fallback 到原 info
-            profile_link = soup.find('a', text='公司簡介')  # 如果有 profile，未來可擴展
-            web_context += f"**Industry Sector:** {industry}\n"
+            # 產業別
+            industry_text = info['industry']
+            industry_tag = soup.find(string=re.compile(r'產業別|產業分類|所屬產業'))
+            if industry_tag:
+                parent = industry_tag.find_parent(['div', 'span', 'p', 'td'])
+                if parent:
+                    text = parent.get_text(strip=True)
+                    if '：' in text:
+                        industry_text = text.split('：')[-1].strip()
+                    else:
+                        industry_text = text.strip()
+            web_context += f"**Industry Sector:** {industry_text}\n"
             
-            # 最新新聞 (抓 ul class="news-list" 或類似，頂多 5 則)
+            # 最新新聞
             web_context += "**Recent Business News:**\n"
-            news_list = soup.find_all('li', class_='List(n) P(0) Wow(bw)')[:5]  # Yahoo 新聞列表 class
-            if news_list:
-                for news in news_list:
-                    title = news.find('h3').text.strip() if news.find('h3') else "無標題"
-                    summary = news.find('p').text.strip() if news.find('p') else ""
-                    date = news.find('time').text.strip() if news.find('time') else ""
-                    web_context += f"- **{date}**: {title} - {summary}\n"
-            else:
-                web_context += "- 無最新新聞\n"
+            news_containers = soup.find_all(['ul', 'div'], class_=re.compile(r'(news|News|List|Mb\(|\Py\(|Py\(8px\)|Mt\(20px\))', re.I))[:1]
+            news_items = []
+            if news_containers:
+                news_items = news_containers[0].find_all(['li', 'div'], recursive=False)[:5]
+            news_count = 0
+            for item in news_items:
+                title_tag = item.find(['h3', 'a', 'span'], class_=re.compile(r'(Fw\(b\)|title|Link|Fw\(700\))'))
+                title = title_tag.get_text(strip=True) if title_tag else "無標題"
+                time_tag = item.find('time')
+                date = time_tag.get_text(strip=True) if time_tag else ""
+                link_tag = item.find('a', href=True)
+                link = f" ({link_tag['href']})" if link_tag else ""
+                web_context += f"- **{date}**: {title}{link}\n"
+                news_count += 1
+            if news_count == 0:
+                web_context += "- 無最新新聞或無法解析（Yahoo 頁面結構變動）\n"
             
-            # 營收來源/業務 (Yahoo 頁面常在新聞或簡介中提及，簡單搜 "營收" 相關文字，或 fallback)
-            web_context += "**Revenue Sources:**\n"
-            revenue_info = soup.find(text=re.compile('營收|業務|代工|來源'))  # 簡單 regex 找相關文字
-            if revenue_info:
-                web_context += f"- {revenue_info.parent.text.strip()[:200]}...\n"  # 截取前 200 字避免太長
-            else:
-                web_context += "- 主要來自 {info['industry']} 相關業務（無詳細頁面資訊）\n"
+            # 營收/業務
+            web_context += "**Revenue Sources & Business Overview:**\n"
+            business_keywords = ['營收', '業務', '主要產品', '主要收入', '代工', '製造', '供應鏈', '事業群']
+            found_business = False
+            for kw in business_keywords:
+                tags = soup.find_all(string=re.compile(kw, re.I))
+                for tag in tags:
+                    parent = tag.find_parent(['div', 'p', 'span', 'td', 'li'])
+                    if parent:
+                        text = parent.get_text(strip=True, separator=' ')[:400]
+                        if len(text) > 20:
+                            web_context += f"- {text}...\n"
+                            found_business = True
+                            break
+                if found_business:
+                    break
+            if not found_business:
+                web_context += f"- 主要業務：{industry_text} 相關領域（無詳細頁面資訊）\n"
             
-            # 市場影響 (找新聞中 "影響|需求|地緣|AI" 等關鍵詞)
-            web_context += "**Market Influences:**\n"
-            influences = soup.find_all(text=re.compile('影響|需求|地緣|AI|市場|事件'))
-            if influences:
-                for inf in influences[:3]:  # 頂多 3 則
-                    web_context += f"- {inf.parent.text.strip()[:150]}...\n"
-            else:
+            # 市場影響
+            web_context += "**Market Influences & Recent Events:**\n"
+            influence_keywords = ['影響', '需求', '地緣', 'AI', '事件', '風險', '展望', '利多', '利空']
+            found_infl = False
+            for kw in influence_keywords:
+                tags = soup.find_all(string=re.compile(kw, re.I))
+                for tag in tags[:3]:
+                    parent = tag.find_parent(['div', 'p', 'span'])
+                    if parent:
+                        text = parent.get_text(strip=True)[:250]
+                        if len(text) > 15:
+                            web_context += f"- {text}...\n"
+                            found_infl = True
+            if not found_infl:
                 web_context += "- 暫無明顯市場影響資訊\n"
             
-            has_web_data = bool(news_list or revenue_info or influences)
+            has_web_data = bool(news_count > 0 or found_business or found_infl)
             if not has_web_data:
                 web_context = "- 【即時財報/新聞情資】: 暫無外部最新情資（嚴禁虛構）\n"
             
-            # 流程 5 & 6: 綜合對撞 (保持原樣，但 web_context 更精準)
+            # 流程 5 & 6: 綜合對撞
             status.info(f"Step 5 & 6: 執行量化與實時情資對撞...")
             metrics_stream = " | ".join([str(x) for x in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
-           
+            
             prompt = f"""
             你現在是『避險基金執行合夥人』。請針對 {c_name} ({pure_code}) 產出專業報告。
-           
+            
             【輸入數據來源】：
             1. 官方登記產業：{info['industry']}
             2. 實時檢索情資：
@@ -1128,18 +1195,21 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             }
             response = requests.post("https://api.groq.com/openai/v1/chat/completions",
                                      headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=45)
-           
+            
             if response.status_code == 200:
                 status.empty()
                 st.markdown(f"#### 🗨️ {c_name} 六大流程對撞診斷報告")
                 st.markdown(response.json()['choices'][0]['message']['content'])
                 st.success(f"✅ {c_name} 全維度分析完畢。")
+            else:
+                st.error(f"Groq API 失敗，狀態碼 {response.status_code}")
         except Exception as e:
             st.error(f"💥 流程執行中斷：{str(e)}")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
