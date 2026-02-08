@@ -995,8 +995,8 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 流程 1: 實時穿透式正名 (不使用 requests-html) ---
-    @st.cache_data(ttl=3600)
+    # --- 1. 官方正名快取 (鎖定產業身份) ---
+    @st.cache_data(ttl=86400) # 快取 24 小時，避免重複請求
     def get_verified_info(code):
         targets = [
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
@@ -1018,73 +1018,78 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             except: continue
         return {"name": None, "industry": "未知產業"}
 
-    st.write(f"### 🎖️ AI 戰略委員會：全自動背景對撞系統")
-
-    # --- 自定義指令：Watchlist 20 隻上限提醒 ---
-    if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
-        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻，超過 20 隻上限設定。")
-
-    if st.button(f"🚀 啟動 {pure_code} 背景流程分析", key=f"auto_v40_{pure_code}", type="primary", use_container_width=True):
-        status = st.empty()
-        info = get_verified_info(pure_code)
-        
-        if not info["name"]:
-            st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
-            return
-
-        status.info(f"🔍 正在後台檢索「{info['name']}」的即時產業情資...")
-
-        # --- 流程 2 & 3: 背景自動搜尋 ---
-        context_data = ""
+    # --- 2. 背景搜尋快取 (模擬人機協作的情資抓取) ---
+    @st.cache_data(ttl=3600) # 情資快取 1 小時
+    def get_background_context(name, code, industry):
+        context = ""
         try:
             with DDGS() as ddgs:
-                # 組合精確搜尋詞：排除雜訊
-                q = f'台股 "{info["name"]}" {pure_code} {info["industry"]} 營收結構 供應鏈 -披薩'
-                for r in ddgs.text(q, max_results=6):
-                    context_data += f"【情資】{r['body']}\n"
-        except Exception as e:
-            context_data = "（後台搜尋暫時受限，將以官方產業定義為準）"
+                # 模擬 Perplexity 的提問邏輯，強制關鍵字組合
+                q = f'台股 "{name}" {code} {industry} "核心業務" "營收佔比" "供應鏈"'
+                results = list(ddgs.text(q, max_results=5))
+                for r in results:
+                    context += f"內容: {r['body']}\n"
+        except:
+            context = "搜尋暫時受限"
+        return context
 
-        # --- 流程 5 & 6: 綜合對撞 ---
-        status.info(f"⚖️ 執行量化指標與實時情資對撞...")
+    # --- UI 邏輯 ---
+    st.write(f"### 🎖️ AI 戰略委員會：自動化背景對撞")
+
+    # 個人化限制：Watchlist 20 隻提醒
+    if 'watchlist' in st.session_state and len(st.session_state.watchlist) >= 20:
+        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
+
+    if st.button(f"🚀 啟動 {pure_code} 全自動診斷", key=f"auto_v5_{pure_code}", type="primary", use_container_width=True):
+        status = st.empty()
+        
+        # Step 1: 抓取正名 (帶快取)
+        info = get_verified_info(pure_code)
+        if not info["name"]:
+            st.error("無法辨識代碼。")
+            return
+        
+        # Step 2: 背景自動抓取情資 (模擬貼上動作)
+        status.info(f"⏳ 正在背景模擬人機協作，檢索 {info['name']} 的業務結構...")
+        context = get_background_context(info["name"], pure_code, info["industry"])
+        
+        # Step 3: 指標對撞分析
+        status.info(f"⚖️ 正在將量化指標與背景情資進行深度對撞...")
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
 
+        # 這裡就是關鍵：把「官方產業」設為不可撼動的 Truth
         prompt = f"""
-        你現在是『避險基金執行合夥人』。請針對 {info['name']} ({pure_code}) 產出專業報告。
-        
-        【核心限制】：
-        - 官方登記產業：{info['industry']}
-        - **嚴禁腦補**：若搜尋情資與官方產業無關，請忽略該情資。若資訊不足，請直說。
-        
-        【輸入情資】：
-        - 背景新聞：{context_data}
-        - 量化數據：{metrics_stream}
+        【身份設定】：你現在是避險基金執行合夥人。
+        【官方絕對產業】：{info['industry']} (嚴禁更改此身份)
+        【背景檢索情資】：
+        {context}
+        【量化指標】：
+        {metrics_stream}
 
-        【報告要求】：分析業務與供應鏈、執行量化因子對撞、並給出明確實戰建議。
+        【任務】：
+        1. 診斷 {info['name']} ({pure_code}) 的業務，必須符合「{info['industry']}」的範疇。
+        2. 如果背景情資提到其他行業（如披薩、金融），請判定為噪音並剔除。
+        3. 給出實戰建議。
         """
 
         payload = {
             "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0  # 設為 0 以保證事實準確度
+            "temperature": 0.0 # 鎖死，不准亂跳
         }
 
-        try:
-            res = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                                headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=40)
-            if res.status_code == 200:
-                status.empty()
-                st.markdown(f"#### 🗨️ {info['name']} 診斷報告")
-                st.markdown(res.json()['choices'][0]['message']['content'])
-                st.success("✅ 背景作業完成。")
-            else:
-                st.error("Groq API 暫時連線失敗。")
-        except:
-            st.error("分析過程超時，請重試。")
+        res = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {groq_key}"}, json=payload)
+        
+        if res.status_code == 200:
+            status.empty()
+            st.markdown(res.json()['choices'][0]['message']['content'])
+            st.success("✅ 全自動分析完畢（已啟用快取保護）")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
