@@ -990,13 +990,14 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
     import re
     import streamlit as st
+    from duckduckgo_search import DDGS  # 確保 requirements.txt 有這行
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 流程 1: 實時驗證（純 API 模式，不爬網頁，保證不崩潰） ---
     @st.cache_data(ttl=3600)
     def get_verified_info(code):
+        # 這裡維持你最穩定的 API 驗證邏輯
         targets = [
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, 4),
@@ -1012,89 +1013,83 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            # 抓取產業別
-                            ind = "未知產業"
-                            if isinstance(item, dict): ind = item.get(ind_val, "未知")
-                            elif isinstance(item, list) and len(item) > 4: ind = item[4]
+                            ind = item[4] if isinstance(item, list) else item.get(ind_val, "未知")
                             return {"name": name, "industry": ind}
             except: continue
-        return {"name": None, "industry": None}
+        return {"name": None, "industry": "未知"}
 
-    # --- Watchlist 上限提醒 (20 隻) ---
-    if 'watchlist' in st.session_state and len(st.session_state.watchlist) >= 20:
-        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
+    # 執行自動分析
+    st.write(f"### 🎖️ AI 戰略委員會：全自動深度對撞")
+    
+    # Watchlist 20 隻限制提醒
+    if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
+        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻，超過 20 隻上限。")
 
-    st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
-
-    # 使用 Session State 控管，避免資料消失
-    flow_key = f"flow_state_{pure_code}"
-    if flow_key not in st.session_state:
-        st.session_state[flow_key] = "start"
-
-    # 第一步：驗證並顯示操作指令
-    if st.session_state[flow_key] == "start":
-        if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"btn_{pure_code}", type="primary", use_container_width=True):
-            info = get_verified_info(pure_code)
-            if info["name"]:
-                st.session_state[f"info_{pure_code}"] = info
-                st.session_state[flow_key] = "waiting_input"
-                st.rerun()
-            else:
-                st.error(f"❌ 無法查獲代號 {pure_code}")
-
-    # 第二步：顯示複製咒語與輸入框
-    if st.session_state[flow_key] == "waiting_input":
-        info = st.session_state[f"info_{pure_code}"]
-        st.success(f"✅ 已鎖定：{info['name']} ({info['industry']})")
+    if st.button(f"🚀 啟動 {pure_code} 背景流程分析", key=f"auto_ai_{pure_code}", type="primary", use_container_width=True):
+        status = st.empty()
+        info = get_verified_info(pure_code)
         
-        st.info("💡 請利用外部 AI (如 Perplexity) 獲取最新情資：")
-        spell = f"請分析台灣股票「{info['name']}」({pure_code})。列出：1.核心業務結構 2.營收產品比重 3.上下游供應鏈 4.近一個月重大新聞。請簡潔條列。"
-        st.code(spell, language="text")
-        
-        user_data = st.text_area("👇 請貼上外部 AI 回傳的情資內容", height=250)
-        
-        if st.button("✨ 執行深度對撞分析"):
-            if user_data:
-                st.session_state[f"ext_data_{pure_code}"] = user_data
-                st.session_state[flow_key] = "analyzing"
-                st.rerun()
-            else:
-                st.error("請提供情資內容！")
+        if not info["name"]:
+            st.error("❌ 無法取得公司資訊，自動化終止。")
+            return
 
-    # 第三步：Groq 分析
-    if st.session_state[flow_key] == "analyzing":
-        info = st.session_state[f"info_{pure_code}"]
-        ext_data = st.session_state[f"ext_data_{pure_code}"]
+        status.info(f"🔍 正在後台檢索「{info['name']}」即時情資...")
+
+        # --- 核心關鍵：自動背景搜尋 ---
+        context_data = ""
+        try:
+            with DDGS() as ddgs:
+                # 關鍵搜尋詞優化：強迫搜尋「台股、產業別、營收」
+                search_query = f"台股 {pure_code} {info['name']} {info['industry']} 主要業務 營收結構 供應鏈"
+                results = list(ddgs.text(search_query, max_results=5))
+                for r in results:
+                    context_data += f"{r['body']}\n"
+        except Exception as e:
+            context_data = "搜尋引擎暫時無法取得資料，將僅依據量化數據分析。"
+
+        # --- 核心關鍵：嚴防 AI 腦補的 Prompt ---
+        metrics_stream = " | ".join([str(x) for x in brain_row])
+        groq_key = st.secrets.get("GROQ_API_KEY", "")
         
-        with st.spinner("對撞中..."):
-            metrics_stream = " | ".join([str(x) for x in brain_row])
-            groq_key = st.secrets.get("GROQ_API_KEY", "")
-            
-            prompt = f"""
-            你現在是『避險基金合夥人』。針對 {info['name']} ({pure_code}) 產出報告。
-            【官方產業】：{info['industry']}
-            【即時情資】：{ext_data}
-            【量化指標】：{metrics_stream}
-            
-            請根據以上數據產出包含：業務診斷、量化對撞、指數影響、實戰結論（買賣策略）的專業報告。
-            嚴禁腦補，若情資不足請直說。
-            """
-            
+        prompt = f"""
+        你現在是『避險基金執行合夥人』。請針對「{info['name']}」({pure_code}) 進行專業診斷。
+        
+        【絕對事實 - 禁止修改】：
+        - 官方產業分類：{info['industry']}  <-- 這是絕對真理，嚴禁說它是披薩店或金融業。
+        
+        【參考背景資料】：
+        {context_data}
+        
+        【量化指標數據】：
+        {metrics_stream}
+
+        【分析準則】：
+        1. **身份檢查**：若背景資料提到的業務與官方分類「{info['industry']}」完全無關，請忽略該背景資料，僅以官方產業概況回答。
+        2. **禁止胡扯**：如果不知道它的供應鏈，就說「供應鏈資訊不透明」，不准編造。
+        """
+
+        # 發送給 Groq
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0 # 鎖死 AI 的想像力
+        }
+
+        with st.spinner("對撞分析中..."):
             res = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                                headers={"Authorization": f"Bearer {groq_key}"},
-                                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0})
+                                headers={"Authorization": f"Bearer {groq_key}"}, json=payload)
             
             if res.status_code == 200:
+                status.empty()
                 st.markdown(res.json()['choices'][0]['message']['content'])
-                if st.button("🔄 重新分析"):
-                    st.session_state[flow_key] = "start"
-                    st.rerun()
+                st.success("✅ 背景作業完成。")
             else:
-                st.error("Groq 服務暫時不可用。")
+                st.error("API 調用失敗。")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
