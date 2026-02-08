@@ -1035,12 +1035,8 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         
         return None # 3 次都失敗才回傳 None
 
-    st.write(f"### 🎖️ AI 戰略委員會：FinMind 純淨對撞系統 (V100)")
-
-    # [個人化設定] Watchlist 20 隻上限提醒
-    if 'watchlist' in st.session_state and len(st.session_state.watchlist) >= 20:
-        st.warning(f"⚠️ 提醒：觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
-
+    st.write(f"### 🎖️ AI 戰略委員會：FinMind 純淨對撞系統 ")
+    
     if st.button(f"🚀 啟動 {pure_code} 深度分析流程", key=f"v100_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
         
@@ -1066,31 +1062,40 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             else:
                 status.update(label="✅ 情資提取完畢，啟動 AI 對撞", state="complete")
 
-        # --- AI 決策分析 ---
+        # --- AI 決策分析 (強化具體結論) ---
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
         
         prompt = f"""
-        你現在是資深基金經理。
-        公司名稱：{truth['name']} ({pure_code})
-        官方產業：{truth['industry']} (以此為準，嚴禁偏離)
-        
-        【實時新聞情資】：
-        {intel}
-        
-        【量化數據矩陣】：
-        {metrics_stream}
+        你現在是避險基金的首席策略官。請針對 {truth['name']} ({pure_code}) 產出極具實戰價值的對撞報告。
+        官方產業：{truth['industry']}。
 
-        請產出報告：
-        1. 業務解析：若新聞充足則結合新聞；若無新聞則依據產業別分析。
-        2. 指標對撞：數據與情資是否吻合？
-        3. 明日實戰建議。
+        【實時新聞情資】：{intel}
+        【量化數據矩陣】：{metrics_stream}
+
+        請嚴格依照下列格式產出報告，不得含糊其辭：
+
+        ### 📋 1. 業務與供應鏈診斷
+        (結合官方產業別與最新新聞，判斷目前公司營運核心)
+
+        ### ⚖️ 2. 量化與情資對撞
+        (指出數據表現與新聞利多/利空是否矛盾，並給出 Oracle 綜合評分 0-100)
+
+        ### 🎯 3. 明日實戰具體結論 (核心重點)
+        * **行動評級**：【強力買進 / 分批佈局 / 觀望為宜 / 減碼停損】
+        * **預期目標價**：(請根據量化指標給出具體數字)
+        * **關鍵支撐/停損價**：(請根據量化指標給出具體數字)
+        * **操作邏輯**：(一句話說明為何下此決定)
         """
 
-        with st.spinner("Llama-3 深度思考中..."):
+        with st.spinner("正在進行深度策略對撞..."):
             res = requests.post("https://api.groq.com/openai/v1/chat/completions",
                                 headers={"Authorization": f"Bearer {groq_key}"},
-                                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0})
+                                json={
+                                    "model": "llama-3.3-70b-versatile",
+                                    "messages": [{"role": "user", "content": prompt}],
+                                    "temperature": 0.2 # 稍微增加一點靈活性，讓它敢於預測價格
+                                })
             
             if res.status_code == 200:
                 st.markdown(res.json()['choices'][0]['message']['content'])
@@ -1099,6 +1104,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
