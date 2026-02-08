@@ -12,6 +12,6 @@ requests
 google-generativeai
 duckduckgo_search
 beautifulsoup4>=4.12.3
-selenium
 requests-html
+
 
