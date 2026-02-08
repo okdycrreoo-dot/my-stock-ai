@@ -1020,7 +1020,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             if name and industry_code:
                 break
        
-        # Yahoo fallback
+        # fallback
         if not name:
             try:
                 headers = {'User-Agent': 'Mozilla/5.0'}
@@ -1031,7 +1031,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             except:
                 pass
        
-        # 產業代號轉文字映射表
+        # 產業映射
         industry_map = {
             "21": "化學工業",
             "22": "塑膠工業",
@@ -1046,11 +1046,11 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         }
        
         if isinstance(industry_code, str) and industry_code.isdigit():
-            industry_text = industry_map.get(industry_code, f"產業代號 {industry_code}（未知細項）")
+            industry_text = industry_map.get(industry_code, f"產業代號 {industry_code}")
         else:
             industry_text = industry_code if industry_code else "未知產業"
        
-        # 強制修正熱門股
+        # 強制修正
         forced = {"2330": "半導體", "1711": "化學工業"}
         if pure_code in forced:
             industry_text = forced[pure_code]
@@ -1061,7 +1061,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
        
-        # 流程 1: 正名
         status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
@@ -1074,35 +1073,47 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
            
-            # 用 SearXNG 公開實例進行聚合搜尋
-            searxng_url = "https://searx.be/search"  # 可換成 https://searx.tiekoetter.com/search 或其他公開實例
-            search_query = f'site:tw.stock.yahoo.com OR site:goodinfo.tw OR site:moneydj.com OR site:twse.com.tw "{c_name}" (供應鏈 OR 營收來源 OR 最新新聞 OR 市場影響 OR 地緣風險 OR AI需求 OR 合作夥伴) -金融 -投資 -保險'
-            params = {
-                "q": search_query,
-                "format": "json",
-                "categories": "general",
-                "engines": "google,bing,duckduckgo"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'zh-TW,zh;q=0.9',
+                'Referer': 'https://www.google.com/',
             }
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(searxng_url, params=params, headers=headers, timeout=20)
-            if r.status_code != 200:
-                web_context = f"- 【警告】SearXNG 搜尋失敗（狀態碼 {r.status_code}），暫無外部情資\n"
-            else:
-                data = r.json()
-                results = data.get('results', [])
-                web_context = ""
-                if results:
-                    for res in results[:6]:
-                        title = res.get('title', '無標題')
-                        snippet = res.get('content', '')[:350] + '...' if res.get('content') else ''
-                        url = res.get('url', '')
-                        web_context += f"**Title:** {title}\n**Snippet:** {snippet}\n**URL:** {url}\n\n"
-                else:
-                    web_context = "- 暫無相關情資（搜尋無結果）\n"
            
-            # Debug 顯示搜尋內容
-            st.caption("Debug: SearXNG 搜尋結果預覽（供檢查）")
-            st.text_area("web_context", web_context, height=300)
+            # 主來源：TWSE 公司基本資料 API（公開、穩定、免防爬）
+            twse_url = f"https://openapi.twse.com.tw/v1/company/basicInfo?code={pure_code}"
+            r_twse = requests.get(twse_url, headers=headers, timeout=10)
+            web_context = ""
+            if r_twse.status_code == 200:
+                data = r_twse.json()
+                if data:
+                    company_name = data.get('公司名稱', c_name)
+                    industry = data.get('產業別', info['industry'])
+                    web_context += f"**Company Name:** {company_name}\n"
+                    web_context += f"**Industry Sector:** {industry}\n"
+                    web_context += f"**Business Overview:** TWSE 基本資料 - 公司成立於 {data.get('成立日期', '未知')}，資本額 {data.get('資本額', '未知')}\n"
+                else:
+                    web_context += "- TWSE 無資料\n"
+            else:
+                web_context += "- TWSE API 失敗\n"
+           
+            # 補充 Goodinfo（如果 TWSE 不足）
+            goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
+            r_good = requests.get(goodinfo_url, headers=headers, timeout=15)
+            if r_good.status_code == 200:
+                soup = BeautifulSoup(r_good.text, 'html.parser')
+                business = ""
+                for td in soup.find_all('td'):
+                    txt = td.get_text(strip=True)
+                    if any(kw in txt for kw in ['主要業務', '產品組合', '營收來源', '事業']):
+                        parent = td.find_parent('tr')
+                        if parent:
+                            business += parent.get_text(strip=True) + " "
+                if business:
+                    web_context += f"**Goodinfo Business Details:** {business[:800]}...\n"
+           
+            # Debug
+            st.caption("Debug: 抓取內容預覽")
+            st.text_area("web_context", web_context, height=200)
            
             # 流程 5 & 6: 綜合對撞
             status.info(f"Step 5 & 6: 執行量化與實時情資對撞...")
@@ -1152,5 +1163,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
