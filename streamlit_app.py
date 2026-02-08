@@ -988,9 +988,7 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
-    from bs4 import BeautifulSoup
-    from requests.adapters import HTTPAdapter
-    from requests.packages.urllib3.util.retry import Retry
+    from requests_html import HTMLSession  # 自動渲染 JS，解決防爬
     import re
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
@@ -998,7 +996,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     # --- 流程 1: 實時穿透式正名 --- (保持原樣)
     @st.cache_data(ttl=3600)
     def get_verified_info(code):
-        # ... (你的原 get_verified_info 代碼，保持不變)
+        # ... (你的原 get_verified_info 代碼)
         return {"name": name or "未知公司", "industry": industry_text}
    
     st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
@@ -1017,101 +1015,80 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
            
-            # 加 retry
-            session = requests.Session()
-            retry_strategy = Retry(
-                total=4,
-                backoff_factor=1.5,
-                status_forcelist=[429, 500, 502, 503, 504, 403],
-                allowed_methods=["GET"]
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-           
+            session = HTMLSession()
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Referer': 'https://goodinfo.tw/',
-                'Connection': 'keep-alive'
+                'Referer': 'https://www.google.com/'
             }
            
+            # 優先 Goodinfo
             goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
-            st.caption(f"Debug: 嘗試抓取 Goodinfo URL: {goodinfo_url}")
-            r = session.get(goodinfo_url, headers=headers, timeout=30)
-            st.caption(f"Debug: Goodinfo 狀態碼: {r.status_code}，最終 URL: {r.url}")
-           
-            if r.status_code != 200:
-                raise Exception(f"Goodinfo 失敗，狀態碼 {r.status_code}")
-           
-            soup = BeautifulSoup(r.text, 'html.parser')
+            r = session.get(goodinfo_url, headers=headers, timeout=40)
+            r.html.render(timeout=40, sleep=3)  # 渲染 JS，等待 3 秒確保載入
+            soup = BeautifulSoup(r.html.html, 'html.parser')
            
             web_context = ""
            
-            # 公司名稱（Goodinfo title 通常是 "股票代號 公司名稱 - Goodinfo"）
-            title_text = soup.find('title').get_text(strip=True) if soup.find('title') else ""
-            company_name = title_text.split(' - ')[0].strip() if ' - ' in title_text else c_name
+            # 公司名稱
+            title_tag = soup.find('title')
+            company_name = title_tag.get_text(strip=True).split(' - ')[0].strip() if title_tag else c_name
             web_context += f"**Company Name:** {company_name}\n"
            
-            # 產業別（找 "產業別" td，旁邊 td 就是值）
+            # 產業別
             industry_text = info['industry']
             for td in soup.find_all('td'):
-                if '產業別' in td.get_text(strip=True):
+                txt = td.get_text(strip=True)
+                if '產業別' in txt or '產業類別' in txt:
                     next_td = td.find_next_sibling('td')
                     if next_td:
                         industry_text = next_td.get_text(strip=True)
                         break
             web_context += f"**Industry Sector:** {industry_text}\n"
            
-            # 主要業務（找 "主要業務" 或 "公司簡介" 的行）
+            # 主要業務
             web_context += "**Business Overview & Revenue Sources:**\n"
-            business_found = False
-            for tr in soup.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 2 and '主要業務' in tds[0].get_text(strip=True):
-                    business_text = tds[1].get_text(strip=True)
-                    web_context += f"- {business_text[:1500]}\n"
-                    business_found = True
-                    break
-            if not business_found:
-                # fallback: 找 "公司簡介" 或大段文字
-                intro = soup.find(string=re.compile('公司簡介|主要業務|產品組合', re.I))
-                if intro:
-                    parent = intro.find_parent('tr')
-                    if parent:
-                        text = parent.get_text(strip=True, separator=' ')[:1500]
-                        web_context += f"- {text}...\n"
-                        business_found = True
-            if not business_found:
-                web_context += "- 無詳細業務描述（請檢查頁面結構）\n"
+            business_text = ""
+            for td in soup.find_all('td'):
+                txt = td.get_text(strip=True)
+                if '主要業務' in txt or '產品組合' in txt or '營收來源' in txt or '事業群' in txt:
+                    parent_tr = td.find_parent('tr')
+                    if parent_tr:
+                        business_text += parent_tr.get_text(strip=True, separator=' ') + " "
+            if business_text:
+                web_context += f"- {business_text[:1500]}...\n"
+            else:
+                web_context += "- 無詳細業務描述（請檢查頁面）\n"
            
-            # 最新消息 / 新聞
+            # 新聞與影響
             web_context += "**Recent News & Market Influences:**\n"
-            news_found = False
-            for tr in soup.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 2 and any(kw in tds[0].get_text(strip=True) for kw in ['最新消息', '公告', '事件']):
-                    news_text = tds[1].get_text(strip=True)[:800]
-                    web_context += f"- {news_text}\n"
-                    news_found = True
-            if not news_found:
-                web_context += "- 無最新新聞或影響資訊\n"
+            news_text = ""
+            for td in soup.find_all('td'):
+                txt = td.get_text(strip=True)
+                if '最新消息' in txt or '公告' in txt or '事件' in txt or '影響' in txt:
+                    parent_tr = td.find_parent('tr')
+                    if parent_tr:
+                        news_text += parent_tr.get_text(strip=True) + " "
+            if news_text:
+                web_context += f"- {news_text[:800]}...\n"
+            else:
+                web_context += "- 無新聞或影響資訊\n"
            
             # 供應鏈
             web_context += "**Supply Chain Details:**\n"
-            supply_found = False
-            for tr in soup.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 2 and any(kw in tds[0].get_text(strip=True) for kw in ['供應鏈', '供應商', '客戶', '合作', '風險', '地緣']):
-                    supply_text = tds[1].get_text(strip=True)[:500]
-                    web_context += f"- {supply_text}...\n"
-                    supply_found = True
-            if not supply_found:
+            supply_text = ""
+            for td in soup.find_all('td'):
+                txt = td.get_text(strip=True)
+                if '供應鏈' in txt or '供應商' in txt or '客戶' in txt or '合作' in txt or '風險' in txt:
+                    parent_tr = td.find_parent('tr')
+                    if parent_tr:
+                        supply_text += parent_tr.get_text(strip=True) + " "
+            if supply_text:
+                web_context += f"- {supply_text[:800]}...\n"
+            else:
                 web_context += "- 暫無供應鏈資訊\n"
            
-            # Debug
-            st.caption("Debug: 抓取內容預覽（供檢查）")
+            st.caption("Debug: 抓取內容預覽")
             st.text_area("web_context", web_context, height=300)
            
             # 流程 5 & 6: 綜合對撞 (保持原樣)
@@ -1122,6 +1099,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
