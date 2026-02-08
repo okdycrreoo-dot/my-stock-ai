@@ -986,21 +986,20 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
-    from duckduckgo_search import DDGS
+    from bs4 import BeautifulSoup  # 新增：用來解析頁面，pip install beautifulsoup4
     import re
-
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
-    
-    # --- 流程 1: 實時穿透式正名 ---
-    @st.cache_data(ttl=3600) 
+   
+    # --- 流程 1: 實時穿透式正名 --- (保持原樣)
+    @st.cache_data(ttl=3600)
     def get_verified_info(code):
         targets = [
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
             ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
         ]
-        
+       
         for url, cid_key, name_key, ind_val in targets:
             try:
                 r = requests.get(url, timeout=5)
@@ -1014,7 +1013,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                             ind = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else ind_val)
                             return {"name": name, "industry": ind}
             except: continue
-        
+       
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"https://tw.stock.yahoo.com/quote/{code}"
@@ -1024,13 +1023,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 return {"name": name, "industry": "市場核心產業"}
         except: pass
         return {"name": None, "industry": None}
-        
+       
     st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
-
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
-        
-        # 流程 1: 正名
+       
+        # 流程 1: 正名 (保持原樣)
         status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
@@ -1038,44 +1036,81 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
             return
         status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
-
-        # 流程 2 & 3: 穿透檢索 (修正縮進與遺漏變數)
+        # 流程 2 & 3: 穿透檢索 (修改為 Yahoo 頁面解析，取代 DDGS)
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
+           
+            # 修改點：用 requests + BS4 抓 Yahoo 頁面並解析
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            yahoo_url = f"https://tw.stock.yahoo.com/quote/{pure_code}.TW"
+            r = requests.get(yahoo_url, headers=headers, timeout=10)
+            if r.status_code != 200:
+                raise Exception("無法訪問 Yahoo 頁面")
             
-            # 補齊搜尋關鍵字定義
-            q_combined = f'"{c_name}" {pure_code} "營收來源" -金融 -投資 -保險'
-            has_web_data = False
+            soup = BeautifulSoup(r.text, 'html.parser')
+            
+            # 提取結構化情資 (根據 Yahoo 頁面結構)
             web_context = ""
             
-            with DDGS() as ddgs:
-                results = list(ddgs.text(q_combined, max_results=8))
-                if results:
-                    has_web_data = True
-                    for r in results: 
-                        web_context += f"- 【即時財報/新聞情資】: {r['body']}\n"
-                else:
-                    web_context = "- 【即時財報/新聞情資】: 暫無外部最新情資（嚴禁虛構）\n"
-
-            # 流程 5 & 6: 綜合對撞
+            # 公司名稱 (從 h1 或 title)
+            company_name = soup.find('h1', class_='C($c-link-text) Fz(24px) Fw(b)').text.strip() if soup.find('h1', class_='C($c-link-text) Fz(24px) Fw(b)') else c_name
+            web_context += f"**Company Name:** {company_name}\n"
+            
+            # 產業部門 (從 profile 區塊或推斷)
+            industry = info['industry']  #  fallback 到原 info
+            profile_link = soup.find('a', text='公司簡介')  # 如果有 profile，未來可擴展
+            web_context += f"**Industry Sector:** {industry}\n"
+            
+            # 最新新聞 (抓 ul class="news-list" 或類似，頂多 5 則)
+            web_context += "**Recent Business News:**\n"
+            news_list = soup.find_all('li', class_='List(n) P(0) Wow(bw)')[:5]  # Yahoo 新聞列表 class
+            if news_list:
+                for news in news_list:
+                    title = news.find('h3').text.strip() if news.find('h3') else "無標題"
+                    summary = news.find('p').text.strip() if news.find('p') else ""
+                    date = news.find('time').text.strip() if news.find('time') else ""
+                    web_context += f"- **{date}**: {title} - {summary}\n"
+            else:
+                web_context += "- 無最新新聞\n"
+            
+            # 營收來源/業務 (Yahoo 頁面常在新聞或簡介中提及，簡單搜 "營收" 相關文字，或 fallback)
+            web_context += "**Revenue Sources:**\n"
+            revenue_info = soup.find(text=re.compile('營收|業務|代工|來源'))  # 簡單 regex 找相關文字
+            if revenue_info:
+                web_context += f"- {revenue_info.parent.text.strip()[:200]}...\n"  # 截取前 200 字避免太長
+            else:
+                web_context += "- 主要來自 {info['industry']} 相關業務（無詳細頁面資訊）\n"
+            
+            # 市場影響 (找新聞中 "影響|需求|地緣|AI" 等關鍵詞)
+            web_context += "**Market Influences:**\n"
+            influences = soup.find_all(text=re.compile('影響|需求|地緣|AI|市場|事件'))
+            if influences:
+                for inf in influences[:3]:  # 頂多 3 則
+                    web_context += f"- {inf.parent.text.strip()[:150]}...\n"
+            else:
+                web_context += "- 暫無明顯市場影響資訊\n"
+            
+            has_web_data = bool(news_list or revenue_info or influences)
+            if not has_web_data:
+                web_context = "- 【即時財報/新聞情資】: 暫無外部最新情資（嚴禁虛構）\n"
+            
+            # 流程 5 & 6: 綜合對撞 (保持原樣，但 web_context 更精準)
             status.info(f"Step 5 & 6: 執行量化與實時情資對撞...")
             metrics_stream = " | ".join([str(x) for x in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
-            
+           
             prompt = f"""
             你現在是『避險基金執行合夥人』。請針對 {c_name} ({pure_code}) 產出專業報告。
-            
+           
             【輸入數據來源】：
             1. 官方登記產業：{info['industry']}
             2. 實時檢索情資：
             {web_context}
             3. 量化指標數值：{metrics_stream}
-
             【分析準則 - 絕對禁止腦補】：
             - **業務診斷**：優先根據「實時檢索情資」描述。若標註為「暫無」，則僅針對「官方登記產業」({info['industry']}) 之一般特性描述，嚴禁自行編造。
             - **數據對撞**：若無外部情資，則此處僅針對量化指標（如 Beta、乖離率、籌碼）進行技術面解釋。
             - **誠實原則**：若缺乏證據，請直接回答「目前外部供應鏈情資不足，僅依據量化數據決策」。
-
             【報告格式】：
             🔍 **公司業務與供應鏈診斷**：(若無具體新聞，僅描述 {info['industry']} 產業概況，嚴禁提及無關的金融業務)
             📊 **量化因子對撞分析**：(結合數據與「已知」事實)
@@ -1085,17 +1120,15 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
             ■ 理由：(結合數據與「確定」情資的核心原因)
             ■ 策略：(具體價位或明日開盤動作建議)
             """
-
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,
                 "max_tokens": 1500
             }
-
-            response = requests.post("https://api.groq.com/openai/v1/chat/completions", 
+            response = requests.post("https://api.groq.com/openai/v1/chat/completions",
                                      headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=45)
-            
+           
             if response.status_code == 200:
                 status.empty()
                 st.markdown(f"#### 🗨️ {c_name} 六大流程對撞診斷報告")
@@ -1107,5 +1140,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
