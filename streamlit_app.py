@@ -994,7 +994,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 流程 1: 實時穿透式正名 ---
+    # --- 流程 1: 實時驗證（純 API 模式，不爬網頁，保證不崩潰） ---
     @st.cache_data(ttl=3600)
     def get_verified_info(code):
         targets = [
@@ -1012,117 +1012,90 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            ind = (item.get(ind_val) if isinstance(item, dict) else (item[ind_val] if isinstance(item, list) else "未知"))
+                            # 抓取產業別
+                            ind = "未知產業"
+                            if isinstance(item, dict): ind = item.get(ind_val, "未知")
+                            elif isinstance(item, list) and len(item) > 4: ind = item[4]
                             return {"name": name, "industry": ind}
             except: continue
         return {"name": None, "industry": None}
 
+    # --- Watchlist 上限提醒 (20 隻) ---
+    if 'watchlist' in st.session_state and len(st.session_state.watchlist) >= 20:
+        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
+
     st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
 
-    # 初始化 Session State 流程控管
-    analysis_key = f"analysis_flow_{pure_code}"
-    if analysis_key not in st.session_state:
-        st.session_state[analysis_key] = "idle" # idle, inputting, finished
+    # 使用 Session State 控管，避免資料消失
+    flow_key = f"flow_state_{pure_code}"
+    if flow_key not in st.session_state:
+        st.session_state[flow_key] = "start"
 
-    # 第一步：觸發驗證
-    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"btn_init_{pure_code}", type="primary", use_container_width=True):
-        info = get_verified_info(pure_code)
-        if info["name"]:
-            st.session_state[f"info_{pure_code}"] = info
-            st.session_state[analysis_key] = "inputting"
-        else:
-            st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
-
-    # 第二步：人機協作輸入 (Perplexity)
-    if st.session_state[analysis_key] == "inputting":
-        info = st.session_state[f"info_{pure_code}"]
-        st.success(f"✅ 已鎖定：{info['name']} ({pure_code}) | 官方分類：{info['industry']}")
-        
-        st.markdown("---")
-        st.markdown("#### 🔍 第二步：獲取實時情資 (推薦使用 Perplexity 普通搜尋)")
-        st.write("請點擊下方代碼塊複製咒語，貼到 [Perplexity AI](https://www.perplexity.ai/) 查詢：")
-        
-        # 咒語優化：確保 AI 抓到的是台灣股票與真實業務
-        prompt_spell = f"請分析台灣股票「{info['name']}」({pure_code})。列出：1.主要業務結構與產品營收佔比 2.上下游供應鏈關係 3.最近一個月重大新聞與影響評估。請簡潔條列回答。"
-        st.code(prompt_spell, language="text")
-        
-        external_data = st.text_area("👇 請將 Perplexity 回傳的情資貼在這裡", height=250, key=f"input_{pure_code}")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✨ 開始量化對撞分析", type="secondary", use_container_width=True):
-                if not external_data:
-                    st.error("請先輸入外部情資！")
-                else:
-                    st.session_state[f"data_{pure_code}"] = external_data
-                    st.session_state[analysis_key] = "finished"
-                    st.rerun()
-        with col2:
-            if st.button("❌ 取消重置", use_container_width=True):
-                st.session_state[analysis_key] = "idle"
+    # 第一步：驗證並顯示操作指令
+    if st.session_state[flow_key] == "start":
+        if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"btn_{pure_code}", type="primary", use_container_width=True):
+            info = get_verified_info(pure_code)
+            if info["name"]:
+                st.session_state[f"info_{pure_code}"] = info
+                st.session_state[flow_key] = "waiting_input"
                 st.rerun()
+            else:
+                st.error(f"❌ 無法查獲代號 {pure_code}")
 
-    # 第三步：Groq 最終對撞分析
-    if st.session_state[analysis_key] == "finished":
+    # 第二步：顯示複製咒語與輸入框
+    if st.session_state[flow_key] == "waiting_input":
         info = st.session_state[f"info_{pure_code}"]
-        grok_data = st.session_state[f"data_{pure_code}"]
+        st.success(f"✅ 已鎖定：{info['name']} ({info['industry']})")
         
-        with st.spinner(f"正在執行 {info['name']} 的 40+ 指標與實時情資對撞..."):
+        st.info("💡 請利用外部 AI (如 Perplexity) 獲取最新情資：")
+        spell = f"請分析台灣股票「{info['name']}」({pure_code})。列出：1.核心業務結構 2.營收產品比重 3.上下游供應鏈 4.近一個月重大新聞。請簡潔條列。"
+        st.code(spell, language="text")
+        
+        user_data = st.text_area("👇 請貼上外部 AI 回傳的情資內容", height=250)
+        
+        if st.button("✨ 執行深度對撞分析"):
+            if user_data:
+                st.session_state[f"ext_data_{pure_code}"] = user_data
+                st.session_state[flow_key] = "analyzing"
+                st.rerun()
+            else:
+                st.error("請提供情資內容！")
+
+    # 第三步：Groq 分析
+    if st.session_state[flow_key] == "analyzing":
+        info = st.session_state[f"info_{pure_code}"]
+        ext_data = st.session_state[f"ext_data_{pure_code}"]
+        
+        with st.spinner("對撞中..."):
             metrics_stream = " | ".join([str(x) for x in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
             
-            final_prompt = f"""
-            你現在是『避險基金執行合夥人』。請針對 {info['name']} ({pure_code}) 產出專業對撞診斷報告。
-
-            【輸入數據來源】：
-            1. 官方登記產業：{info['industry']}
-            2. 外部即時情資：
-            {grok_data}
-            3. 系統 AI 40+ 項量化指標：{metrics_stream}
-
-            【分析準則 - 絕對禁止腦補】：
-            - **業務診斷**：嚴格根據「外部即時情資」描述。若情資內容與「官方登記產業」({info['industry']}) 衝突，以官方為準。
-            - **對撞分析**：分析量化指標（籌碼、技術面）是否與外部情資（基本面、新聞）吻合。
-            - **誠實原則**：若外部情資不足以判斷供應鏈，請直接註明「供應鏈情資不透明，優先以量化數據決策」。
-
-            【報告格式】：
-            🔍 **公司業務與供應鏈診斷**：
-            📊 **量化因子對撞分析**：
-            ⚖️ **指數環境影響**：(結合量化數據與近期大盤趨勢)
-            🎖 **最終實戰結論**：
-            ■ 建議：(買、賣、停利、停損、觀望)
-            ■ 理由：(結合數據與情資的核心原因)
-            ■ 策略：(具體操作建議)
-            """
-
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": final_prompt}],
-                "temperature": 0.0
-            }
-
-            try:
-                response = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                                         headers={"Authorization": f"Bearer {groq_key}"}, 
-                                         json=payload, timeout=45)
-                
-                if response.status_code == 200:
-                    st.markdown(f"#### 🗨️ {info['name']} 六大流程對撞診斷報告")
-                    st.markdown(response.json()['choices'][0]['message']['content'])
-                    st.success(f"✅ {info['name']} 全維度分析完畢。")
-                else:
-                    st.error(f"分析失敗，Groq API 狀態碼：{response.status_code}")
-            except Exception as e:
-                st.error(f"💥 報告生成中斷：{str(e)}")
+            prompt = f"""
+            你現在是『避險基金合夥人』。針對 {info['name']} ({pure_code}) 產出報告。
+            【官方產業】：{info['industry']}
+            【即時情資】：{ext_data}
+            【量化指標】：{metrics_stream}
             
-            # 提供一個重新分析的按鈕
-            if st.button("🔄 重新分析另一隻股票"):
-                st.session_state[analysis_key] = "idle"
-                st.rerun()
+            請根據以上數據產出包含：業務診斷、量化對撞、指數影響、實戰結論（買賣策略）的專業報告。
+            嚴禁腦補，若情資不足請直說。
+            """
+            
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                                headers={"Authorization": f"Bearer {groq_key}"},
+                                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0})
+            
+            if res.status_code == 200:
+                st.markdown(res.json()['choices'][0]['message']['content'])
+                if st.button("🔄 重新分析"):
+                    st.session_state[flow_key] = "start"
+                    st.rerun()
+            else:
+                st.error("Groq 服務暫時不可用。")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
