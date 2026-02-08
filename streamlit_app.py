@@ -1079,12 +1079,12 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
            
-            # 加 retry 機制與 session
+            # 加 retry 機制
             session = requests.Session()
             retry_strategy = Retry(
                 total=4,
                 backoff_factor=1.5,
-                status_forcelist=[429, 500, 502, 503, 504],
+                status_forcelist=[429, 500, 502, 503, 504, 403],
                 allowed_methods=["GET"]
             )
             adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -1095,83 +1095,85 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
                 'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Referer': 'https://www.google.com/',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
+                'Referer': 'https://goodinfo.tw/',
+                'Connection': 'keep-alive'
             }
            
-            # 優先 Goodinfo（Yahoo 太不穩定）
+            # 主來源：Goodinfo
             goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
             st.caption(f"Debug: 嘗試抓取 Goodinfo URL: {goodinfo_url}")
             r = session.get(goodinfo_url, headers=headers, timeout=30)
             st.caption(f"Debug: Goodinfo 狀態碼: {r.status_code}，最終 URL: {r.url}")
            
             if r.status_code != 200:
-                st.warning("Goodinfo 失敗，嘗試 TWSE API...")
-                twse_url = f"https://openapi.twse.com.tw/v1/company/basicInfo?code={pure_code}"
-                r = session.get(twse_url, headers=headers, timeout=20)
-                st.caption(f"Debug: TWSE 狀態碼: {r.status_code}")
-           
-            if r.status_code != 200:
-                raise Exception(f"所有來源皆失敗，狀態碼 {r.status_code}")
+                raise Exception(f"Goodinfo 失敗，狀態碼 {r.status_code}")
            
             soup = BeautifulSoup(r.text, 'html.parser')
            
             web_context = ""
            
-            # 公司名稱
-            title_tag = soup.find('title') or soup.find('h1') or soup.find('h2')
+            # 公司名稱（Goodinfo title）
+            title_tag = soup.find('title') or soup.find('h1') or soup.find('font', size="3")
             company_name = title_tag.get_text(strip=True).split('(')[0].strip() if title_tag else c_name
             web_context += f"**Company Name:** {company_name}\n"
            
-            # 產業別（多種格式搜尋）
+            # 產業別（Goodinfo 有明確 td）
             industry_text = info['industry']
-            patterns = [
-                r'產業別\s*[:：]\s*([^<>\n]+)',
-                r'產業類別\s*[:：]\s*([^<>\n]+)',
-                r'所屬產業\s*[:：]\s*([^<>\n]+)',
-                r'Industry\s*[:：]\s*([^<>\n]+)'
-            ]
-            for p in patterns:
-                match = re.search(p, str(soup), re.I | re.DOTALL)
-                if match:
-                    industry_text = match.group(1).strip()
-                    break
+            for td in soup.find_all('td'):
+                txt = td.get_text(strip=True)
+                if '產業別' in txt or '產業類別' in txt or '所屬產業' in txt:
+                    next_td = td.find_next_sibling('td')
+                    if next_td:
+                        industry_text = next_td.get_text(strip=True)
+                        break
             web_context += f"**Industry Sector:** {industry_text}\n"
            
-            # 業務與營收（抓大段文字或表格）
+            # 主要業務 / 產品組合（抓 "主要業務" 或 "產品組合" 的整行）
             web_context += "**Business Overview & Revenue Sources:**\n"
             business_text = ""
-            for elem in soup.find_all(['td', 'div', 'p', 'span']):
-                txt = elem.get_text(strip=True)
-                if len(txt) > 50 and any(kw in txt for kw in ['主要業務', '產品組合', '營收來源', '事業群', 'revenue', 'business', '代工', '晶圓', '製造']):
-                    business_text += txt + " "
+            business_keywords = ['主要業務', '產品組合', '營收來源', '事業群', '主要產品', '主要營收']
+            for td in soup.find_all('td'):
+                txt = td.get_text(strip=True)
+                if any(kw in txt for kw in business_keywords):
+                    parent_tr = td.find_parent('tr')
+                    if parent_tr:
+                        row_text = parent_tr.get_text(strip=True, separator=' ')
+                        if len(row_text) > 50:
+                            business_text += row_text + " "
             if business_text:
-                web_context += f"- {business_text[:1200]}...\n"
+                web_context += f"- {business_text[:1500]}...\n"
             else:
-                web_context += f"- 無詳細業務描述（可能頁面防爬）\n"
+                # fallback: 整頁搜尋業務相關文字
+                for elem in soup.find_all(['p', 'div', 'font', 'span']):
+                    txt = elem.get_text(strip=True)
+                    if len(txt) > 80 and any(kw in txt for kw in ['製造', '代工', '晶圓', '半導體', '產品', '營收', '事業']):
+                        business_text += txt + " "
+                if business_text:
+                    web_context += f"- {business_text[:1500]}...\n"
+                else:
+                    web_context += f"- 無詳細業務描述（頁面可能防爬或結構變動）\n"
            
-            # 最新新聞與影響
+            # 最新消息 / 新聞（Goodinfo 有 "最新消息" 區塊）
             web_context += "**Recent News & Market Influences:**\n"
-            news_found = False
-            for elem in soup.find_all(['div', 'li', 'a'], string=re.compile('新聞|公告|事件|影響|最新')):
-                text = elem.get_text(strip=True)[:150]
-                if text:
-                    web_context += f"- {text}\n"
-                    news_found = True
-            if not news_found:
-                web_context += "- 無新聞或影響資訊\n"
+            news_section = soup.find(string=re.compile('最新消息|公告|事件|影響|新聞', re.I))
+            if news_section:
+                parent_table = news_section.find_parent(['table', 'div'])
+                if parent_table:
+                    news_text = parent_table.get_text(strip=True, separator=' ')[:1000]
+                    web_context += f"- {news_text}...\n"
+            else:
+                web_context += "- 無最新新聞或影響資訊\n"
            
             # 供應鏈
             web_context += "**Supply Chain Details:**\n"
+            supply_keywords = ['供應鏈', '供應商', '客戶', '合作', '風險', '地緣', 'AI', '需求', '夥伴']
             supply_found = False
-            supply_keywords = ['供應鏈', '供應商', '客戶', '合作', '風險', '地緣', 'AI', '需求']
             for kw in supply_keywords:
                 tag = soup.find(string=re.compile(kw, re.I))
                 if tag:
-                    parent = tag.find_parent(['td', 'div', 'p'])
+                    parent = tag.find_parent(['td', 'div', 'p', 'tr'])
                     if parent:
-                        text = parent.get_text(strip=True)[:400]
+                        text = parent.get_text(strip=True)[:500]
                         if len(text) > 20:
                             web_context += f"- {text}...\n"
                             supply_found = True
@@ -1230,6 +1232,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
