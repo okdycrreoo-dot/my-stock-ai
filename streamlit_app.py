@@ -245,7 +245,7 @@ def main():
 
         c1, c2 = st.columns([0.1, 0.03], vertical_alignment="center")
         with c1:
-            st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅系統版本：20260207，歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
+            st.markdown(f"<h5 style='margin:0; white-space:nowrap;'>✅系統版本：20260208，歡迎回來，{st.session_state['user']}！</h5>", unsafe_allow_html=True)
         with c2:
             if st.button("🚪 登出", key="main_logout"):
                 # 1. 強制刪除 Cookie (確保 Key 名稱完全一致)
@@ -1073,7 +1073,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         
         return p
 
-    st.write(f"### 🎖️ AI 戰略委員會：全維度綜合分析系統 (V131)")
+    st.write(f"### 🎖️ AI 戰略委員會：全維度綜合分析系統 ")
     
     if st.button(f"🚀 啟動 {pure_code} 深度對撞分析", key=f"v131_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
@@ -1136,4 +1136,5 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
