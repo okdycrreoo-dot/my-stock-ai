@@ -988,23 +988,20 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
-    from requests_html import HTMLSession  # 自動渲染 JS，解決防爬與動態內容
     import re
+    import streamlit as st
+
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
-   
+    
     # --- 流程 1: 實時穿透式正名 ---
     @st.cache_data(ttl=3600)
     def get_verified_info(code):
         targets = [
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
-            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, "上櫃相關"),
-            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, "興櫃相關")
+            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, 4),
+            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, 4)
         ]
-       
-        industry_code = None
-        name = None
-       
         for url, cid_key, name_key, ind_val in targets:
             try:
                 r = requests.get(url, timeout=5)
@@ -1015,200 +1012,118 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            industry_code = (item.get(ind_val) if isinstance(item, dict) and ind_val in item else None)
-                            if name and industry_code:
-                                break
-            except:
-                continue
-            if name and industry_code:
-                break
-       
-        # Yahoo fallback
-        if not name:
-            try:
-                headers = {'User-Agent': 'Mozilla/5.0'}
-                url = f"https://tw.stock.yahoo.com/quote/{code}"
-                r = requests.get(url, headers=headers, timeout=5)
-                if r.status_code == 200:
-                    name = re.search(r'<title>(.*?)\s?\(', r.text).group(1).strip()
-            except:
-                pass
-       
-        # 產業代號轉文字映射表
-        industry_map = {
-            "21": "化學工業",
-            "22": "塑膠工業",
-            "23": "橡膠工業",
-            "24": "水泥工業",
-            "25": "玻璃陶瓷",
-            "26": "造紙工業",
-            "27": "鋼鐵工業",
-            "28": "汽車工業",
-            "29": "電子零組件",
-            "30": "半導體",
-        }
-       
-        if isinstance(industry_code, str) and industry_code.isdigit():
-            industry_text = industry_map.get(industry_code, f"產業代號 {industry_code}（未知細項）")
-        else:
-            industry_text = industry_code if industry_code else "未知產業"
-       
-        # 強制修正熱門股
-        forced = {"2330": "半導體", "1711": "化學工業"}
-        if pure_code in forced:
-            industry_text = forced[pure_code]
-       
-        return {"name": name or "未知公司", "industry": industry_text}
-   
+                            ind = (item.get(ind_val) if isinstance(item, dict) else (item[ind_val] if isinstance(item, list) else "未知"))
+                            return {"name": name, "industry": ind}
+            except: continue
+        return {"name": None, "industry": None}
+
     st.write(f"### 🎖️ AI 戰略委員會：數據深度對撞系統")
-    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
-        status = st.empty()
-       
-        status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
+
+    # 初始化 Session State 流程控管
+    analysis_key = f"analysis_flow_{pure_code}"
+    if analysis_key not in st.session_state:
+        st.session_state[analysis_key] = "idle" # idle, inputting, finished
+
+    # 第一步：觸發驗證
+    if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"btn_init_{pure_code}", type="primary", use_container_width=True):
         info = get_verified_info(pure_code)
-        c_name = info["name"]
-        if not c_name or c_name == "未知公司":
+        if info["name"]:
+            st.session_state[f"info_{pure_code}"] = info
+            st.session_state[analysis_key] = "inputting"
+        else:
             st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
-            return
-        status.success(f"✅ 確認公司：{c_name} ({info['industry']})")
-        st.caption(f"（產業確認：{info['industry']}）")
-       
-        try:
-            status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
-           
-            session = HTMLSession()
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-                'Referer': 'https://www.google.com/'
-            }
-           
-            goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
-            st.caption(f"Debug: 嘗試抓取 Goodinfo URL: {goodinfo_url}")
-            r = session.get(goodinfo_url, headers=headers, timeout=40)
-            r.html.render(timeout=40, sleep=5)  # 強制渲染 JS，等待 5 秒確保載入
-            st.caption(f"Debug: Goodinfo 渲染完成，頁面標題: {r.html.find('title', first=True).text if r.html.find('title') else '無標題'}")
-           
-            soup = BeautifulSoup(r.html.html, 'html.parser')
-           
-            web_context = ""
-           
-            # 公司名稱
-            title_tag = soup.find('title')
-            company_name = title_tag.get_text(strip=True).split(' - ')[0].strip() if title_tag else c_name
-            web_context += f"**Company Name:** {company_name}\n"
-           
-            # 產業別
-            industry_text = info['industry']
-            for td in soup.find_all('td'):
-                txt = td.get_text(strip=True)
-                if '產業別' in txt or '產業類別' in txt or '所屬產業' in txt:
-                    next_td = td.find_next_sibling('td')
-                    if next_td:
-                        industry_text = next_td.get_text(strip=True)
-                        break
-            web_context += f"**Industry Sector:** {industry_text}\n"
-           
-            # 主要業務（擴大搜尋）
-            web_context += "**Business Overview & Revenue Sources:**\n"
-            business_text = ""
-            business_keywords = ['主要業務', '產品組合', '營收來源', '事業群', '主要產品', '主要營收']
-            for td in soup.find_all('td'):
-                txt = td.get_text(strip=True)
-                if any(kw in txt for kw in business_keywords):
-                    parent_tr = td.find_parent('tr')
-                    if parent_tr:
-                        business_text += parent_tr.get_text(strip=True, separator=' ') + " "
-            if business_text:
-                web_context += f"- {business_text[:1500]}...\n"
-            else:
-                # fallback 整頁搜尋業務相關
-                for elem in soup.find_all(['p', 'div', 'font', 'span']):
-                    txt = elem.get_text(strip=True)
-                    if len(txt) > 80 and any(kw in txt for kw in ['製造', '代工', '晶圓', '半導體', '產品', '營收', '事業']):
-                        business_text += txt + " "
-                if business_text:
-                    web_context += f"- {business_text[:1500]}...\n"
+
+    # 第二步：人機協作輸入 (Perplexity)
+    if st.session_state[analysis_key] == "inputting":
+        info = st.session_state[f"info_{pure_code}"]
+        st.success(f"✅ 已鎖定：{info['name']} ({pure_code}) | 官方分類：{info['industry']}")
+        
+        st.markdown("---")
+        st.markdown("#### 🔍 第二步：獲取實時情資 (推薦使用 Perplexity 普通搜尋)")
+        st.write("請點擊下方代碼塊複製咒語，貼到 [Perplexity AI](https://www.perplexity.ai/) 查詢：")
+        
+        # 咒語優化：確保 AI 抓到的是台灣股票與真實業務
+        prompt_spell = f"請分析台灣股票「{info['name']}」({pure_code})。列出：1.主要業務結構與產品營收佔比 2.上下游供應鏈關係 3.最近一個月重大新聞與影響評估。請簡潔條列回答。"
+        st.code(prompt_spell, language="text")
+        
+        external_data = st.text_area("👇 請將 Perplexity 回傳的情資貼在這裡", height=250, key=f"input_{pure_code}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✨ 開始量化對撞分析", type="secondary", use_container_width=True):
+                if not external_data:
+                    st.error("請先輸入外部情資！")
                 else:
-                    web_context += "- 無詳細業務描述（頁面可能防爬或結構變動）\n"
-           
-            # 新聞與影響
-            web_context += "**Recent News & Market Influences:**\n"
-            news_text = ""
-            for elem in soup.find_all(['div', 'td', 'span']):
-                txt = elem.get_text(strip=True)
-                if any(kw in txt for kw in ['最新消息', '公告', '事件', '影響', '新聞', '展望']):
-                    news_text += txt[:400] + " "
-            if news_text:
-                web_context += f"- {news_text}...\n"
-            else:
-                web_context += "- 無最新新聞或影響資訊\n"
-           
-            # 供應鏈
-            web_context += "**Supply Chain Details:**\n"
-            supply_text = ""
-            supply_keywords = ['供應鏈', '供應商', '客戶', '合作', '風險', '地緣', 'AI', '需求']
-            for elem in soup.find_all(['td', 'div', 'span']):
-                txt = elem.get_text(strip=True)
-                if any(kw in txt for kw in supply_keywords):
-                    supply_text += txt[:400] + " "
-            if supply_text:
-                web_context += f"- {supply_text}...\n"
-            else:
-                web_context += "- 暫無供應鏈資訊\n"
-           
-            # Debug
-            st.caption("Debug: 抓取內容預覽（供檢查）")
-            st.text_area("web_context", web_context, height=300)
-           
-            # 流程 5 & 6: 綜合對撞
-            status.info(f"Step 5 & 6: 執行量化與實時情資對撞...")
+                    st.session_state[f"data_{pure_code}"] = external_data
+                    st.session_state[analysis_key] = "finished"
+                    st.rerun()
+        with col2:
+            if st.button("❌ 取消重置", use_container_width=True):
+                st.session_state[analysis_key] = "idle"
+                st.rerun()
+
+    # 第三步：Groq 最終對撞分析
+    if st.session_state[analysis_key] == "finished":
+        info = st.session_state[f"info_{pure_code}"]
+        grok_data = st.session_state[f"data_{pure_code}"]
+        
+        with st.spinner(f"正在執行 {info['name']} 的 40+ 指標與實時情資對撞..."):
             metrics_stream = " | ".join([str(x) for x in brain_row])
             groq_key = st.secrets.get("GROQ_API_KEY", "")
-           
-            prompt = f"""
-            你現在是『避險基金執行合夥人』。請針對 {c_name} ({pure_code}) 產出專業報告。
-           
+            
+            final_prompt = f"""
+            你現在是『避險基金執行合夥人』。請針對 {info['name']} ({pure_code}) 產出專業對撞診斷報告。
+
             【輸入數據來源】：
             1. 官方登記產業：{info['industry']}
-            2. 實時檢索情資：
-            {web_context}
-            3. 量化指標數值：{metrics_stream}
+            2. 外部即時情資：
+            {grok_data}
+            3. 系統 AI 40+ 項量化指標：{metrics_stream}
+
             【分析準則 - 絕對禁止腦補】：
-            - **業務診斷**：優先根據「實時檢索情資」描述。若標註為「暫無」，則僅針對「官方登記產業」({info['industry']}) 之一般特性描述，嚴禁自行編造。
-            - **數據對撞**：若無外部情資，則此處僅針對量化指標（如 Beta、乖離率、籌碼）進行技術面解釋。
-            - **誠實原則**：若缺乏證據，請直接回答「目前外部供應鏈情資不足，僅依據量化數據決策」。
+            - **業務診斷**：嚴格根據「外部即時情資」描述。若情資內容與「官方登記產業」({info['industry']}) 衝突，以官方為準。
+            - **對撞分析**：分析量化指標（籌碼、技術面）是否與外部情資（基本面、新聞）吻合。
+            - **誠實原則**：若外部情資不足以判斷供應鏈，請直接註明「供應鏈情資不透明，優先以量化數據決策」。
+
             【報告格式】：
-            🔍 **公司業務與供應鏈診斷**：(若無具體新聞，僅描述 {info['industry']} 產業概況，嚴禁提及無關的金融業務)
-            📊 **量化因子對撞分析**：(結合數據與「已知」事實)
-            ⚖️ **指數環境影響**：(期指對明日開盤的具體影響)
+            🔍 **公司業務與供應鏈診斷**：
+            📊 **量化因子對撞分析**：
+            ⚖️ **指數環境影響**：(結合量化數據與近期大盤趨勢)
             🎖 **最終實戰結論**：
             ■ 建議：(買、賣、停利、停損、觀望)
-            ■ 理由：(結合數據與「確定」情資的核心原因)
-            ■ 策略：(具體價位或明日開盤動作建議)
+            ■ 理由：(結合數據與情資的核心原因)
+            ■ 策略：(具體操作建議)
             """
+
             payload = {
                 "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": 1500
+                "messages": [{"role": "user", "content": final_prompt}],
+                "temperature": 0.0
             }
-            response = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                                     headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=45)
-           
-            if response.status_code == 200:
-                status.empty()
-                st.markdown(f"#### 🗨️ {c_name} 六大流程對撞診斷報告")
-                st.markdown(response.json()['choices'][0]['message']['content'])
-                st.success(f"✅ {c_name} 全維度分析完畢。")
-            else:
-                st.error(f"Groq API 失敗，狀態碼 {response.status_code}")
-        except Exception as e:
-            st.error(f"💥 流程執行中斷：{str(e)}")
+
+            try:
+                response = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                                         headers={"Authorization": f"Bearer {groq_key}"}, 
+                                         json=payload, timeout=45)
+                
+                if response.status_code == 200:
+                    st.markdown(f"#### 🗨️ {info['name']} 六大流程對撞診斷報告")
+                    st.markdown(response.json()['choices'][0]['message']['content'])
+                    st.success(f"✅ {info['name']} 全維度分析完畢。")
+                else:
+                    st.error(f"分析失敗，Groq API 狀態碼：{response.status_code}")
+            except Exception as e:
+                st.error(f"💥 報告生成中斷：{str(e)}")
+            
+            # 提供一個重新分析的按鈕
+            if st.button("🔄 重新分析另一隻股票"):
+                st.session_state[analysis_key] = "idle"
+                st.rerun()
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
