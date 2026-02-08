@@ -986,7 +986,6 @@ def chapter_5_ai_decision_report(row, pred_ws):
 # ==========================================
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
-    from bs4 import BeautifulSoup
     import re
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
@@ -1062,6 +1061,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     if st.button(f"🚀 啟動 {pure_code} 專業流程分析", key=f"ai_v36_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
        
+        # 流程 1: 正名
         status.info(f"Step 1: 正在實時驗證「{pure_code}」官方正名...")
         info = get_verified_info(pure_code)
         c_name = info["name"]
@@ -1074,84 +1074,34 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         try:
             status.info(f"Step 2 & 3: 穿透檢索 {c_name} 真實業務結構...")
            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'zh-TW,zh;q=0.9',
-                'Referer': 'https://tw.stock.yahoo.com/',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            # 用 SearXNG 公開實例進行聚合搜尋
+            searxng_url = "https://searx.be/search"  # 可換成 https://searx.tiekoetter.com/search 或其他公開實例
+            search_query = f'site:tw.stock.yahoo.com OR site:goodinfo.tw OR site:moneydj.com OR site:twse.com.tw "{c_name}" (供應鏈 OR 營收來源 OR 最新新聞 OR 市場影響 OR 地緣風險 OR AI需求 OR 合作夥伴) -金融 -投資 -保險'
+            params = {
+                "q": search_query,
+                "format": "json",
+                "categories": "general",
+                "engines": "google,bing,duckduckgo"
             }
-           
-            # 先試 Yahoo profile
-            profile_url = f"https://tw.stock.yahoo.com/quote/{pure_code}.TW/profile"
-            r = requests.get(profile_url, headers=headers, timeout=15, allow_redirects=True)
-            st.caption(f"Debug: Yahoo 實際抓到的 URL: {r.url}")
-           
-            if r.status_code != 200 or "profile" not in r.url.lower() or "yahoo股市" in r.text.lower():
-                st.warning("Yahoo profile 失敗或重定向到首頁，使用 Goodinfo 備用來源...")
-                goodinfo_url = f"https://goodinfo.tw/StockInfo/BasicInfo.asp?STOCK_ID={pure_code}"
-                r = requests.get(goodinfo_url, headers=headers, timeout=15)
-                if r.status_code != 200:
-                    raise Exception(f"Goodinfo 也失敗，狀態碼 {r.status_code}")
-           
-            soup = BeautifulSoup(r.text, 'html.parser')
-           
-            web_context = ""
-           
-            # 公司名稱
-            title_tag = soup.find('title') or soup.find('h1')
-            company_name = title_tag.get_text(strip=True).split('(')[0].strip() if title_tag else c_name
-            web_context += f"**Company Name:** {company_name}\n"
-           
-            # 產業別
-            industry_text = info['industry']
-            patterns = [
-                r'產業別\s*[:：]\s*([^<>\n]+)',
-                r'Industry\s*[:：]\s*([^<>\n]+)',
-                r'所屬產業\s*[:：]\s*([^<>\n]+)',
-                r'產業類別\s*[:：]\s*([^<>\n]+)'
-            ]
-            for p in patterns:
-                match = re.search(p, str(soup), re.I)
-                if match:
-                    industry_text = match.group(1).strip()
-                    break
-            web_context += f"**Industry Sector:** {industry_text}\n"
-           
-            # 業務與營收
-            web_context += "**Business Overview & Revenue Sources:**\n"
-            business_text = ""
-            for elem in soup.find_all(['p', 'div', 'td', 'span']):
-                txt = elem.get_text(strip=True)
-                if len(txt) > 60 and any(kw in txt for kw in ['業務', '營收', '主要', '產品', '事業', 'revenue', '代工', '晶圓', '製造']):
-                    business_text += txt + " "
-            if business_text:
-                web_context += f"- {business_text[:1200]}...\n"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = requests.get(searxng_url, params=params, headers=headers, timeout=20)
+            if r.status_code != 200:
+                web_context = f"- 【警告】SearXNG 搜尋失敗（狀態碼 {r.status_code}），暫無外部情資\n"
             else:
-                web_context += "- 無詳細業務描述\n"
+                data = r.json()
+                results = data.get('results', [])
+                web_context = ""
+                if results:
+                    for res in results[:6]:
+                        title = res.get('title', '無標題')
+                        snippet = res.get('content', '')[:350] + '...' if res.get('content') else ''
+                        url = res.get('url', '')
+                        web_context += f"**Title:** {title}\n**Snippet:** {snippet}\n**URL:** {url}\n\n"
+                else:
+                    web_context = "- 暫無相關情資（搜尋無結果）\n"
            
-            # 新聞與影響
-            web_context += "**Recent News & Market Influences:**\n"
-            news_items = soup.find_all(['div', 'li'], class_=re.compile(r'(news|update|feed|Mb|Py|Mt|List)', re.I))[:5]
-            if news_items:
-                for item in news_items:
-                    title = item.get_text(strip=True)[:100]
-                    web_context += f"- {title}\n"
-            else:
-                web_context += "- 無新聞或影響資訊\n"
-           
-            # 供應鏈
-            web_context += "**Supply Chain Details:**\n"
-            supply_keywords = ['供應鏈', '供應商', '合作', '風險', '地緣', 'AI', '需求', '影響']
-            for kw in supply_keywords:
-                tag = soup.find(string=re.compile(kw, re.I))
-                if tag:
-                    parent = tag.find_parent(['div', 'p', 'span'])
-                    if parent:
-                        text = parent.get_text(strip=True)[:400]
-                        web_context += f"- {text}...\n"
-           
-            # Debug 顯示
-            st.caption("Debug: 抓取內容預覽（供檢查）")
+            # Debug 顯示搜尋內容
+            st.caption("Debug: SearXNG 搜尋結果預覽（供檢查）")
             st.text_area("web_context", web_context, height=300)
            
             # 流程 5 & 6: 綜合對撞
@@ -1202,4 +1152,5 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
