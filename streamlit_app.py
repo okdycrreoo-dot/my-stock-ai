@@ -990,14 +990,14 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
     import re
     import streamlit as st
-    from duckduckgo_search import DDGS  # 確保 requirements.txt 有這行
+    from duckduckgo_search import DDGS
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
+    # --- 流程 1: 實時穿透式正名 (不使用 requests-html) ---
     @st.cache_data(ttl=3600)
     def get_verified_info(code):
-        # 這裡維持你最穩定的 API 驗證邏輯
         targets = [
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, 4),
@@ -1013,92 +1013,78 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                         curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
                         if curr_id == code:
                             name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            ind = item[4] if isinstance(item, list) else item.get(ind_val, "未知")
+                            ind = item[4] if isinstance(item, list) else item.get(ind_val, "未知產業")
                             return {"name": name, "industry": ind}
             except: continue
-        return {"name": None, "industry": "未知"}
+        return {"name": None, "industry": "未知產業"}
 
-    # 執行自動分析
-    st.write(f"### 🎖️ AI 戰略委員會：全自動深度對撞")
-    
-    # Watchlist 20 隻限制提醒
+    st.write(f"### 🎖️ AI 戰略委員會：全自動背景對撞系統")
+
+    # --- 自定義指令：Watchlist 20 隻上限提醒 ---
     if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
-        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻，超過 20 隻上限。")
+        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻，超過 20 隻上限設定。")
 
-    if st.button(f"🚀 啟動 {pure_code} 背景流程分析", key=f"auto_ai_{pure_code}", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {pure_code} 背景流程分析", key=f"auto_v40_{pure_code}", type="primary", use_container_width=True):
         status = st.empty()
         info = get_verified_info(pure_code)
         
         if not info["name"]:
-            st.error("❌ 無法取得公司資訊，自動化終止。")
+            st.error(f"❌ 驗證失敗：代號 {pure_code} 無法於市場查獲。")
             return
 
-        status.info(f"🔍 正在後台檢索「{info['name']}」即時情資...")
+        status.info(f"🔍 正在後台檢索「{info['name']}」的即時產業情資...")
 
-        # --- 核心關鍵：自動背景搜尋 ---
+        # --- 流程 2 & 3: 背景自動搜尋 ---
         context_data = ""
         try:
             with DDGS() as ddgs:
-                # 關鍵搜尋詞優化：強迫搜尋「台股、產業別、營收」
-                search_query = f"台股 {pure_code} {info['name']} {info['industry']} 主要業務 營收結構 供應鏈"
-                results = list(ddgs.text(search_query, max_results=5))
-                for r in results:
-                    context_data += f"{r['body']}\n"
+                # 組合精確搜尋詞：排除雜訊
+                q = f'台股 "{info["name"]}" {pure_code} {info["industry"]} 營收結構 供應鏈 -披薩'
+                for r in ddgs.text(q, max_results=6):
+                    context_data += f"【情資】{r['body']}\n"
         except Exception as e:
-            context_data = "搜尋引擎暫時無法取得資料，將僅依據量化數據分析。"
+            context_data = "（後台搜尋暫時受限，將以官方產業定義為準）"
 
-        # --- 核心關鍵：嚴防 AI 腦補的 Prompt ---
+        # --- 流程 5 & 6: 綜合對撞 ---
+        status.info(f"⚖️ 執行量化指標與實時情資對撞...")
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
-        
-        prompt = f"""
-        你現在是『避險基金執行合夥人』。請針對「{info['name']}」({pure_code}) 進行專業診斷。
-        
-        【絕對事實 - 禁止修改】：
-        - 官方產業分類：{info['industry']}  <-- 這是絕對真理，嚴禁說它是披薩店或金融業。
-        
-        【參考背景資料】：
-        {context_data}
-        
-        【量化指標數據】：
-        {metrics_stream}
 
-        【分析準則】：
-        1. **身份檢查**：若背景資料提到的業務與官方分類「{info['industry']}」完全無關，請忽略該背景資料，僅以官方產業概況回答。
-        2. **禁止胡扯**：如果不知道它的供應鏈，就說「供應鏈資訊不透明」，不准編造。
+        prompt = f"""
+        你現在是『避險基金執行合夥人』。請針對 {info['name']} ({pure_code}) 產出專業報告。
+        
+        【核心限制】：
+        - 官方登記產業：{info['industry']}
+        - **嚴禁腦補**：若搜尋情資與官方產業無關，請忽略該情資。若資訊不足，請直說。
+        
+        【輸入情資】：
+        - 背景新聞：{context_data}
+        - 量化數據：{metrics_stream}
+
+        【報告要求】：分析業務與供應鏈、執行量化因子對撞、並給出明確實戰建議。
         """
 
-        # 發送給 Groq
         payload = {
             "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0 # 鎖死 AI 的想像力
+            "temperature": 0.0  # 設為 0 以保證事實準確度
         }
 
-        with st.spinner("對撞分析中..."):
+        try:
             res = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                                headers={"Authorization": f"Bearer {groq_key}"}, json=payload)
-            
+                                headers={"Authorization": f"Bearer {groq_key}"}, json=payload, timeout=40)
             if res.status_code == 200:
                 status.empty()
+                st.markdown(f"#### 🗨️ {info['name']} 診斷報告")
                 st.markdown(res.json()['choices'][0]['message']['content'])
                 st.success("✅ 背景作業完成。")
             else:
-                st.error("API 調用失敗。")
+                st.error("Groq API 暫時連線失敗。")
+        except:
+            st.error("分析過程超時，請重試。")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
 
 
