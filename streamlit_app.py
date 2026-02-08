@@ -990,6 +990,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
     import re
     import time
+    import datetime
     import streamlit as st
     from FinMind.data import DataLoader
 
@@ -1013,56 +1014,71 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         except: pass
         return {"name": f"代號 {code}", "industry": "未知產業"}
 
-    # --- 2. 強力重試機制：純 FinMind 情資抓取 ---
-    def fetch_finmind_intel_with_retry(code, max_retries=3):
-        import datetime
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+    # --- 2. 全維度數據抓取 (小台指/營收/法人/美股) ---
+    def fetch_full_dimension_intel(code, industry):
+        intel_packet = {}
+        today = datetime.datetime.now()
+        start_10 = (today - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+        start_30 = (today - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
         
-        for i in range(max_retries):
-            try:
-                # 模擬 Perplexity 的等待感，每次重試增加延遲
-                time.sleep(1.5 * (i + 1)) 
-                df_news = api.taiwan_stock_news(stock_id=code, start_date=start_date)
-                
-                if not df_news.empty:
-                    # 成功抓到資料，整理回傳
-                    news_list = df_news.tail(10)
-                    summary = "【FinMind 官方新聞庫】:\n"
-                    summary += "\n".join([f"- [{d}] {t}" for d, t in zip(news_list['date'], news_list['title'])])
-                    return summary
-            except:
-                continue # 失敗則進入下一次循環
-        
-        return None # 3 次都失敗才回傳 None
+        # A. 小台指 (MXF)
+        try:
+            df_mxf = api.taiwan_futures_daily(futures_id='MXF', start_date=start_10)
+            if not df_mxf.empty:
+                m = df_mxf.iloc[-1]
+                intel_packet['mxf'] = f"收盤 {m['close']}, 漲跌 {m['change_price']}"
+        except: intel_packet['mxf'] = "暫無資料"
 
-    st.write(f"### 🎖️ AI 戰略委員會：現況&指標對撞系統 ")
-    
-    if st.button(f"🚀 啟動 {pure_code} 深度分析流程", key=f"v100_{pure_code}", type="primary", use_container_width=True):
+        # B. 營收表現
+        try:
+            df_rev = api.taiwan_stock_month_revenue(stock_id=code, start_date=start_30)
+            if not df_rev.empty:
+                r = df_rev.iloc[-1]
+                intel_packet['rev'] = f"{r['revenue_year']}/{r['revenue_month']} 營收 {r['revenue']:,}, 年增率 {r['revenue_year_growth']}%"
+        except: intel_packet['rev'] = "暫無資料"
+
+        # C. 法人持股變化 (近3日累計)
+        try:
+            df_inst = api.taiwan_stock_institutional_investors(stock_id=code, start_date=start_10)
+            if not df_inst.empty:
+                net = df_inst.tail(3)['buy'].sum() - df_inst.tail(3)['sell'].sum()
+                intel_packet['inst'] = f"近3日法人合計買賣超: {net:,} 股"
+        except: intel_packet['inst'] = "暫無資料"
+
+        # D. 美股關聯定位
+        us_map = {
+            "半導體業": "SOX (費城半導體)", "電子零組件業": "Nasdaq 100", 
+            "航運業": "DJT (道瓊交通)", "電腦及週邊設備業": "Apple/NVDA"
+        }
+        intel_packet['us_target'] = us_map.get(industry, "S&P 500")
+
+        # E. 原有新聞重試機制 (3次重試)
+        news_data = None
+        for i in range(3):
+            try:
+                time.sleep(1)
+                df_news = api.taiwan_stock_news(stock_id=code, start_date=start_10)
+                if not df_news.empty:
+                    news_data = "\n".join([f"- {t}" for t in df_news.tail(8)['title']])
+                    break
+            except: continue
+        intel_packet['news'] = news_data if news_data else "資訊不足（無近期新聞）"
+        
+        return intel_packet
+
+    st.write(f"### 🎖️ AI 戰略委員會：全維度綜合分析系統")
+
+    if st.button(f"🚀 啟動 {pure_code} 深度對撞分析", key=f"v120_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
         
-        with st.status(f"📡 正在從 FinMind 獲取「{truth['name']}」情資...", expanded=True) as status:
-            st.write("🔄 正在確認官方產業分類...")
-            
-            # 執行重試邏輯
-            intel = None
-            for attempt in range(3):
-                st.write(f"🔍 正在嘗試提取實時新聞 (第 {attempt + 1} 次嘗試)...")
-                intel = fetch_finmind_intel_with_retry(pure_code, max_retries=1)
-                if intel:
-                    break
-                if attempt < 2:
-                    st.write("⏳ 暫無反饋，等待 3 秒後重試...")
-                    time.sleep(3)
-            
-            if not intel:
-                st.error("❌ 資訊不足：FinMind 伺服器目前未反饋相關新聞。")
-                status.update(label="❌ 流程終止：情資獲取失敗", state="error")
-                # 雖然新聞失敗，但我們還是可以讓 AI 基於量化指標做「純技術面分析」
-                intel = "（目前實時新聞資訊不足，請僅針對量化指標進行分析）"
-            else:
-                status.update(label="✅ 情資提取完畢，啟動 AI 對撞", state="complete")
+        with st.status(f"📡 正在調研「{truth['name']}」全維度數據...", expanded=True) as status:
+            st.write("📊 正在計算小台指與法人籌碼位階...")
+            full_intel = fetch_full_dimension_intel(pure_code, truth['industry'])
+            st.write(f"✅ 已獲取：小台/營收/法人/新聞")
+            st.write(f"🌍 匹配美股關聯指標：{full_intel['us_target']}")
+            status.update(label="數據全維度獲取完畢", state="complete")
 
-        # --- AI 決策分析 (強化具體結論) ---
+        # --- AI 決策分析 ---
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
         
@@ -1070,22 +1086,31 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         你現在是避險基金的首席策略官。請針對 {truth['name']} ({pure_code}) 產出極具實戰價值的對撞報告。
         官方產業：{truth['industry']}。
 
-        【實時新聞情資】：{intel}
-        【量化數據矩陣】：{metrics_stream}
+        【1. 市場宏觀環境】：
+        - 小台指 (MXF) 現狀：{full_intel['mxf']}
+        - 美股聯動標竿：{full_intel['us_target']}
+        
+        【2. 個股基本/籌碼/消息面】：
+        - 營收動能：{full_intel['rev']}
+        - 法人動態：{full_intel['inst']}
+        - 實時新聞：{full_intel['news']}
+
+        【3. 系統量化矩陣數據】：
+        {metrics_stream}
 
         請嚴格依照下列格式產出報告，不得含糊其辭：
 
         ### 📋 1. 業務與供應鏈診斷
-        (結合官方產業別與最新新聞，判斷目前公司營運核心)
+        (結合產業別與美股聯動標竿，判斷公司核心營運與全球地位)
 
-        ### ⚖️ 2. 量化與情資對撞
-        (指出數據表現與新聞利多/利空是否矛盾，並給出 Oracle 綜合評分 0-100)
+        ### ⚖️ 2. 全維度對撞分析
+        (對撞點：小台與個股、法人與技術指標、營收與股價位階之矛盾或同步)
 
-        ### 🎯 3. 明日實戰具體結論 (核心重點)
+        ### 🎯 3. 明日實戰具體結論
         * **行動評級**：【強力買進 / 分批佈局 / 觀望為宜 / 減碼停損】
-        * **預期目標價**：(請根據量化指標給出具體數字)
-        * **關鍵支撐/停損價**：(請根據量化指標給出具體數字)
-        * **操作邏輯**：(一句話說明為何下此決定)
+        * **預期目標價**：(給出具體數字)
+        * **關鍵支撐/停損價**：(給出具體數字)
+        * **操作邏輯**：(一句話總結大盤、籌碼與技術面的對撞結果)
         """
 
         with st.spinner("正在進行深度策略對撞..."):
@@ -1094,16 +1119,17 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                                 json={
                                     "model": "llama-3.3-70b-versatile",
                                     "messages": [{"role": "user", "content": prompt}],
-                                    "temperature": 0.2 # 稍微增加一點靈活性，讓它敢於預測價格
+                                    "temperature": 0.2
                                 })
             
             if res.status_code == 200:
                 st.markdown(res.json()['choices'][0]['message']['content'])
-                st.success("✅ 背景全自動對撞作業完成。")
+                st.success("✅ 全維度對撞分析完成。")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
