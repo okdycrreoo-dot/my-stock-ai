@@ -989,15 +989,17 @@ def chapter_5_ai_decision_report(row, pred_ws):
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
     import re
+    import time
     import streamlit as st
     from duckduckgo_search import DDGS
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # --- 1. 官方正名快取 (鎖定產業身份) ---
-    @st.cache_data(ttl=86400) # 快取 24 小時，避免重複請求
-    def get_verified_info(code):
+    # --- 1. 官方資料快取 (鎖定真理，防止 AI 腦補) ---
+    @st.cache_data(ttl=86400)
+    def get_official_truth(code):
+        # 這裡整合你原本最強的 TWSE/TPEx API 邏輯
         targets = [
             ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
             ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, 4),
@@ -1016,80 +1018,92 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                             ind = item[4] if isinstance(item, list) else item.get(ind_val, "未知產業")
                             return {"name": name, "industry": ind}
             except: continue
-        return {"name": None, "industry": "未知產業"}
+        return {"name": f"代號 {code}", "industry": "未知產業"}
 
-    # --- 2. 背景搜尋快取 (模擬人機協作的情資抓取) ---
-    @st.cache_data(ttl=3600) # 情資快取 1 小時
-    def get_background_context(name, code, industry):
-        context = ""
-        try:
-            with DDGS() as ddgs:
-                # 模擬 Perplexity 的提問邏輯，強制關鍵字組合
-                q = f'台股 "{name}" {code} {industry} "核心業務" "營收佔比" "供應鏈"'
-                results = list(ddgs.text(q, max_results=5))
-                for r in results:
-                    context += f"內容: {r['body']}\n"
-        except:
-            context = "搜尋暫時受限"
-        return context
-
-    # --- UI 邏輯 ---
-    st.write(f"### 🎖️ AI 戰略委員會：自動化背景對撞")
-
-    # 個人化限制：Watchlist 20 隻提醒
-    if 'watchlist' in st.session_state and len(st.session_state.watchlist) >= 20:
-        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
-
-    if st.button(f"🚀 啟動 {pure_code} 全自動診斷", key=f"auto_v5_{pure_code}", type="primary", use_container_width=True):
-        status = st.empty()
+    # --- 2. 模擬 Perplexity 的全量反饋 (關鍵：等待與驗證) ---
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def fetch_full_intel(name, code, industry):
+        full_text = ""
+        # 這裡是關鍵：我們分三次檢索，確保資料完整性
+        with DDGS() as ddgs:
+            queries = [
+                f'台灣股票 "{name}" {code} 主要業務 營收佔比',
+                f'台灣股票 "{name}" {code} 供應鏈 上下游 客戶',
+                f'"{name}" {code} 最近一個月重大新聞 展望'
+            ]
+            for q in queries:
+                try:
+                    results = list(ddgs.text(q, max_results=3))
+                    for r in results:
+                        full_text += f"{r['body']}\n"
+                    time.sleep(1.0) # 強制停頓，確保搜尋引擎有時間反饋全量資料
+                except: continue
         
-        # Step 1: 抓取正名 (帶快取)
-        info = get_verified_info(pure_code)
-        if not info["name"]:
-            st.error("無法辨識代碼。")
-            return
+        # 檢核機制：若長度不足，代表反饋失敗
+        if len(full_text) < 150:
+            return None
+        return full_text
+
+    st.write(f"### 🎖️ AI 戰略委員會：深度對撞系統 (V50 強化版)")
+   
+    if st.button(f"🚀 啟動 {pure_code} 完整深度分析", key=f"v50_run_{pure_code}", type="primary", use_container_width=True):
+        truth = get_official_truth(pure_code)
         
-        # Step 2: 背景自動抓取情資 (模擬貼上動作)
-        status.info(f"⏳ 正在背景模擬人機協作，檢索 {info['name']} 的業務結構...")
-        context = get_background_context(info["name"], pure_code, info["industry"])
-        
-        # Step 3: 指標對撞分析
-        status.info(f"⚖️ 正在將量化指標與背景情資進行深度對撞...")
+        # 步驟 A: 強制等待資料全量反饋
+        with st.status(f"📡 正在等待「{truth['name']}」資料全量反饋...", expanded=True) as status:
+            st.write("正在獲取官方定義與市場情資...")
+            intel = fetch_full_intel(truth['name'], pure_code, truth['industry'])
+            
+            if not intel:
+                status.update(label="❌ 外部資料反饋超時或不足，請重試", state="error")
+                return
+            
+            status.update(label="✅ 情資獲取完畢，開始執行量化對撞", state="complete")
+
+        # 步驟 B: 執行 Llama-3.3-70b 深度對撞
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
 
-        # 這裡就是關鍵：把「官方產業」設為不可撼動的 Truth
         prompt = f"""
-        【身份設定】：你現在是避險基金執行合夥人。
-        【官方絕對產業】：{info['industry']} (嚴禁更改此身份)
-        【背景檢索情資】：
-        {context}
-        【量化指標】：
-        {metrics_stream}
+        你現在是『避險基金執行合夥人』。針對 {truth['name']} ({pure_code}) 產出對撞報告。
 
-        【任務】：
-        1. 診斷 {info['name']} ({pure_code}) 的業務，必須符合「{info['industry']}」的範疇。
-        2. 如果背景情資提到其他行業（如披薩、金融），請判定為噪音並剔除。
-        3. 給出實戰建議。
+        【絕對真理 - 禁止挑戰】：
+        這家公司的官方產業分類是：{truth['industry']}。
+        如果情資中提到任何與 {truth['industry']} 無關的業務，請判定為「搜尋噪音」並剔除。
+
+        【輸入數據】：
+        1. 市場實時情資：{intel}
+        2. 系統量化指標：{metrics_stream}
+
+        【分析要求】：
+        - 診斷業務與供應鏈，嚴格遵守官方產業定義。
+        - 對撞分析：量化數據與情資是否吻合？
+        - 給出具體的建議、理由與明日操作策略。
         """
 
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0 # 鎖死，不准亂跳
-        }
-
-        res = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                            headers={"Authorization": f"Bearer {groq_key}"}, json=payload)
-        
-        if res.status_code == 200:
-            status.empty()
-            st.markdown(res.json()['choices'][0]['message']['content'])
-            st.success("✅ 全自動分析完畢（已啟用快取保護）")
+        with st.spinner("對撞分析中..."):
+            try:
+                res = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                                    headers={"Authorization": f"Bearer {groq_key}"}, 
+                                    json={
+                                        "model": "llama-3.3-70b-versatile",
+                                        "messages": [{"role": "user", "content": prompt}],
+                                        "temperature": 0.0
+                                    }, timeout=60)
+                
+                if res.status_code == 200:
+                    st.markdown(f"#### 🗨️ {truth['name']} 六大流程對撞診斷報告")
+                    st.markdown(res.json()['choices'][0]['message']['content'])
+                    st.success("✅ 分析完畢。")
+                else:
+                    st.error(f"API 錯誤：{res.status_code}")
+            except Exception as e:
+                st.error(f"分析超時：{str(e)}")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
