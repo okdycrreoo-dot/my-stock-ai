@@ -989,121 +989,94 @@ def chapter_5_ai_decision_report(row, pred_ws):
 def chapter_7_ai_committee_analysis(symbol, brain_row):
     import requests
     import re
-    import time
     import streamlit as st
-    from duckduckgo_search import DDGS
+    import pandas as pd
+    from FinMind.data import DataLoader
 
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
     
-    # 1. 官方 Truth 快取 (鎖定 24 小時，確保身份不再出錯)
+    # 建立 DataLoader (不傳 Token 即為免費模式)
+    api = DataLoader()
+    
+    # 1. 獲取官方 Truth (產業別)
     @st.cache_data(ttl=86400)
-    def get_official_truth(code):
-        targets = [
-            ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", "公司簡稱", "產業別"),
-            ("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_quotes_result.php?l=zh-tw", 0, 1, 4),
-            ("https://www.tpex.org.tw/web/emergingstock/lateststats/data/EMDailyQuotation.json", 0, 1, 4)
-        ]
-        for url, cid_key, name_key, ind_val in targets:
-            try:
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200:
-                    data = r.json()
-                    items = data.get('aaData', data) if isinstance(data, dict) else data
-                    for item in items:
-                        curr_id = str(item.get(cid_key) if isinstance(item, dict) else item[cid_key]).strip()
-                        if curr_id == code:
-                            name = (item.get(name_key) if isinstance(item, dict) else item[name_key]).strip()
-                            ind = item[4] if isinstance(item, list) else item.get(ind_val, "未知產業")
-                            return {"name": name, "industry": ind}
-            except: continue
+    def get_finmind_truth(code):
+        try:
+            df = api.taiwan_stock_info()
+            target = df[df['stock_id'] == code]
+            if not target.empty:
+                return {
+                    "name": target.iloc[0]['stock_name'],
+                    "industry": target.iloc[0]['industry_category']
+                }
+        except: pass
         return {"name": f"代號 {code}", "industry": "未知產業"}
 
-    # 2. 模擬 Perplexity 深度檢索 (增加同步等待機制)
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def fetch_full_intel_sync(name, code, industry):
-        full_text = ""
-        # 分三波深度檢索，模擬人機協作的精準度
-        with DDGS() as ddgs:
-            queries = [
-                f'台股 "{name}" {code} 核心業務 營收產品比重',
-                f'台股 "{name}" {code} 供應鏈 上下游 客戶關係',
-                f'"{name}" {code} 最新法說會 展望 重大新聞'
-            ]
-            for i, q in enumerate(queries):
-                try:
-                    # 每一波搜尋都預留 2-3 秒等待反饋
-                    results = list(ddgs.text(q, max_results=5))
-                    for r in results:
-                        full_text += f"【來源{i+1}】: {r['body']}\n"
-                    time.sleep(2.5) 
-                except: continue
+    # 2. 獲取 FinMind 實時新聞 (全自動，免手動貼上)
+    @st.cache_data(ttl=3600)
+    def get_finmind_news(code):
+        import datetime
+        start_date = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        try:
+            # 抓取最近 7 天的新聞，資料量更足
+            df_news = api.taiwan_stock_news(stock_id=code, start_date=start_date)
+            if not df_news.empty:
+                # 僅取最近 10 則，避免給 AI 太大的雜訊
+                latest_news = df_news.tail(10)
+                news_summary = "\n".join([f"[{d}] {t}" for d, t in zip(latest_news['date'], latest_news['title'])])
+                return news_summary
+        except: pass
+        return "暫時無法取得近期新聞，將依據量化指標與官方產業進行診斷。"
+
+    st.write(f"### 🎖️ AI 戰略委員會：FinMind 全自動對撞系統")
+
+    if st.button(f"🚀 啟動 {pure_code} 深度對撞分析", key=f"fm_v8_{pure_code}", type="primary", use_container_width=True):
+        truth = get_finmind_truth(pure_code)
         
-        # 門檻檢修：若內容長度不足 (例如低於 300 字)，判定為資料未完整，不予回傳
-        if len(full_text) < 300:
-            return None
-        return full_text
+        with st.status(f"📊 正在向 FinMind 提取「{truth['name']}」情資...", expanded=True) as status:
+            st.write(f"已確認產業分類：{truth['industry']}")
+            st.write("正在檢索相關財經新聞與公告...")
+            news_context = get_finmind_news(pure_code)
+            st.write("✅ 情資加載完畢，準備啟動大腦對撞。")
+            status.update(label="情資提取完畢", state="complete")
 
-    st.write(f"### 🎖️ AI 戰略委員會：深度對撞系統 ")
-
-    # [個人化設定] Watchlist 20 隻上限提醒
-    if 'watchlist' in st.session_state and len(st.session_state.watchlist) > 20:
-        st.warning(f"⚠️ 觀察清單已達 {len(st.session_state.watchlist)} 隻上限。")
-
-    if st.button(f"🚀 啟動 {pure_code} 完整深度分析", key=f"v50_sync_{pure_code}", type="primary", use_container_width=True):
-        truth = get_official_truth(pure_code)
-        
-        # 步驟 A: 強制同步等待（最多可等待 1 分鐘）
-        with st.status(f"📡 正在同步等待「{truth['name']}」全量資料反饋...", expanded=True) as status:
-            st.write("🔄 正在執行多維度深度檢索 (模擬 Perplexity 思考)...")
-            start_time = time.time()
-            intel = fetch_full_intel_sync(truth['name'], pure_code, truth['industry'])
-            
-            # 若資料不足，執行補救搜尋
-            if not intel:
-                st.write("⚠️ 第一波資料量不足，啟動二次深度掃描...")
-                time.sleep(3)
-                intel = fetch_full_intel_sync(truth['name'], pure_code, truth['industry'])
-            
-            if not intel:
-                status.update(label="❌ 外部情資反饋失敗，請檢查網路後重試", state="error")
-                return
-            
-            elapsed = round(time.time() - start_time, 1)
-            status.update(label=f"✅ 資料反饋完畢 (耗時 {elapsed}s)，啟動量化對撞", state="complete")
-
-        # 步驟 B: 高權重 Truth 優先分析
+        # --- Groq 深度分析 ---
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
-
+        
         prompt = f"""
-        【最高指令】：
-        你現在是避險基金執行合夥人。此公司的法定產業分類為：【{truth['industry']}】。
-        無論情資中提到什麼，严禁偏離此產業本質。若情資與官方分類衝突，請以官方為準並修正情資。
+        你現在是專業基金經理人。請針對 {truth['name']} ({pure_code}) 產出對撞診斷報告。
+        【官方真理】：此公司確屬「{truth['industry']}」產業，嚴禁誤判為其他行業。
+        
+        【輸入情資 - 財經新聞】：
+        {news_context}
+        
+        【輸入情資 - 量化指標群】：
+        {metrics_stream}
 
-        【分析對象】：{truth['name']} ({pure_code})
-        【實時反饋情資】：{intel}
-        【系統量化指標】：{metrics_stream}
-
-        請產出：1.業務與供應鏈診斷 2.量化與情資對撞分析 3.明日實戰結論。
+        【報告要求】：
+        1. 業務解析：結合官方產業別與最新新聞，說明該公司目前的核心營運重點。
+        2. 指標對撞：量化數據與近期新聞內容是否吻合？（例如：指標轉強，新聞是否也有利多？）
+        3. 實戰結論：給出明日具體的操作方向與理由。
         """
 
-        with st.spinner("對撞分析中..."):
+        with st.spinner("對撞中..."):
             res = requests.post("https://api.groq.com/openai/v1/chat/completions",
                                 headers={"Authorization": f"Bearer {groq_key}"},
                                 json={
                                     "model": "llama-3.3-70b-versatile",
                                     "messages": [{"role": "user", "content": prompt}],
                                     "temperature": 0.0
-                                }, timeout=60)
-            
+                                })
             if res.status_code == 200:
                 st.markdown(res.json()['choices'][0]['message']['content'])
-                st.success("✅ 背景作業與對撞分析成功完成。")
+                st.success("✅ 背景全自動作業完成。")
             
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
