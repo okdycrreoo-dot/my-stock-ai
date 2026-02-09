@@ -993,13 +993,11 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
     import datetime
     import streamlit as st
     from FinMind.data import DataLoader
-
     st.markdown("---")
     pure_code = re.sub(r'[^0-9]', '', symbol.split('.')[0])
-    
+   
     # 初始化 FinMind
     api = DataLoader()
-
     # --- 1. 官方 Truth 獲取 ---
     @st.cache_data(ttl=86400)
     def get_finmind_truth(code):
@@ -1013,14 +1011,13 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 }
         except: pass
         return {"name": f"代號 {code}", "industry": "未知產業"}
-
     # --- 2. 全維度數據快照抓取 ---
     def fetch_full_dimension_intel(code, industry):
         p = {}
         today = datetime.datetime.now()
         # 假日期間拉長範圍確保抓到最新交易日
         start_date = (today - datetime.timedelta(days=14)).strftime("%Y-%m-%d")
-        
+       
         # A. 小台指 (MXF) 最新收盤快照
         try:
             df_mxf = api.taiwan_futures_daily(futures_id='MXF', start_date=start_date)
@@ -1029,7 +1026,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 p['mxf'] = f"最新結算 {m['close']}, 漲跌 {m['change_price']}"
             else: p['mxf'] = "暫無最新交易資料"
         except: p['mxf'] = "小台指抓取失敗"
-
         # B. 營收表現 (最新月報)
         try:
             df_rev = api.taiwan_stock_month_revenue(stock_id=code, start_date=(today - datetime.timedelta(days=60)).strftime("%Y-%m-%d"))
@@ -1038,7 +1034,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 p['rev'] = f"{r['revenue_year']}/{r['revenue_month']} 營收 {r['revenue']:,}, 年增率 {r['revenue_year_growth']}%"
             else: p['rev'] = "營收未更新"
         except: p['rev'] = "營收抓取失敗"
-
         # C. 法人籌碼 (最新交易日累計)
         try:
             df_inst = api.taiwan_stock_institutional_investors(stock_id=code, start_date=start_date)
@@ -1049,16 +1044,14 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                 p['inst'] = f"最新交易日法人買賣超: {net:,} 股"
             else: p['inst'] = "籌碼資料未更新"
         except: p['inst'] = "法人數據抓取異常"
-
         # D. 美股關聯定位 (依產業自動錨定)
         us_map = {
-            "半導體業": "SOX (費城半導體指數)", 
-            "電子零組件業": "Nasdaq 100 指數", 
-            "航運業": "DJT (道瓊交通指數)", 
+            "半導體業": "SOX (費城半導體指數)",
+            "電子零組件業": "Nasdaq 100 指數",
+            "航運業": "DJT (道瓊交通指數)",
             "電腦及週邊設備業": "NVDA/Apple (美股科技龍頭)"
         }
         p['us_target'] = us_map.get(industry, "S&P 500 指數")
-
         # E. 新聞重試機制 (3次重試確保資料反饋)
         news_data = None
         for i in range(3):
@@ -1070,56 +1063,136 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                     break
             except: continue
         p['news'] = news_data if news_data else "資訊不足（目前無近期新聞）"
-        
+       
+        # F. 融資融券餘額變化
+        try:
+            df_margin = api.taiwan_stock_margin_purchase_short_sale(stock_id=code, start_date=start_date)
+            if not df_margin.empty:
+                m = df_margin.iloc[-1]
+                p['margin'] = f"最新融資餘額 {m['MarginPurchaseTodayBalance']:,}, 變化 {m['MarginPurchaseChange']:,}; 融券餘額 {m['ShortSaleTodayBalance']:,}, 變化 {m['ShortSaleChange']:,}"
+            else: p['margin'] = "暫無融資融券數據"
+        except: p['margin'] = "融資融券抓取失敗"
+       
+        # G. 股東持股分級
+        try:
+            df_shareholding = api.taiwan_stock_shareholding(stock_id=code, start_date=start_date)
+            if not df_shareholding.empty:
+                s = df_shareholding.iloc[-1]
+                p['shareholding'] = f"最新持股分級: 1-999張 {s['1-999']:,}; 1000-5000張 {s['1000-5000']:,}; 5001張以上 {s['5001-']:,}"
+            else: p['shareholding'] = "暫無股東持股分級數據"
+        except: p['shareholding'] = "股東持股分級抓取失敗"
+       
+        # H. 財務報表 (EPS, ROE 等)
+        try:
+            df_financial = api.taiwan_stock_financial_statement(stock_id=code, start_date=start_date)
+            if not df_financial.empty:
+                f = df_financial.iloc[-1]
+                p['financial'] = f"最新 EPS {f['EPS']:,}; ROE {f['ROE']:,}; 毛利率 {f['gross_margin']:,}%"
+            else: p['financial'] = "暫無財務報表數據"
+        except: p['financial'] = "財務報表抓取失敗"
+       
+        # I. 資產負債表
+        try:
+            df_balance = api.taiwan_stock_balance_sheet(stock_id=code, start_date=start_date)
+            if not df_balance.empty:
+                b = df_balance.iloc[-1]
+                p['balance'] = f"最新總資產 {b['total_assets']:,}; 負債比率 {b['liability_ratio']:,}%"
+            else: p['balance'] = "暫無資產負債表數據"
+        except: p['balance'] = "資產負債表抓取失敗"
+       
+        # J. 現金流量表
+        try:
+            df_cashflow = api.taiwan_stock_cash_flows_statement(stock_id=code, start_date=start_date)
+            if not df_cashflow.empty:
+                c = df_cashflow.iloc[-1]
+                p['cashflow'] = f"最新營運現金流 {c['operating_cash_flow']:,}; 投資現金流 {c['investing_cash_flow']:,}"
+            else: p['cashflow'] = "暫無現金流量表數據"
+        except: p['cashflow'] = "現金流量表抓取失敗"
+       
+        # K. 股利政策
+        try:
+            df_dividend = api.taiwan_stock_dividend(stock_id=code, start_date=start_date)
+            if not df_dividend.empty:
+                d = df_dividend.iloc[-1]
+                p['dividend'] = f"最新現金股利 {d['cash_dividend']:,}; 股票股利 {d['stock_dividend']:,}"
+            else: p['dividend'] = "暫無股利政策數據"
+        except: p['dividend'] = "股利政策抓取失敗"
+       
+        # L. 持股集中度
+        try:
+            df_holding = api.taiwan_stock_holding_shares_per(stock_id=code, start_date=start_date)
+            if not df_holding.empty:
+                h = df_holding.iloc[-1]
+                p['holding'] = f"最新持股集中度 {h['concentration']:,}%"
+            else: p['holding'] = "暫無持股集中度數據"
+        except: p['holding'] = "持股集中度抓取失敗"
+       
+        # M. PER/PBR
+        try:
+            df_per = api.taiwan_stock_per_pbr(stock_id=code, start_date=start_date)
+            if not df_per.empty:
+                per = df_per.iloc[-1]
+                p['per_pbr'] = f"最新 PER {per['PER']:,}; PBR {per['PBR']:,}"
+            else: p['per_pbr'] = "暫無 PER/PBR 數據"
+        except: p['per_pbr'] = "PER/PBR 抓取失敗"
+       
+        # N. 產業鏈資料
+        try:
+            df_chain = api.taiwan_stock_industry_chain(stock_id=code)
+            if not df_chain.empty:
+                p['chain'] = f"產業鏈: 上游 {df_chain['upstream'].values[0] if 'upstream' in df_chain.columns else '未知'}; 下游 {df_chain['downstream'].values[0] if 'downstream' in df_chain.columns else '未知'}"
+            else: p['chain'] = "暫無產業鏈數據"
+        except: p['chain'] = "產業鏈抓取失敗"
+       
         return p
-
     st.write(f"### 🎖️ AI 戰略委員會：全維度綜合分析系統 ")
-    
+   
     if st.button(f"🚀 啟動 {pure_code} 深度對撞分析", key=f"v131_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
-        
+       
         with st.status(f"📡 正在加載「{truth['name']}」全維度數據快照...", expanded=True) as status:
             st.write("📊 正在提取小台指、營收與法人籌碼數據...")
             full_intel = fetch_full_dimension_intel(pure_code, truth['industry'])
             st.write(f"✅ 數據同步完成 (來源: FinMind)")
             st.write(f"🌍 美股關聯目標：{full_intel.get('us_target')}")
             status.update(label="數據全維度加載完畢", state="complete")
-
         # --- AI 決策對撞 ---
         metrics_stream = " | ".join([str(x) for x in brain_row])
         groq_key = st.secrets.get("GROQ_API_KEY", "")
-        
+       
         prompt = f"""
         你現在是資深避險基金策略官。請針對 {truth['name']} ({pure_code}) 進行全維度對撞報告。
         官方產業：{truth['industry']}。
-
         【1. 市場宏觀與先行指標】：
         - 小台指 (MXF) 現狀：{full_intel.get('mxf', '獲取失敗')}
         - 美股聯動標竿：{full_intel.get('us_target', 'S&P 500')}
-        
+       
         【2. 個股基本/籌碼/消息面】：
         - 營收動能：{full_intel.get('rev', '暫無數據')}
         - 法人動態：{full_intel.get('inst', '暫無數據')}
         - 實時新聞：{full_intel.get('news', '資訊不足')}
-
+        - 融資融券變化：{full_intel.get('margin', '暫無數據')}
+        - 股東持股分級：{full_intel.get('shareholding', '暫無數據')}
+        - 財務指標 (EPS/ROE)：{full_intel.get('financial', '暫無數據')}
+        - 資產負債表：{full_intel.get('balance', '暫無數據')}
+        - 現金流量表：{full_intel.get('cashflow', '暫無數據')}
+        - 股利政策：{full_intel.get('dividend', '暫無數據')}
+        - 持股集中度：{full_intel.get('holding', '暫無數據')}
+        - PER/PBR：{full_intel.get('per_pbr', '暫無數據')}
+        - 產業鏈：{full_intel.get('chain', '暫無數據')}
         【3. 系統量化矩陣數據】：
         {metrics_stream}
-
         請嚴格依照下列格式產出報告，不得含糊其辭：
-
         ### 📋 1. 業務與供應鏈診斷
         (結合官方產業別與美股聯動標竿，判斷公司核心營運與全球地位)
-
         ### ⚖️ 2. 全維度對撞分析
         (對撞點：小台與個股、法人與技術指標、營收與股價位階之矛盾或同步)
-
         ### 🎯 3. 明日實戰具體結論
         * **行動評級**：【強力買進 / 分批佈局 / 觀望為宜 / 減碼停損】
         * **預期目標價**：(請根據量化指標給出具體數字)
         * **關鍵支撐/停損價**：(請根據量化指標給出具體數字)
         * **操作邏輯**：(一句話總結大盤情緒、籌碼變化與技術面的對撞結果)
         """
-
         with st.spinner("正在進行 AI 策略對撞分析..."):
             res = requests.post("https://api.groq.com/openai/v1/chat/completions",
                                 headers={"Authorization": f"Bearer {groq_key}"},
@@ -1128,7 +1201,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
                                     "messages": [{"role": "user", "content": prompt}],
                                     "temperature": 0.2
                                 })
-            
+           
             if res.status_code == 200:
                 st.markdown(res.json()['choices'][0]['message']['content'])
                 st.success("✅ 全維度對撞分析完成。")
@@ -1136,5 +1209,6 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
