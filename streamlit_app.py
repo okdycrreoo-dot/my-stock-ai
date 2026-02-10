@@ -308,7 +308,7 @@ def main():
                     strike_list = sorted(raw_list) 
                     
                     if strike_list:
-                        st.info(f"🎯 **Oracle 核心偵測 ({latest_date})：💎 絕佳擊球點！**\n\n`{'`, `'.join(strike_list)}`")
+                        st.info(f"🎯 **Oracle 核心指標分析結果 ({latest_date})：💎 絕佳擊球點！**\n\n`{'`, `'.join(strike_list)}`")
                     else:
                         st.caption(f"🔍 雷達掃描 ({latest_date})：目前尚未發現符合三位一體之目標。")
                 else:
@@ -1145,9 +1145,9 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         except: p['chain'] = "產業鏈抓取失敗"
        
         return p
-    st.write(f"### 🎖️ AI 戰略委員會：全維度綜合分析系統 ")
+    st.write(f"### 🎖️ AI 戰略委員會：驗證最新市況與Oracle 技術指標分析結果 ")
    
-    if st.button(f"🚀 啟動 {pure_code} 深度對撞分析", key=f"v131_{pure_code}", type="primary", use_container_width=True):
+    if st.button(f"🚀 啟動 {pure_code} 全維度對撞分析", key=f"v131_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
        
         with st.status(f"📡 正在加載「{truth['name']}」全維度數據快照...", expanded=True) as status:
@@ -1209,6 +1209,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
