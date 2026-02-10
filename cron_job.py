@@ -437,24 +437,30 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
 # =================================================================
 
 def run_daily_sync(target_symbol=None):
-    try:
-        FINMIN_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wMS0yNyAxNTo0NDo0MSIsInVzZXJfaWQiOiJrZCIsImVtYWlsIjoib2tkeWNycmVvb0BnbWFpbC5jb20iLCJpcCI6IjEzNi4yMjYuMjQxLjk2In0.JUMtA2-Y98F-AUMgRtIa11o56WmX1Yx6T40q5RgM4oE" # 貼上你的 Token
-        # --- [核心保護機制：23:00 - 14:30 大腦強制熔斷] ---
-        # 取得台北時間
-        tz = pytz.timezone('Asia/Taipei')
-        now_time = datetime.now(tz)
-        current_time = now_time.time()
-        
-        # 設定保護時間界限
-        start_lock = datetime.strptime("23:50", "%H:%M").time()
-        end_lock = datetime.strptime("14:00", "%H:%M").time()
-        
-        # 判斷是否處於保護期
-        if current_time >= start_lock or current_time <= end_lock:
-            print(f"🚫 【大腦絕對保護中】")
-            print(f"目前台北時間：{now_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print("保護期規則：每日 23:50 至隔日 14:00 期間，大腦拒絕任何分析、計算與寫入動作。")
-            return # 強制結束，不執行下方所有代碼
+        try:
+            FINMIN_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wMS0yNyAxNTo0NDo0MSIsInVzZXJfaWQiOiJrZCIsImVtYWlsIjoib2tkeWNycmVvb0BnbWFpbC5jb20iLCJpcCI6IjEzNi4yMjYuMjQxLjk2In0.JUMtA2-Y98F-AUMgRtIa11o56WmX1Yx6T40q5RgM4oE"
+            
+            # --- [核心保護機制：假日 & 離峰時間強制熔斷] ---
+            # 取得台北時間
+            tz = pytz.timezone('Asia/Taipei')
+            now_time = datetime.now(tz)
+            current_time = now_time.time()
+            current_weekday = now_time.weekday() # 0=週一, ..., 5=週六, 6=週日
+            
+            # 設定保護時間界限
+            start_lock = datetime.strptime("23:50", "%H:%M").time()
+            end_lock = datetime.strptime("14:00", "%H:%M").time()
+            
+            # 判斷是否處於保護期 (週六日 OR 指定鎖定時段)
+            is_weekend = current_weekday >= 5
+            is_lock_time = (current_time >= start_lock or current_time <= end_lock)
+
+            if is_weekend or is_lock_time:
+                status_msg = "🏠 週末休市中" if is_weekend else "🌙 非數據更新時段"
+                print(f"🚫 【大腦絕對保護中】原因：{status_msg}")
+                print(f"目前台北時間：{now_time.strftime('%Y-%m-%d %H:%M:%S')} (星期{current_weekday+1 if current_weekday < 6 else 7})")
+                print("保護期規則：週末全天，及每日 23:50 至隔日 14:00 期間不執行任何動作。")
+                return # 強制結束，不執行下方所有代碼
         # -----------------------------------------------
 
         # 只有在非保護期，大腦才會繼續往下執行
