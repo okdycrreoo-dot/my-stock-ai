@@ -1145,7 +1145,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
         except: p['chain'] = "產業鏈抓取失敗"
        
         return p
-    st.write(f"### 🎖️ AI 戰略委員會：驗證最新市況與Oracle 技術指標分析結果 ")
+    st.write(f"### 🎖️ AI 戰略委員會：用最新市況驗證Oracle 技術指標分析結果 ")
    
     if st.button(f"🚀 啟動 {pure_code} 全維度對撞分析", key=f"v131_{pure_code}", type="primary", use_container_width=True):
         truth = get_finmind_truth(pure_code)
@@ -1209,6 +1209,7 @@ def chapter_7_ai_committee_analysis(symbol, brain_row):
 # 確保程式啟動
 if __name__ == "__main__":
     main()
+
 
 
 
