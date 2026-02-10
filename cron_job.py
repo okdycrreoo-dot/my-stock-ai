@@ -437,14 +437,14 @@ def god_mode_engine(df, symbol, mkt_df, chip_score=0.0):
 # =================================================================
 
 def run_daily_sync(target_symbol=None):
-    try: # <--- 這是 try 的開始
+    try:
         FINMIN_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wMS0yNyAxNTo0NDo0MSIsInVzZXJfaWQiOiJrZCIsImVtYWlsIjoib2tkeWNycmVvb0BnbWFpbC5jb20iLCJpcCI6IjEzNi4yMjYuMjQxLjk2In0.JUMtA2-Y98F-AUMgRtIa11o56WmX1Yx6T40q5RgM4oE"
         
-        # --- [核心保護機制：假日 & 離峰時間強制熔斷] ---
+        # --- [1. 核心保護機制] ---
         tz = pytz.timezone('Asia/Taipei')
         now_time = datetime.now(tz)
         current_time = now_time.time()
-        current_weekday = now_time.weekday() # 0=週一, 5=週六, 6=週日
+        current_weekday = now_time.weekday()
         
         start_lock = datetime.strptime("23:50", "%H:%M").time()
         end_lock = datetime.strptime("14:00", "%H:%M").time()
@@ -456,25 +456,13 @@ def run_daily_sync(target_symbol=None):
             status_msg = "🏠 週末休市中" if is_weekend else "🌙 非數據更新時段"
             print(f"🚫 【大腦絕對保護中】原因：{status_msg}")
             print(f"目前台北時間：{now_time.strftime('%Y-%m-%d %H:%M:%S')} (星期{current_weekday+1})")
-            return # 這裡 return 是正確的，它會直接跳出函數，不會執行後面的寫入
+            return 
 
-        # --- [只有非保護期才會執行到這裡] ---
-        today_str = now_time.strftime('%Y-%m-%d')
-        # ... (中間其餘抓資料與寫入試算表的代碼保持不變) ...
-        # (請確保後面的程式碼縮排都比 try 多一格)
-        
-        # 這裡假設你的寫入邏輯已經結束...
-        print("🎉 同步作業完成。")
-
-    except Exception as e: # <--- 這裡必須跟上面的 try 對齊
-        print(f"💥 全域同步系統崩潰: {e}")
-        # -----------------------------------------------
-
-        # 只有在非保護期，大腦才會繼續往下執行
+        # --- [2. 正常執行區：只有通過保護檢查才會到這裡] ---
         today_str = now_time.strftime('%Y-%m-%d')
         is_urgent = bool(target_symbol)
 
-        # 開始連線 (這之後才會動到 Google Sheets)
+        # 這裡開始才是真正的資料處理與寫入
         client = init_gspread()
         spreadsheet = client.open("users")
         ws_predict = spreadsheet.worksheet("predictions")
